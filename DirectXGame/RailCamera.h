@@ -27,6 +27,9 @@ public:
 
 	const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; }
 
+	KamataEngine::Matrix4x4 MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle);
+	KamataEngine::Matrix4x4 MakeIdentityMatrix();
+
 private:
 
 	KamataEngine::WorldTransform worldtransfrom_;
