@@ -63,7 +63,6 @@ void GameScene::Initialize() {
 	// オーディオファイルのロード
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
 
-
 }
 
 void GameScene::Update() {
