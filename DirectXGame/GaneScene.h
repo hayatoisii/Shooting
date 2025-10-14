@@ -1,16 +1,15 @@
 #pragma once
-#include "KamataEngine.h" 
-#include "Player.h"
-#include "Enemy.h"
 #include "AABB.h"
-#include "Skydome.h"
+#include "Enemy.h"
+#include "KamataEngine.h"
+#include "Player.h"
 #include "RailCamera.h"
+#include "Skydome.h"
 #include <sstream>
 using namespace KamataEngine;
 
 class GameScene {
-public: 
-
+public:
 	GameScene();
 	~GameScene();
 
@@ -36,31 +35,30 @@ public:
 	bool timerflag = true;
 
 private:
-
 	DirectXCommon* dxCommon_ = nullptr;
 	Input* input_ = nullptr;
 	Audio* audio_ = nullptr;
 
 	Player* player_ = nullptr;
-	//Enemy* enemy_ = nullptr;
+	// Enemy* enemy_ = nullptr;
 	Skydome* skydome_ = nullptr;
 	Model* modelSkydome_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
 
-	//Vector3 playerPos = {};
-	//Vector3 enemyPos = {0, 3, 100};
+	// Vector3 playerPos = {};
+	// Vector3 enemyPos = {0, 3, 100};
 	Vector3 RailCamerPos = {0, 0, 0};
 	Vector3 RailCamerRad = {0, 0, 0};
 
 	Model* modelPlayer_ = nullptr;
 	Model* modelEnemy_ = nullptr;
 
-	//std::vector<std::vector<WorldTransform*>> worldTransformBlocks_;
+	// std::vector<std::vector<WorldTransform*>> worldTransformBlocks_;
 	WorldTransform worldTransform_;
 	Camera camera_;
 
-	Vector3 railcameraPos = {0,0,0};
-	Vector3 railcameraRad = {0,0,0};
+	Vector3 railcameraPos = {0, 0, 0};
+	Vector3 railcameraRad = {0, 0, 0};
 
 	// 敵弾リストを追加
 	std::list<EnemyBullet*> enemyBullets_;
@@ -81,16 +79,26 @@ private:
 	WorldTransform worldTransformTitleObject_;
 
 	// シーンの状態を管理する列挙型
-	enum class SceneState { Start, Game, Clear, over };
+	enum class SceneState { Start, TransitionToGame, TransitionFromGame, Game, Clear, over };
 
 	// 現在のシーンの状態を管理する変数
 	SceneState sceneState = SceneState::Start;
 
-		// オーディオ関連のメンバ変数
+	// 遷移用のスプライトとタイマー
+	Sprite* transitionSprite_ = nullptr;
+	uint32_t transitionTextureHandle_ = 0;
+	float transitionTimer_ = 0.0f;
+	// 遷移にかかる時間（フレーム数）
+	const float kTransitionTime = 30.0f;
+
+	// オーディオ関連のメンバ変数
 	int hitSoundHandle_ = 0;
 	int hitSound_ = -1;
 
-
-
 	Vector3 playerPos = {0, 0, 30};
+
+		// ▼▼▼ ここから追加 ▼▼▼
+	int32_t gameSceneTimer_ = 0;         // ゲームシーンの時間を計測するタイマー
+	const int32_t kGameTimeLimit_ = 120; // 制限時間（2秒 * 60fps = 120フレーム）
+	                                     // ▲▲▲ ここまで追加 ▲▲▲
 };

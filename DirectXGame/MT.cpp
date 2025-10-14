@@ -1,4 +1,5 @@
 #include "MT.h"
+#include <random>
 
 Matrix4x4 MakeRotateXMatrix(float radian) {
 	Matrix4x4 result = {};
@@ -248,4 +249,22 @@ Matrix4x4 Inverse(const Matrix4x4& m) {
 	              m.m[0][0] * m.m[1][2] * m.m[2][1]);
 
 	return m2;
+}
+
+int MT::GetRand(int max) {
+	// 乱数生成器（メルセンヌ・ツイスター）
+	// staticを付けて、関数が呼ばれるたびに初期化されないようにする
+	static std::random_device rd;
+	static std::mt19937 gen(rd());
+
+	// 0からmaxまでの整数を一様に分布させる
+	std::uniform_int_distribution<> distrib(0, max);
+
+	return distrib(gen);
+}
+
+// 0からRAND_MAXまでのランダムな整数を返す
+int MT::GetRand() {
+	// 上の関数を呼び出す
+	return GetRand(RAND_MAX);
 }

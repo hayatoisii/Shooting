@@ -42,7 +42,7 @@ void Enemy::Fire() {
 			KamataEngine::Vector3 moveBullet = worldtransfrom_.translation_;
 
 			// 弾の速度
-			const float kBulletSpeed = -15.0f;
+			const float kBulletSpeed = -0.0f;
 
 			KamataEngine::Vector3 velocity(0, 0, 0);
 
@@ -100,5 +100,5 @@ void Enemy::Update() {
 
 void Enemy::Draw(const KamataEngine::Camera& camera) {
 
-		model_->Draw(worldtransfrom_, camera);
+	model_->Draw(worldtransfrom_, camera);
 }

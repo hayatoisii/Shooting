@@ -112,6 +112,8 @@
     <ClCompile Include="GaneScene.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="MT.cpp" />
+    <ClCompile Include="Particle.cpp" />
+    <ClCompile Include="ParticleEmitter.cpp" />
     <ClCompile Include="Player.cpp" />
     <ClCompile Include="PlayerBullet.cpp" />
     <ClCompile Include="RailCamera.cpp" />
@@ -199,6 +201,8 @@
     <ClInclude Include="EnemyBullet.h" />
     <ClInclude Include="GaneScene.h" />
     <ClInclude Include="MT.h" />
+    <ClInclude Include="Particle.h" />
+    <ClInclude Include="ParticleEmitter.h" />
     <ClInclude Include="Player.h" />
     <ClInclude Include="PlayerBullet.h" />
     <ClInclude Include="RailCamera.h" />

@@ -5,6 +5,7 @@
 #include <3d/Camera.h>
 #include "AABB.h"
 #include "MT.h"
+#include "ParticleEmitter.h"
 #include <KamataEngine.h>
 
 namespace KamataEngine { class Input; };
@@ -36,6 +37,8 @@ public:
 	void SetParent(const WorldTransform* parent);
 	void SetRailCamera(RailCamera* camera);
 
+	void ResetRotation();
+
 private:
 	
 	KamataEngine::WorldTransform worldtransfrom_;
@@ -64,4 +67,6 @@ private:
 	// 最初の発射までのtimer
 	float specialTimer = 10.0f;
 
+	KamataEngine::Model* modelParticle_ = nullptr; // パーティクル用のモデル
+	ParticleEmitter* engineExhaust_ = nullptr;     // 排気ガス用のパーティクルエミッタ
 };

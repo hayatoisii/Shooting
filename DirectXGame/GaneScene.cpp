@@ -1,6 +1,6 @@
 #include "GaneScene.h"
-#include <cassert>
 #include "3d/AxisIndicator.h"
+#include <cassert>
 #include <fstream>
 
 GameScene::GameScene() {}
@@ -13,6 +13,7 @@ GameScene::~GameScene() {
 	delete player_;
 	delete skydome_;
 	delete railCamera_;
+	delete transitionSprite_;
 
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
@@ -36,6 +37,16 @@ void GameScene::Initialize() {
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
 
+	transitionTextureHandle_ = KamataEngine::TextureManager::Load("black.png");
+	transitionSprite_ = Sprite::Create(transitionTextureHandle_, {0, 0});
+
+	Vector2 screenCenter = {WinApp::kWindowWidth / 2.0f, WinApp::kWindowHeight / 2.0f};
+	transitionSprite_->SetPosition(screenCenter);
+	// アンカーポイントを中心に設定して、中心から拡大・縮小するようにする
+	transitionSprite_->SetAnchorPoint({0.5f, 0.5f});
+	// 初期サイズを0に設定
+	transitionSprite_->SetSize({0.0f, 0.0f});
+
 	// ビュープロジェクションの初期化
 	// camera_.farZ = 1500.0f;
 
@@ -50,7 +61,7 @@ void GameScene::Initialize() {
 	// 軸方向表示の表示を有効にする
 	KamataEngine::AxisIndicator::GetInstance()->SetVisible(true);
 	// 軸方向表示が参照するビュープロジェクションを指定する（アドレス渡し）
-	//KamataEngine::AxisIndicator::GetInstance()->SetTargetCamera(&camera_);
+	// KamataEngine::AxisIndicator::GetInstance()->SetTargetCamera(&camera_);
 
 	// Camera
 	railCamera_ = new RailCamera();
@@ -62,15 +73,21 @@ void GameScene::Initialize() {
 
 	// オーディオファイルのロード
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
-
 }
 
 void GameScene::Update() {
+
+	if (input_->TriggerKey(DIK_R)) {
+		railCamera_->Reset();
+		player_->ResetRotation();
+	}
+
 	switch (sceneState) {
 	case SceneState::Start: {
 		// スタートシーンの更新処理
 		if (input_->TriggerKey(DIK_SPACE)) {
-			sceneState = SceneState::Game;
+			sceneState = SceneState::TransitionToGame;
+			transitionTimer_ = 0.0f; // タイマーリセット
 		}
 
 		titleAnimationTimer_++;
@@ -88,6 +105,73 @@ void GameScene::Update() {
 		}
 
 		worldTransformTitleObject_.UpdateMatrix();
+
+		break;
+	}
+	case SceneState::TransitionToGame: {
+		// タイマーを進める
+		transitionTimer_++;
+
+		// 画面の対角線の長さを計算し、円が画面を完全に覆うための最大スケールを求める
+		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
+
+		// 進捗率を計算 (0.0f -> 1.0f)
+		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
+
+		// イージングをかけて滑らかに拡大
+		float easedProgress = 1.0f - cosf(progress * 3.14159265f / 2.0f);
+		float scale = easedProgress * maxScale;
+		transitionSprite_->SetSize({scale, scale});
+
+		// アニメーションが終わったら次の遷移状態へ
+		if (transitionTimer_ >= kTransitionTime) {
+			sceneState = SceneState::TransitionFromGame;
+			transitionTimer_ = 0.0f; // タイマーリセット
+		}
+
+		break;
+	}
+	case SceneState::TransitionFromGame: {
+		// タイマーを進める
+		transitionTimer_++;
+
+		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
+
+		// 進捗率を計算 (0.0f -> 1.0f)
+		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
+
+		// イージングをかけて滑らかに縮小
+		float easedProgress = sinf(progress * 3.14159265f / 2.0f);
+		float scale = (1.0f - easedProgress) * maxScale;
+		transitionSprite_->SetSize({scale, scale});
+
+		// アニメーションが終わったらゲームシーンへ
+		if (transitionTimer_ >= kTransitionTime) {
+			sceneState = SceneState::Game;
+		}
+
+		// ★重要：遷移中もゲーム本体の更新処理を動かす
+		// これをしないと、遷移が終わった瞬間にオブジェクトがワープしたように見える
+		player_->Update();
+		railCamera_->Update();
+		camera_.matView = railCamera_->GetViewProjection().matView;
+		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
+		camera_.TransferMatrix();
+		UpdateEnemyPopCommands();
+		for (Enemy* enemy : enemies_) {
+			enemy->Update();
+		}
+		for (EnemyBullet* bullet : enemyBullets_) {
+			bullet->Update();
+		}
+		enemyBullets_.remove_if([](EnemyBullet* bullet) {
+			if (bullet->IsDead()) {
+				delete bullet;
+				return true;
+			}
+			return false;
+		});
+		CheckAllCollisions();
 
 		break;
 	}
@@ -134,7 +218,6 @@ void GameScene::Update() {
 	}
 }
 
-
 void GameScene::Draw() {
 
 	// コマンドリストの取得
@@ -143,53 +226,48 @@ void GameScene::Draw() {
 #pragma region 背景スプライト描画
 	// 背景スプライト描画前処理
 	Sprite::PreDraw(commandList);
-	switch (sceneState) {
-	case SceneState::Start:
-		break;
-	case SceneState::Game:
-		break;
-	case SceneState::Clear:
-		break;
-	case SceneState::over:
-		break;
-	}
+	// ここでは背景スプライトは描画しない
 	Sprite::PostDraw();
 	dxCommon_->ClearDepthBuffer();
+#pragma endregion
+
+#pragma region 3Dオブジェクト描画
 	KamataEngine::Model::PreDraw(commandList);
 
-	switch (sceneState) {
-	case SceneState::Start:
+	// 遷移状態に応じて描画する3Dオブジェクトを決定
+	if (sceneState == SceneState::Start || sceneState == SceneState::TransitionToGame) {
+		// タイトルシーンの描画
 		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
-		break;
-	case SceneState::Game:
-		// ゲームシーンの描画処理
+	} else if (sceneState == SceneState::Game || sceneState == SceneState::TransitionFromGame || sceneState == SceneState::over) {
+		// ゲームシーンの描画
 		player_->Draw();
-
 		for (Enemy* enemy : enemies_) {
 			enemy->Draw(camera_);
 		}
-
 		skydome_->Draw();
 		for (EnemyBullet* bullet : enemyBullets_) {
 			bullet->Draw(camera_);
 		}
-		break;
-	case SceneState::Clear:
-		// クリアシーンの描画処理
-		break;
-	case SceneState::over:
-		// クリアシーンの描画処理
-		break;
+	} else if (sceneState == SceneState::Clear) {
+		// クリアシーンの描画
 	}
 
 	KamataEngine::Model::PostDraw();
+#pragma endregion
+
+#pragma region 前景スプライト描画
 	Sprite::PreDraw(commandList);
+
+	// 遷移スプライトの描画 (常に手前に表示する)
+	if (sceneState == SceneState::TransitionToGame || sceneState == SceneState::TransitionFromGame) {
+		transitionSprite_->Draw();
+	}
+
 	Sprite::PostDraw();
+#pragma endregion
 }
 
-void GameScene::AddEnemyBullet(EnemyBullet* bullet) { 
-	enemyBullets_.push_back(bullet);
-}
+void GameScene::AddEnemyBullet(EnemyBullet* bullet) { enemyBullets_.push_back(bullet); }
 
 void GameScene::EnemySpawn(const Vector3& position) {
 
@@ -224,7 +302,7 @@ void GameScene::UpdateEnemyPopCommands() {
 	if (timerflag) {
 		timer--;
 		if (timer <= 0) {
-		// 待機完了
+			// 待機完了
 			timerflag = false;
 		}
 		return;
@@ -245,10 +323,10 @@ void GameScene::UpdateEnemyPopCommands() {
 
 		// "//"から始まる行はコメント
 		if (word.find("//") == 0) {
-		   // コメント行を飛ばす
+			// コメント行を飛ばす
 			continue;
 		}
-	
+
 		if (word.find("POP") == 0) {
 
 			// x座標
@@ -266,7 +344,7 @@ void GameScene::UpdateEnemyPopCommands() {
 			// 敵を発生させる
 			EnemySpawn(Vector3(x, y, z));
 
-		// WAITコマンド
+			// WAITコマンド
 		} else if (word.find("WAIT") == 0) {
 			getline(line_stream, word, ',');
 
@@ -293,8 +371,7 @@ void GameScene::CheckAllCollisions() {
 	// 自弾
 	const std::list<PlayerBullet*>& playerBullets = player_->GetBullets();
 
-
-		#pragma region 自キャラと敵弾の当たり判定
+#pragma region 自キャラと敵弾の当たり判定
 
 	// 自キャラの座標
 	posA[0] = player_->GetWorldPosition();
@@ -320,7 +397,6 @@ void GameScene::CheckAllCollisions() {
 	}
 
 #pragma endregion
-
 
 #pragma region 自弾と敵キャラの当たり判定
 
@@ -353,7 +429,6 @@ void GameScene::CheckAllCollisions() {
 #pragma endregion
 
 	// 削除する敵を一時的に保存するリスト
-
 }
 
 void GameScene::TransitionToClearScene() {
