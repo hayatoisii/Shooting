@@ -16,46 +16,70 @@
     <Filter Include="シェーダー ファイル">
       <UniqueIdentifier>{718c7f4c-fc51-40ad-a221-b9456a7a1a3c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="GameProgram">
+      <UniqueIdentifier>{7c72c28a-3cb2-4fae-bd93-a2afc510d307}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="GameProgram\Player">
+      <UniqueIdentifier>{41fa3a9b-f1db-42bf-85fb-db268d0480d8}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="GameProgram\scene">
+      <UniqueIdentifier>{25a00cd6-f4c1-40d4-9bc5-a19b7bf16bd7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="GameProgram\Enemy">
+      <UniqueIdentifier>{bc04232e-a3bd-4d89-8885-0849fb781dba}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="GameProgram\Particle">
+      <UniqueIdentifier>{a57c9928-9408-4b48-a412-061fb7274fa0}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="GameProgram\RailCamera">
+      <UniqueIdentifier>{710646d4-01b2-462f-bbe1-bdb6b99bb223}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="GameProgram\Syydome">
+      <UniqueIdentifier>{1c2510fe-9aee-40f9-b92f-22a45286b407}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="GameProgram\MT">
+      <UniqueIdentifier>{db4ee439-b805-497f-81a9-821045f36fcc}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
       <Filter>ソース ファイル</Filter>
     </ClCompile>
     <ClCompile Include="Player.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>GameProgram\Player</Filter>
     </ClCompile>
     <ClCompile Include="GaneScene.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="MT.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="worldTransformEx.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="PlayerBullet.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>GameProgram\scene</Filter>
     </ClCompile>
     <ClCompile Include="Enemy.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>GameProgram\Enemy</Filter>
     </ClCompile>
     <ClCompile Include="EnemyBullet.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="AABB.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="RailCamera.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="Skydome.cpp">
-      <Filter>ソース ファイル</Filter>
-    </ClCompile>
-    <ClCompile Include="Particle.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>GameProgram\Enemy</Filter>
     </ClCompile>
     <ClCompile Include="ParticleEmitter.cpp">
-      <Filter>ソース ファイル</Filter>
+      <Filter>GameProgram\Particle</Filter>
+    </ClCompile>
+    <ClCompile Include="Particle.cpp">
+      <Filter>GameProgram\Particle</Filter>
+    </ClCompile>
+    <ClCompile Include="PlayerBullet.cpp">
+      <Filter>GameProgram\Player</Filter>
+    </ClCompile>
+    <ClCompile Include="RailCamera.cpp">
+      <Filter>GameProgram\RailCamera</Filter>
+    </ClCompile>
+    <ClCompile Include="Skydome.cpp">
+      <Filter>GameProgram\Syydome</Filter>
+    </ClCompile>
+    <ClCompile Include="MT.cpp">
+      <Filter>GameProgram\MT</Filter>
+    </ClCompile>
+    <ClCompile Include="worldTransformEx.cpp">
+      <Filter>GameProgram\MT</Filter>
+    </ClCompile>
+    <ClCompile Include="AABB.cpp">
+      <Filter>GameProgram\MT</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -109,40 +133,40 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Player.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>GameProgram\Player</Filter>
     </ClInclude>
     <ClInclude Include="GaneScene.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="MT.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="worldTransformEx.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="PlayerBullet.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>GameProgram\scene</Filter>
     </ClInclude>
     <ClInclude Include="Enemy.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>GameProgram\Enemy</Filter>
     </ClInclude>
     <ClInclude Include="EnemyBullet.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="AABB.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="RailCamera.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="Skydome.h">
-      <Filter>ヘッダー ファイル</Filter>
-    </ClInclude>
-    <ClInclude Include="Particle.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>GameProgram\Enemy</Filter>
     </ClInclude>
     <ClInclude Include="ParticleEmitter.h">
-      <Filter>ヘッダー ファイル</Filter>
+      <Filter>GameProgram\Particle</Filter>
+    </ClInclude>
+    <ClInclude Include="Particle.h">
+      <Filter>GameProgram\Particle</Filter>
+    </ClInclude>
+    <ClInclude Include="PlayerBullet.h">
+      <Filter>GameProgram\Player</Filter>
+    </ClInclude>
+    <ClInclude Include="RailCamera.h">
+      <Filter>GameProgram\RailCamera</Filter>
+    </ClInclude>
+    <ClInclude Include="Skydome.h">
+      <Filter>GameProgram\Syydome</Filter>
+    </ClInclude>
+    <ClInclude Include="MT.h">
+      <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="worldTransformEx.h">
+      <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="AABB.h">
+      <Filter>GameProgram\MT</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
