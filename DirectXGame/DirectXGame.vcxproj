@@ -63,7 +63,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;_DEBUG;USE_IMGUI;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>"C:\Users\k023g\Desktop\Shooting\DirectXGame\GameProgram"$(ProjectDir)$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -86,7 +86,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>"C:\Users\k023g\Desktop\Shooting\DirectXGame\GameProgram"$(ProjectDir)$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>MinSpace</Optimization>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -106,19 +106,19 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="AABB.cpp" />
-    <ClCompile Include="Enemy.cpp" />
-    <ClCompile Include="EnemyBullet.cpp" />
-    <ClCompile Include="GaneScene.cpp" />
+    <ClCompile Include="GameProgram\MT\AABB.cpp" />
+    <ClCompile Include="GameProgram\Enemy\Enemy.cpp" />
+    <ClCompile Include="GameProgram\Enemy\EnemyBullet.cpp" />
+    <ClCompile Include="GameProgram\scene\GaneScene.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="MT.cpp" />
-    <ClCompile Include="Particle.cpp" />
-    <ClCompile Include="ParticleEmitter.cpp" />
-    <ClCompile Include="Player.cpp" />
-    <ClCompile Include="PlayerBullet.cpp" />
-    <ClCompile Include="RailCamera.cpp" />
-    <ClCompile Include="Skydome.cpp" />
-    <ClCompile Include="worldTransformEx.cpp" />
+    <ClCompile Include="GameProgram\MT\MT.cpp" />
+    <ClCompile Include="GameProgram\Particle\Particle.cpp" />
+    <ClCompile Include="GameProgram\Particle\ParticleEmitter.cpp" />
+    <ClCompile Include="GameProgram\Player\Player.cpp" />
+    <ClCompile Include="GameProgram\Player\PlayerBullet.cpp" />
+    <ClCompile Include="GameProgram\RaikCamera\RailCamera.cpp" />
+    <ClCompile Include="GameProgram\skydome\Skydome.cpp" />
+    <ClCompile Include="GameProgram\MT\worldTransformEx.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\TerrainPS.hlsl">
@@ -196,18 +196,18 @@
     <None Include="Resources\shaders\Sprite.hlsli" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="AABB.h" />
-    <ClInclude Include="Enemy.h" />
-    <ClInclude Include="EnemyBullet.h" />
-    <ClInclude Include="GaneScene.h" />
-    <ClInclude Include="MT.h" />
-    <ClInclude Include="Particle.h" />
-    <ClInclude Include="ParticleEmitter.h" />
-    <ClInclude Include="Player.h" />
-    <ClInclude Include="PlayerBullet.h" />
-    <ClInclude Include="RailCamera.h" />
-    <ClInclude Include="Skydome.h" />
-    <ClInclude Include="worldTransformEx.h" />
+    <ClInclude Include="GameProgram\MT\AABB.h" />
+    <ClInclude Include="GameProgram\Enemy\Enemy.h" />
+    <ClInclude Include="GameProgram\Enemy\EnemyBullet.h" />
+    <ClInclude Include="GameProgram\scene\GaneScene.h" />
+    <ClInclude Include="GameProgram\MT\MT.h" />
+    <ClInclude Include="GameProgram\Particle\Particle.h" />
+    <ClInclude Include="GameProgram\Particle\ParticleEmitter.h" />
+    <ClInclude Include="GameProgram\Player\Player.h" />
+    <ClInclude Include="GameProgram\Player\PlayerBullet.h" />
+    <ClInclude Include="GameProgram\RaikCamera\RailCamera.h" />
+    <ClInclude Include="GameProgram\skydome\Skydome.h" />
+    <ClInclude Include="GameProgram\MT\worldTransformEx.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
