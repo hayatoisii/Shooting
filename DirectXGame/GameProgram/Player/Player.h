@@ -22,6 +22,7 @@ public:
 	void Attack();
 	// 衝突を検出したら呼び出されるコールバック関数
 	void OnCollision();
+	void StartRotationReset();
 
 	KamataEngine::Vector3 GetWorldPosition(); 
 
@@ -70,6 +71,8 @@ private:
 
 	// 最初の発射までのtimer
 	float specialTimer = 10.0f;
+
+	bool isResettingRotation_ = false;
 
 	KamataEngine::Model* modelParticle_ = nullptr; // パーティクル用のモデル
 	ParticleEmitter* engineExhaust_ = nullptr;     // 排気ガス用のパーティクルエミッタ

@@ -103,6 +103,9 @@ private:
 	Vector3 playerIntroStartPosition_;       // イントロ開始時のプレイヤー座標
 	Vector3 playerIntroTargetPosition_;      // イントロ終了時（＝ゲーム開始時）のプレイヤー座標
 
+	Sprite* reticleSprite_ = nullptr;
+	uint32_t reticleTextureHandle_ = 0;
+
 	float DistanceSquared(const Vector3& v1, const Vector3& v2);
 
 	int32_t gameSceneTimer_ = 0;         

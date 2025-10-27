@@ -1,6 +1,7 @@
 #include "Player.h"
 #include "Enemy.h"
 #include <algorithm>
+#include "RailCamera.h"
 #include <cassert>
 
 Player::~Player() {
@@ -33,11 +34,47 @@ void Player::Attack() {
 	specialTimer--;
 	if (specialTimer < 0) {
 		if (input_->TriggerKey(DIK_SPACE)) {
-			assert(enemy_);
+			// assert(enemy_); // (敵がいない時でも弾を撃てるように、これはコメントアウトしても良いかもしれません)
+
+			// ★ railCamera_ が無いと計算できないので、アサート（チェック）を追加
+			assert(railCamera_);
+
+			// 1. 弾の発射位置 (プレイヤーのワールド座標)
 			KamataEngine::Vector3 moveBullet = GetWorldPosition();
-			const float kBulletSpeed = 9.0f;
-			KamataEngine::Vector3 velocity(0, 0, kBulletSpeed);
-			velocity = KamataEngine::MathUtility::TransformNormal(velocity, worldtransfrom_.matWorld_);
+
+			const float kBulletSpeed = 30.0f;
+
+			// ▼▼▼ ここから速度計算のロジックを差し替え ▼▼▼
+
+			// 2. カメラ（レティクル）の向いている先を計算
+
+			// 2a. カメラのワールド行列を取得
+			const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
+
+			// 2b. カメラのワールド座標を取得
+			KamataEngine::Vector3 cameraPosition;
+			cameraPosition.x = cameraWorldMatrix.m[3][0];
+			cameraPosition.y = cameraWorldMatrix.m[3][1];
+			cameraPosition.z = cameraWorldMatrix.m[3][2];
+
+			// 2c. カメラの前方ベクトル(Z軸)を取得
+			KamataEngine::Vector3 cameraForward;
+			cameraForward.x = cameraWorldMatrix.m[2][0];
+			cameraForward.y = cameraWorldMatrix.m[2][1];
+			cameraForward.z = cameraWorldMatrix.m[2][2];
+			cameraForward = KamataEngine::MathUtility::Normalize(cameraForward); // 念のため正規化
+
+			// 2d. 画面中央の「目標地点」をカメラのはるか前方に設定
+			// (この 1000.0f は "十分遠く" であればどんな大きな値でもOKです)
+			KamataEngine::Vector3 targetPosition = cameraPosition + cameraForward * 1000.0f;
+
+			// 3. 発射位置(moveBullet) から 目標地点(targetPosition) へ向かうベクトルを計算
+			KamataEngine::Vector3 velocity = targetPosition - moveBullet;
+
+			// 4. ベクトルを正規化して、弾の速度を適用
+			velocity = KamataEngine::MathUtility::Normalize(velocity);
+			velocity = velocity * kBulletSpeed;
+
 			PlayerBullet* newBullet = new PlayerBullet();
 			newBullet->Initialize(modelbullet_, moveBullet, velocity);
 			bullets_.push_back(newBullet);
@@ -88,10 +125,7 @@ void Player::Update() {
 		targetX = -kPlayerMaxX;
 	}
 
-	// ▼▼▼ 修正点 3：Y座標が戻らないようにする ▼▼▼
-	// 目標Y座標 (targetY) を、現在のY座標 (worldtransfrom_.translation_.y) に設定します。
 	float targetY = worldtransfrom_.translation_.y;
-	// ▲▲▲ 修正点 3 ここまで ▲▲▲
 
 	float moveLerpFactor = 0.0f;
 	if (input_->PushKey(DIK_A) || input_->PushKey(DIK_D)) {

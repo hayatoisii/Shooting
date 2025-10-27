@@ -26,6 +26,9 @@ float GameScene::DistanceSquared(const Vector3& v1, const Vector3& v2) {
 	return dx * dx + dy * dy + dz * dz;
 }
 
+
+
+
 GameScene::GameScene() {}
 
 GameScene::~GameScene() {
@@ -37,6 +40,7 @@ GameScene::~GameScene() {
 	delete player_;
 	delete skydome_;
 	delete railCamera_;
+	delete reticleSprite_;
 	delete transitionSprite_;
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
@@ -66,6 +70,13 @@ void GameScene::Initialize() {
 	transitionSprite_->SetPosition(screenCenter);
 	transitionSprite_->SetAnchorPoint({0.5f, 0.5f});
 	transitionSprite_->SetSize({0.0f, 0.0f});
+
+	reticleTextureHandle_ = KamataEngine::TextureManager::Load("reticle.png");
+	reticleSprite_ = Sprite::Create(reticleTextureHandle_, {0, 0});
+	// 画面中央に配置
+	reticleSprite_->SetPosition(screenCenter);
+	// アンカーポイント（画像の中心）を中央に設定
+	reticleSprite_->SetAnchorPoint({0.5f, 0.5f});
 
 	camera_.Initialize();
 
@@ -346,6 +357,13 @@ void GameScene::Draw() {
 	if (sceneState == SceneState::TransitionToGame || sceneState == SceneState::TransitionFromGame) {
 		transitionSprite_->Draw();
 	}
+
+	if (sceneState == SceneState::GameIntro || sceneState == SceneState::Game) {
+		if (reticleSprite_) { // nullptrチェック
+			reticleSprite_->Draw();
+		}
+	}
+
 	Sprite::PostDraw();
 }
 
