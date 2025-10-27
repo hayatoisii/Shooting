@@ -1,152 +1,116 @@
 #include "RailCamera.h"
-#include <KamataEngine.h>
-#include <algorithm> // Player.cpp と GaneScene.cpp で <algorithm> が使われているため、念のためインクルードします
+#include <KamataEngine.h> // KamataEngine ヘッダをインクルード
+#include <algorithm>      // std::clamp のためにインクルード
+#include <cmath>          // MathUtility::PI のためにインクルード
 
 void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine::Vector3& rad) {
-
+	// 初期位置を設定
 	worldtransfrom_.translation_ = pos;
-	worldtransfrom_.rotation_ = rad;
-
+	// WorldTransform を初期化 (スケールと回転は単位行列、位置は pos)
 	worldtransfrom_.Initialize();
+	// カメラを初期化
 	camera_.Initialize();
+
+	// 初期角度を設定 (引数 rad を使う場合)
+	totalPitch_ = rad.x; // 必要に応じてコメント解除
+	totalYaw_ = rad.y;   // 必要に応じてコメント解除
 }
 
 void RailCamera::Update() {
 	// キーボード入力インスタンスの取得
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
-	// カメラの移動速度
-	const float kCameraSpeed = -0.5f; // 常に進む速度
-	//	const float kRotSpeed = 0.02f;         // 回転速度
-	const float kRotAcceleration = 0.0005f; // 回転加速度
-	const float kRotFriction = 0.95f;       // 回転摩擦係数
+	// カメラの移動速度 (正の値)
+	const float kCameraSpeed = 0.5f;
+	// 回転加速度
+	const float kRotAcceleration = 0.0005f;
+	// 回転摩擦係数
+	const float kRotFriction = 0.95f;
 
+	// --- 1. 回転速度の更新 ---
 	// キー入力で回転速度を変化させる
 	if (input->PushKey(DIK_A)) {
-		rotationVelocity_.y -= kRotAcceleration / 1.0f; // 左回転
+		rotationVelocity_.y -= kRotAcceleration; // 左回転 (ヨー速度を減らす)
 	} else if (input->PushKey(DIK_D)) {
-		rotationVelocity_.y += kRotAcceleration / 1.0f; // 右回転
+		rotationVelocity_.y += kRotAcceleration; // 右回転 (ヨー速度を増やす)
 	}
 	if (input->PushKey(DIK_W)) {
-		rotationVelocity_.x -= kRotAcceleration / 1.5f; // 上
+		rotationVelocity_.x -= kRotAcceleration / 1.5f; // 上回転 (ピッチ速度を減らす)
 	} else if (input->PushKey(DIK_S)) {
-		rotationVelocity_.x += kRotAcceleration / 1.5f; // 下
+		rotationVelocity_.x += kRotAcceleration / 1.5f; // 下回転 (ピッチ速度を増やす)
 	}
 
 	// 摩擦による減速
 	rotationVelocity_.x *= kRotFriction;
 	rotationVelocity_.y *= kRotFriction;
 
-	// ▼▼▼ 修正点 1：回転の適用順序を変更 ▼▼▼
-	// (カメラが横転するのを防ぎます)
+	// --- 2. 累積角度の更新 ---
+	totalYaw_ += rotationVelocity_.y;   // ヨー角を更新
+	totalPitch_ += rotationVelocity_.x; // ピッチ角を更新
 
-	// 1. 左右回転(Y軸回転)を先に適用する
-	KamataEngine::Matrix4x4 matRotY = KamataEngine::MathUtility::MakeRotateYMatrix(rotationVelocity_.y);
-	worldtransfrom_.matWorld_ = matRotY * worldtransfrom_.matWorld_;
+	// --- 3. ピッチ角の制限 ---
+	// 真上 (約+89.4度) や真下 (約-89.4度) に行きすぎないように制限
+	const float pitchLimit = KamataEngine::MathUtility::PI / 2.0f - 0.01f;
+	totalPitch_ = std::clamp(totalPitch_, -pitchLimit, pitchLimit);
 
-	// 2. 左右回転した後の、*新しい*「右」ベクトルを取得する
-	KamataEngine::Vector3 right = {worldtransfrom_.matWorld_.m[0][0], worldtransfrom_.matWorld_.m[0][1], worldtransfrom_.matWorld_.m[0][2]};
+	// --- 4. 回転行列の作成 ---
+	// 累積したヨー角とピッチ角から回転行列を作成
+	// Y軸周りの回転 (ヨー)
+	KamataEngine::Matrix4x4 matRotY = KamataEngine::MathUtility::MakeRotateYMatrix(totalYaw_);
+	// X軸周りの回転 (ピッチ)
+	KamataEngine::Matrix4x4 matRotX = KamataEngine::MathUtility::MakeRotateXMatrix(totalPitch_);
+	// 回転行列を合成 (X回転を適用した後にY回転を適用)
+	KamataEngine::Matrix4x4 rotationMatrix = matRotX * matRotY;
 
-	// 3. *新しい*「右」ベクトルを軸にして、上下回転(X軸回転)を適用する
-	KamataEngine::Matrix4x4 matRotX = MakeRotateAxisAngle(right, rotationVelocity_.x);
-	worldtransfrom_.matWorld_ = worldtransfrom_.matWorld_ * matRotX;
+	// --- 5. 移動方向と移動量の計算 ---
+	// 回転行列からカメラのローカル +Z軸 ベクトルを取得 (進行方向)
+	KamataEngine::Vector3 lookDirection;
+	lookDirection.x = rotationMatrix.m[2][0]; // ★ 符号を元に戻しました
+	lookDirection.y = rotationMatrix.m[2][1]; // ★ 符号を元に戻しました
+	lookDirection.z = rotationMatrix.m[2][2]; // ★ 符号を元に戻しました
+	// lookDirection = KamataEngine::MathUtility::Normalize(lookDirection); // 必要であれば正規化
 
-	// (↓ 問題があった古い回転方法)
-	// worldtransfrom_.matWorld_ = matRotY * worldtransfrom_.matWorld_ * matRotX;
+	// 移動量を計算 (前方ベクトル * 速度)
+	KamataEngine::Vector3 move = lookDirection * kCameraSpeed;
 
-	// ▲▲▲ 修正点 1 ここまで ▲▲▲
+	// --- 6. ワールド行列の更新 ---
+	// 現在の位置に移動量を加算して新しい位置を計算
+	KamataEngine::Vector3 currentPosition = worldtransfrom_.translation_;
+	KamataEngine::Vector3 newPosition = currentPosition + move;
 
-	KamataEngine::Vector3 forward = {worldtransfrom_.matWorld_.m[2][0], worldtransfrom_.matWorld_.m[2][1], worldtransfrom_.matWorld_.m[2][2]};
-	forward = KamataEngine::MathUtility::Normalize(forward) * -1.0f;
+	// ワールド行列を新しい回転と位置で再構築 (スケールは{1,1,1}とする)
+	worldtransfrom_.matWorld_ = rotationMatrix;        // まず回転行列をコピー
+	worldtransfrom_.matWorld_.m[3][0] = newPosition.x; // 平行移動成分を設定
+	worldtransfrom_.matWorld_.m[3][1] = newPosition.y;
+	worldtransfrom_.matWorld_.m[3][2] = newPosition.z;
 
-	KamataEngine::Vector3 move = {forward.x * kCameraSpeed, forward.y * kCameraSpeed, forward.z * kCameraSpeed};
+	// WorldTransform の translation_ メンバーも更新しておく
+	worldtransfrom_.translation_ = newPosition;
 
-	// 移動量を行列の平行移動成分に加算する
-	worldtransfrom_.matWorld_.m[3][0] += move.x;
-	worldtransfrom_.matWorld_.m[3][1] += move.y;
-	worldtransfrom_.matWorld_.m[3][2] += move.z;
-
-	worldtransfrom_.translation_ = {worldtransfrom_.matWorld_.m[3][0], worldtransfrom_.matWorld_.m[3][1], worldtransfrom_.matWorld_.m[3][2]};
-
-	// ビュー行列を更新
+	// --- 7. ビュー行列の更新 ---
+	// ワールド行列の逆行列をビュー行列として設定
 	camera_.matView = Inverse(worldtransfrom_.matWorld_);
+	// カメラの行列をGPUに転送 (必要な場合)
 	camera_.TransferMatrix();
 }
 
-KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
-	KamataEngine::Matrix4x4 result;
-	result.m[0][0] = 1.0f;
-	result.m[0][1] = 0.0f;
-	result.m[0][2] = 0.0f;
-	result.m[0][3] = 0.0f;
-	result.m[1][0] = 0.0f;
-	result.m[1][1] = 1.0f;
-	result.m[1][2] = 0.0f;
-	result.m[1][3] = 0.0f;
-	result.m[2][0] = 0.0f;
-	result.m[2][1] = 0.0f;
-	result.m[2][2] = 1.0f;
-	result.m[2][3] = 0.0f;
-	result.m[3][0] = 0.0f;
-	result.m[3][1] = 0.0f;
-	result.m[3][2] = 0.0f;
-	result.m[3][3] = 1.0f;
-	return result;
-}
-
-// MakeRotateAxisAngleの実装 (RailCameraのメンバー関数として)
-KamataEngine::Matrix4x4 RailCamera::MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle) {
-	KamataEngine::Matrix4x4 result = this->MakeIdentityMatrix();
-
-	KamataEngine::Vector3 n = axis;
-
-	// ▼▼▼ 修正点 2：Normalizeの戻り値を受け取る ▼▼▼
-	// 2. Normalize関数が返した「正規化済みのベクトル」を `n` 自身に代入する
-	n = KamataEngine::MathUtility::Normalize(n);
-	// ▲▲▲ 修正点 2 ここまで ▲▲▲
-
-	float cosTheta = std::cos(angle);
-	float sinTheta = std::sin(angle);
-	float oneMinusCos = 1.0f - cosTheta;
-
-	result.m[0][0] = n.x * n.x * oneMinusCos + cosTheta;
-	result.m[0][1] = n.x * n.y * oneMinusCos + n.z * sinTheta;
-	result.m[0][2] = n.x * n.z * oneMinusCos - n.y * sinTheta;
-
-	result.m[1][0] = n.x * n.y * oneMinusCos - n.z * sinTheta;
-	result.m[1][1] = n.y * n.y * oneMinusCos + cosTheta;
-	result.m[1][2] = n.y * n.z * oneMinusCos + n.x * sinTheta;
-
-	result.m[2][0] = n.x * n.z * oneMinusCos + n.y * sinTheta;
-	result.m[2][1] = n.y * n.z * oneMinusCos - n.x * sinTheta;
-	result.m[2][2] = n.z * n.z * oneMinusCos + cosTheta;
-
-	return result;
-}
-
 void RailCamera::Reset() {
-	// --- 現在はこちらが有効：回転だけをリセットし、位置はそのまま ---
-
-	// 1. 現在の位置を一時的な変数に保存する
-	KamataEngine::Vector3 currentPosition = {worldtransfrom_.matWorld_.m[3][0], worldtransfrom_.matWorld_.m[3][1], worldtransfrom_.matWorld_.m[3][2]};
-	// 2. 回転の勢いを完全に止める
+	// 位置はそのまま、回転の勢いと累積角度をリセット
+	KamataEngine::Vector3 currentPosition = worldtransfrom_.translation_; // 位置を保持
 	rotationVelocity_ = {0.0f, 0.0f, 0.0f};
-	// 3. ワールド行列を単位行列にして、回転だけをリセットする
-	worldtransfrom_.matWorld_ = MakeIdentityMatrix();
-	// 4. 保存しておいた位置情報を、リセットしたワールド行列に書き戻す
+
+	// 累積角度をリセット
+	totalYaw_ = 0.0f;
+	totalPitch_ = 0.0f;
+
+	// ワールド行列も初期化 (単位行列 + 位置)
+	//worldtransfrom_.matWorld_ = MakeIdentityMatrix();
 	worldtransfrom_.matWorld_.m[3][0] = currentPosition.x;
 	worldtransfrom_.matWorld_.m[3][1] = currentPosition.y;
 	worldtransfrom_.matWorld_.m[3][2] = currentPosition.z;
-	// 5. 整合性を保つため、translation_メンバーも更新しておく
-	worldtransfrom_.translation_ = currentPosition;
+	worldtransfrom_.translation_ = currentPosition; // translation_ も更新
 
-	// ▼▼▼ 修正点 3：重複していたコードを削除 ▼▼▼
-	// (以下の3行は上の処理と重複しているため不要)
-	// 1. 回転の勢いを完全に止める
-	// rotationVelocity_ = {0.0f, 0.0f, 0.0f};
-	// 2. ワールド行列を完全に初期状態（単位行列）に戻す
-	// worldtransfrom_.matWorld_ = MakeIdentityMatrix();
-	// 3. WorldTransform内のtranslation_も念のため初期値に戻す
-	// worldtransfrom_.translation_ = {0.0f, 0.0f, 0.0f};
-	// ▲▲▲ 修正点 3 ここまで ▲▲▲
+	// ビュー行列も更新しておくのが安全
+	camera_.matView = Inverse(worldtransfrom_.matWorld_);
+	camera_.TransferMatrix();
 }

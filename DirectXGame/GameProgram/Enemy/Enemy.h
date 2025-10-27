@@ -42,11 +42,13 @@ public:
 	// 画面内判定
 	bool IsOnScreen() const { return isOnScreen_; }
 
+	int GetHp() const { return hp_; }
+
 	// 画面座標の更新
 	void UpdateScreenPosition();
 
 	// 発射間隔
-	static const int kFireInterval = 180;
+	static const int kFireInterval = 20;
 
 	bool isDead_ = false;
 
@@ -57,6 +59,8 @@ private:
 	KamataEngine::Model* model_ = nullptr;
 
 	KamataEngine::Model* modelbullet_ = nullptr;
+
+	int hp_ = 1;
 
 	// 発射タイマー
 	int32_t spawnTimer = 0;

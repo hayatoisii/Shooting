@@ -21,6 +21,8 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	worldtransfrom_.UpdateMatrix(); // 初期化後に行列を更新
 	// UpdateScreenPosition(); // camera_ がセットされる前に呼ばれるため削除
 
+	hp_ = 8;
+
 	// 追尾スプライトの初期化
 	uint32_t texHandle = TextureManager::Load("redbox.png");
 	targetSprite_ = Sprite::Create(texHandle, {0, 0});
@@ -42,7 +44,13 @@ KamataEngine::Vector3 Enemy::GetWorldPosition() {
 	return worldPos;
 }
 
-void Enemy::OnCollision() { isDead_ = true; }
+void Enemy::OnCollision() {
+	hp_--; // HPを1減らす
+
+	if (hp_ <= 0) {     // HPが0以下になったら
+		isDead_ = true; // 死亡フラグを立てる
+	};
+}
 
 void Enemy::Fire() {
 	assert(player_);
@@ -123,7 +131,6 @@ void Enemy::Update() {
 		}
 		break;
 	}
-	// ▲▲▲ 修正完了 ▲▲▲
 
 	worldtransfrom_.UpdateMatrix();
 
@@ -136,10 +143,8 @@ void Enemy::Update() {
 void Enemy::Draw(const KamataEngine::Camera& camera) { model_->Draw(worldtransfrom_, camera); }
 
 void Enemy::DrawSprite() {
-	// ▼▼▼ 修正 ▼▼▼
-	// 画面内のときだけ追尾スプライトを描画
+
 	if (isOnScreen_ && targetSprite_) {
-		// ▲▲▲ 修正完了 ▲▲▲
 		targetSprite_->Draw();
 	}
 }

@@ -34,6 +34,9 @@ public:
 
 private:
 
+	float totalYaw_ = 0.0f;   // 水平回転 (左右)
+	float totalPitch_ = 0.0f; // 垂直回転 (上下)
+
 	KamataEngine::WorldTransform worldtransfrom_;
 
 	KamataEngine::Camera camera_;

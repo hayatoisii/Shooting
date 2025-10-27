@@ -36,91 +36,78 @@ void Player::Attack() {
 	specialTimer--;
 	if (specialTimer < 0) {
 		if (input_->TriggerKey(DIK_SPACE)) {
-			// assert(enemy_); // (敵がいない時でも弾を撃てるように、これはコメントアウトしても良いかもしれません)
-
-			// ★ railCamera_ が無いと計算できないので、アサート（チェック）を追加
 			assert(railCamera_);
 
-			// 1. 弾の発射位置 (プレイヤーのワールド座標)
 			KamataEngine::Vector3 moveBullet = GetWorldPosition();
+			const float kBulletSpeed = 20.0f;
+			KamataEngine::Vector3 velocity; // Will be calculated based on target or camera forward
 
-			const float kBulletSpeed = 30.0f;
+			// Find the nearest enemy that is ALSO on screen
+			float minDistanceSq = FLT_MAX;
+			Enemy* nearestOnScreenEnemy = nullptr; // Changed variable name for clarity
+			const float maxHomingDistance = 1000.0f;
 
-			// ▼▼▼ ここから速度計算のロジックを差し替え ▼▼▼
+			if (enemies_) { // Check if the enemy list pointer is valid
+				for (Enemy* enemy : *enemies_) {
+					// Skip dead enemies, null pointers
+					if (!enemy || enemy->IsDead())
+						continue;
 
-			// 2. カメラ（レティクル）の向いている先を計算
+					// --- ▼▼▼ Check if the enemy is on screen ▼▼▼ ---
+					if (enemy->IsOnScreen()) { // ★ Add this check
+						                       // --- ▲▲▲ ---
 
-			// 2a. カメラのワールド行列を取得
-			const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
+						KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
+						KamataEngine::Vector3 toEnemy = enemyPos - moveBullet;
+						float distanceSq = toEnemy.x * toEnemy.x + toEnemy.y * toEnemy.y + toEnemy.z * toEnemy.z;
 
-			// 2b. カメラのワールド座標を取得
-			KamataEngine::Vector3 cameraPosition;
-			cameraPosition.x = cameraWorldMatrix.m[3][0];
-			cameraPosition.y = cameraWorldMatrix.m[3][1];
-			cameraPosition.z = cameraWorldMatrix.m[3][2];
+						// Check distance
+						if (distanceSq < minDistanceSq && distanceSq < maxHomingDistance * maxHomingDistance) {
+							float distance = sqrtf(distanceSq);
+							if (distance > 0.001f) {
+								minDistanceSq = distanceSq;
+								nearestOnScreenEnemy = enemy; // Assign if closest *and* on screen
+							}
+						}
+					} // Closing brace for the IsOnScreen() check
+				}
+			}
 
-			// 2c. カメラの前方ベクトル(Z軸)を取得
-			KamataEngine::Vector3 cameraForward;
-			cameraForward.x = cameraWorldMatrix.m[2][0];
-			cameraForward.y = cameraWorldMatrix.m[2][1];
-			cameraForward.z = cameraWorldMatrix.m[2][2];
-			cameraForward = KamataEngine::MathUtility::Normalize(cameraForward); // 念のため正規化
+			// --- Determine initial velocity based on whether a target was found ---
+			if (nearestOnScreenEnemy) {
+				// Target found: Aim initial velocity towards it
+				KamataEngine::Vector3 targetPosition = nearestOnScreenEnemy->GetWorldPosition();
+				velocity = targetPosition - moveBullet;
+			} else {
+				// No target on screen: Fire straight using camera forward
+				const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
+				KamataEngine::Vector3 cameraPosition = {cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2]};
+				KamataEngine::Vector3 cameraForward = {cameraWorldMatrix.m[2][0], cameraWorldMatrix.m[2][1], cameraWorldMatrix.m[2][2]};
+				cameraForward = KamataEngine::MathUtility::Normalize(cameraForward);
+				KamataEngine::Vector3 targetPosition = cameraPosition + cameraForward * 1000.0f; // Far ahead
+				velocity = targetPosition - moveBullet;
+			}
 
-			// 2d. 画面中央の「目標地点」をカメラのはるか前方に設定
-			// (この 1000.0f は "十分遠く" であればどんな大きな値でもOKです)
-			KamataEngine::Vector3 targetPosition = cameraPosition + cameraForward * 1000.0f;
-
-			// 3. 発射位置(moveBullet) から 目標地点(targetPosition) へ向かうベクトルを計算
-			KamataEngine::Vector3 velocity = targetPosition - moveBullet;
-
-			// 4. ベクトルを正規化して、弾の速度を適用
+			// Normalize velocity and apply speed
 			velocity = KamataEngine::MathUtility::Normalize(velocity);
 			velocity = velocity * kBulletSpeed;
 
 			PlayerBullet* newBullet = new PlayerBullet();
-			newBullet->Initialize(modelbullet_, moveBullet, velocity);
-			
-			// 追尾強度をランダムに設定（高めが出やすいバイアス）
-			// 例: 0.05〜0.3の範囲で、二乗根バイアスで高値寄り
+			newBullet->Initialize(modelbullet_, moveBullet, velocity); // Use the calculated velocity
+
+			// Set random homing strength (optional)
 			{
-				float r = (float)std::rand() / (float)RAND_MAX; // 0..1
-				float biased = std::sqrt(r); // 高めが出やすい
-				float minS = 0.05f;
-				float maxS = 0.30f;
-				float strength = minS + (maxS - minS) * biased;
-				newBullet->SetHomingStrength(strength);
+
+				newBullet->SetHomingStrength(0.50f);
 			}
-			
-			// 追尾の設定: 敵リストが存在する場合、最も近い敵を探す
-			if (enemies_) {
-				float minDistanceSq = FLT_MAX;
-				Enemy* nearestEnemy = nullptr;
-				const float maxHomingDistance = 1000.0f; // 最大追尾距離
-				
-				for (Enemy* enemy : *enemies_) {
-					if (!enemy || enemy->IsDead()) continue;
-					
-					KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
-					
-					// 敵への方向ベクトル
-					KamataEngine::Vector3 toEnemy = enemyPos - moveBullet;
-					float distanceSq = toEnemy.x * toEnemy.x + toEnemy.y * toEnemy.y + toEnemy.z * toEnemy.z;
-					
-					// 距離が近く、カメラ前方にいる敵を選択
-					if (distanceSq < minDistanceSq && distanceSq < maxHomingDistance * maxHomingDistance) {
-						// カメラ前方に対する角度チェック（60度以内）
-							minDistanceSq = distanceSq;
-							nearestEnemy = enemy;
-					}
-				}
-				
-				// 最も近い敵が見つかった場合、追尾を有効化
-				if (nearestEnemy) {
-					newBullet->SetHomingTarget(nearestEnemy);
-					newBullet->SetHomingEnabled(true);
-				}
+
+			// --- Set homing target ONLY if an on-screen enemy was found ---
+			if (nearestOnScreenEnemy) {
+				newBullet->SetHomingTarget(nearestOnScreenEnemy);
+				newBullet->SetHomingEnabled(true);
 			}
-			
+			// If nearestOnScreenEnemy is null, homing won't be enabled
+
 			bullets_.push_back(newBullet);
 			isParry_ = false;
 		}
