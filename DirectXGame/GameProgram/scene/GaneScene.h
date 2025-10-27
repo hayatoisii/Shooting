@@ -31,8 +31,11 @@ public:
 	void UpdateEnemyPopCommands();
 	void EnemySpawn(const Vector3& position);
 
-	int32_t timer = 0;
-	bool timerflag = true;
+	// ▼▼▼ 修正 ▼▼▼
+	// int32_t timer = 0; // <-- 削除
+	// bool timerflag = true; // <-- 削除
+	bool hasSpawnedEnemies_ = false; // ★ 敵をスポーンさせたかどうかのフラグ
+	                                 // ▲▲▲ 修正完了 ▲▲▲
 
 private:
 	DirectXCommon* dxCommon_ = nullptr;
@@ -46,18 +49,21 @@ private:
 	RailCamera* railCamera_ = nullptr;
 
 	// Vector3 playerPos = {};
-	// Vector3 enemyPos = {0, 3, 100};
-	Vector3 RailCamerPos = {0, 0, 0};
-	Vector3 RailCamerRad = {0, 0, 0};
 
+	KamataEngine::Sprite* reticleSprite_ = nullptr;
+	uint32_t reticleTextureHandle_ = 0;
+
+	// 自機モデル
 	Model* modelPlayer_ = nullptr;
+	// 敵モデル
 	Model* modelEnemy_ = nullptr;
 
-	// std::vector<std::vector<WorldTransform*>> worldTransformBlocks_;
-	WorldTransform worldTransform_;
-	Camera camera_;
+	// ゲームタイマー
+	int32_t gameSceneTimer_ = 0;
+	// ゲームの時間制限（例：30秒）
+	const int32_t kGameTimeLimit_ = 60 * 30;
 
-	Vector3 railcameraPos = {0, 0, 0};
+	Vector3 railcameraPos = {0, 5, -50};
 	Vector3 railcameraRad = {0, 0, 0};
 
 	// 敵弾リストを追加
@@ -95,19 +101,14 @@ private:
 	int hitSoundHandle_ = 0;
 	int hitSound_ = -1;
 
-	Vector3 playerPos = {0, 0, 30};
-
-	bool isGameIntroFinished_ = false;       // イントロが終わったかどうかのフラグ
-	float gameIntroTimer_ = 0.0f;            // イントロ用タイマー
-	const float kGameIntroDuration_ = 90.0f; // イントロの長さ（フレーム数、0.5秒）
-	Vector3 playerIntroStartPosition_;       // イントロ開始時のプレイヤー座標
-	Vector3 playerIntroTargetPosition_;      // イントロ終了時（＝ゲーム開始時）のプレイヤー座標
-
-	KamataEngine::Sprite* reticleSprite_ = nullptr;
-	uint32_t reticleTextureHandle_ = 0;
+	Vector3 playerIntroStartPosition_ = {0.0f, -3.0f, -30.0f};
+	Vector3 playerIntroTargetPosition_ = {0.0f, -3.0f, 20.0f};
+	float gameIntroTimer_ = 0.0f;
+	const float kGameIntroDuration_ = 120.0f; // 2秒
+	bool isGameIntroFinished_ = false;
 
 	float DistanceSquared(const Vector3& v1, const Vector3& v2);
 
-	int32_t gameSceneTimer_ = 0;         
-	const int32_t kGameTimeLimit_ = 660;
+	// 基底クラスのカメラ
+	Camera camera_ = {};
 };
