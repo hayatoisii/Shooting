@@ -85,29 +85,33 @@ void Enemy::Update() {
 
 	// キャラクターの移動ベクトル
 	KamataEngine::Vector3 move = {0, 0, 0};
+
+	// ▼▼▼ 修正 ▼▼▼
 	// 接近
-	KamataEngine::Vector3 accessSpeed = {0.1f, 0.1f, 0.1f};
+	KamataEngine::Vector3 accessSpeed = {0.1f, 0.1f, 0.1f}; // ★ 1.1f だと速すぎるので 0.1f に
 	// 離脱
 	KamataEngine::Vector3 eliminationSpeed = {0.3f, 0.3f, 0.3f};
 
-	/*/
 	switch (phase_) {
 	case Phase::Approach:
-	default:
-	    // 移動(ベクトルを加算)
-	    worldtransfrom_.translation_.z -= accessSpeed.z;
-	    // 規定の位置に到達したら離脱
-	    if (worldtransfrom_.translation_.z < 0.0f) {
-	        phase_ = Phase::Leave;
-	    }
-	    break;
+	default: // 移動(ベクトルを加算)
+		worldtransfrom_.translation_.z -= accessSpeed.z;
+		// 規定の位置に到達したら離脱
+		// ★ 0.0f (プレイヤー) より手前 (奥) の 20.0f あたりで止まるように調整
+		if (worldtransfrom_.translation_.z < 20.0f) {
+			phase_ = Phase::Leave;
+		}
+		break;
 	case Phase::Leave:
-	    // 移動(ベクトルを加算)
-	    worldtransfrom_.translation_.y += eliminationSpeed.y;
-	    break;
-
+		// 移動(ベクトルを加算)
+		// ★ 上 (y) に消えるのではなく、奥 (z) に戻るように変更
+		worldtransfrom_.translation_.z += accessSpeed.z;
+		// ★ ある程度奥 (例: 60.0f) に戻ったら、再度 Approach にする
+		if (worldtransfrom_.translation_.z > 60.0f) {
+			phase_ = Phase::Approach;
+		}
+		break;
 	}
-	/*/
 
 	worldtransfrom_.UpdateMatrix();
 
@@ -120,8 +124,10 @@ void Enemy::Update() {
 void Enemy::Draw(const KamataEngine::Camera& camera) { model_->Draw(worldtransfrom_, camera); }
 
 void Enemy::DrawSprite() {
-	// デバッグ：常に描画して、位置はワールド座標ベースで簡単に計算
-	if (targetSprite_) {
+	// ▼▼▼ 修正 ▼▼▼
+	// デバッグ用の強制描画から、isOnScreen_ をチェックする処理に戻します
+	if (isOnScreen_ && targetSprite_) {
+		// ▲▲▲ ▲▲▲
 		targetSprite_->Draw();
 	}
 }
@@ -135,54 +141,60 @@ void Enemy::UpdateScreenPosition() {
 	// ワールド座標を取得
 	KamataEngine::Vector3 worldPos = GetWorldPosition();
 
-	// カメラの行列を使用してビュー座標に変換
+	// カメラの行列
 	const KamataEngine::Matrix4x4& viewMatrix = camera_->matView;
 	const KamataEngine::Matrix4x4& projMatrix = camera_->matProjection;
 
-	// ワールド座標をビュー座標に変換
+	// --- 1. ワールド -> ビュー変換 (vM形式) ---
 	KamataEngine::Vector3 viewPos;
 	viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + viewMatrix.m[3][0];
 	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + viewMatrix.m[3][1];
 	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + viewMatrix.m[3][2];
 
-	// w値を計算
-	float w = worldPos.x * viewMatrix.m[0][3] + worldPos.y * viewMatrix.m[1][3] + worldPos.z * viewMatrix.m[2][3] + viewMatrix.m[3][3];
+	// (ビュー行列の第4列 (m[...][3]) は通常 (0,0,0,1) なので、w_view は 1.0 になる)
+	// float w_view = worldPos.x * viewMatrix.m[0][3] + worldPos.y * viewMatrix.m[1][3] + worldPos.z * viewMatrix.m[2][3] + viewMatrix.m[3][3];
 
-	// ▼▼▼ ★★★ ここが修正点です ★★★ ▼▼▼
-	//
-	// 「viewPos.z < 0.0f」を「viewPos.z > 0.0f」に変更します
-	//
-	// ▼▼▼ ▼▼▼ ▼▼▼ ▼▼▼ ▼▼▼
-	if (w > 0.0f && viewPos.z > 0.0f) {
-		// ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲ ▲▲▲
+	// カメラの前方にあるかチェック (ビュー座標のZがプラスか)
+	if (viewPos.z > 0.0f) {
 
-		// 射影変換
-		float clipX = (viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + projMatrix.m[3][0]) / w;
-		float clipY = (viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + projMatrix.m[3][1]) / w;
+		// --- 2. ビュー -> クリップ座標変換 (vM形式) ---
+		// viewPos (x, y, z, 1.0) * projMatrix
+		float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
+		float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
+		// float clipZ = viewPos.x * projMatrix.m[0][2] + viewPos.y * projMatrix.m[1][2] + viewPos.z * projMatrix.m[2][2] + 1.0f * projMatrix.m[3][2];
 
-		// 正規化デバイス座標に変換
-		float ndcX = clipX;
-		float ndcY = clipY;
+		// ★ パースペクティブ除算に使う w (w_clip) は、プロジェクション行列をかけた結果の第4成分
+		float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
 
-		// スクリーン座標に変換
-		float screenX = (ndcX + 1.0f) * 0.5f * WinApp::kWindowWidth;
-		float screenY = (1.0f - ndcY) * 0.5f * WinApp::kWindowHeight;
+		// (w_clip が 0 またはマイナスの場合も描画しない)
+		if (w_clip > 0.0f) {
 
-		screenPosition_ = {screenX, screenY};
+			// --- 3. パースペクティブ除算 (クリップ -> NDC) ---
+			float ndcX = clipX / w_clip;
+			float ndcY = clipY / w_clip;
+			// float ndcZ = clipZ / w_clip;
 
-		// 画面内判定
-		bool isWithinBounds = screenX >= 0.0f && screenX <= WinApp::kWindowWidth && screenY >= 0.0f && screenY <= WinApp::kWindowHeight;
+			// --- 4. NDC -> スクリーン座標 ---
+			float screenX = (ndcX + 1.0f) * 0.5f * WinApp::kWindowWidth;
+			float screenY = (1.0f - ndcY) * 0.5f * WinApp::kWindowHeight;
 
-		// 画面内なら描画フラグを立て、座標をセットする
-		if (isWithinBounds) {
-			isOnScreen_ = true;
-			targetSprite_->SetPosition(screenPosition_);
+			screenPosition_ = {screenX, screenY};
+
+			// 画面内判定 (NDCが -1.0～+1.0 の範囲内か)
+			bool isWithinBounds = (ndcX >= -1.0f && ndcX <= 1.0f) && (ndcY >= -1.0f && ndcY <= 1.0f);
+			// (ndcZ >= 0.0f && ndcZ <= 1.0f); // Zもチェックするのが望ましい
+
+			if (isWithinBounds) {
+				isOnScreen_ = true;
+				targetSprite_->SetPosition(screenPosition_);
+			} else {
+				isOnScreen_ = false; // 画面外
+			}
 		} else {
-			isOnScreen_ = false; // 画面外だがカメラの前
+			isOnScreen_ = false; // w_clip が0以下 (クリップ平面の手前か後方)
 		}
-
 	} else {
-		// カメラの後方
+		// カメラの後方 (ビュー座標のZがマイナス)
 		isOnScreen_ = false;
 	}
 }
