@@ -3,6 +3,8 @@
 #include "RailCamera.h"
 #include <algorithm>
 #include <cassert>
+#include <limits>
+#include <cmath>
 
 Player::~Player() {
 	delete modelbullet_;
@@ -77,6 +79,52 @@ void Player::Attack() {
 
 			PlayerBullet* newBullet = new PlayerBullet();
 			newBullet->Initialize(modelbullet_, moveBullet, velocity);
+			
+			// 追尾強度をランダムに設定（高めが出やすいバイアス）
+			// 例: 0.05〜0.3の範囲で、二乗根バイアスで高値寄り
+			{
+				float r = (float)std::rand() / (float)RAND_MAX; // 0..1
+				float biased = std::sqrt(r); // 高めが出やすい
+				float minS = 0.05f;
+				float maxS = 0.30f;
+				float strength = minS + (maxS - minS) * biased;
+				newBullet->SetHomingStrength(strength);
+			}
+			
+			// 追尾の設定: 敵リストが存在する場合、最も近い敵を探す
+			if (enemies_) {
+				float minDistanceSq = FLT_MAX;
+				Enemy* nearestEnemy = nullptr;
+				const float maxHomingDistance = 1000.0f; // 最大追尾距離
+				
+				for (Enemy* enemy : *enemies_) {
+					if (!enemy || enemy->IsDead()) continue;
+					
+					KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
+					
+					// 敵への方向ベクトル
+					KamataEngine::Vector3 toEnemy = enemyPos - moveBullet;
+					float distanceSq = toEnemy.x * toEnemy.x + toEnemy.y * toEnemy.y + toEnemy.z * toEnemy.z;
+					
+					// 距離が近く、カメラ前方にいる敵を選択
+					if (distanceSq < minDistanceSq && distanceSq < maxHomingDistance * maxHomingDistance) {
+						// カメラ前方に対する角度チェック（60度以内）
+						float dot = toEnemy.x * cameraForward.x + toEnemy.y * cameraForward.y + toEnemy.z * cameraForward.z;
+						float distance = sqrtf(distanceSq);
+						if (distance > 0.001f && dot > 0.5f) { // 前方60度以内
+							minDistanceSq = distanceSq;
+							nearestEnemy = enemy;
+						}
+					}
+				}
+				
+				// 最も近い敵が見つかった場合、追尾を有効化
+				if (nearestEnemy) {
+					newBullet->SetHomingTarget(nearestEnemy);
+					newBullet->SetHomingEnabled(true);
+				}
+			}
+			
 			bullets_.push_back(newBullet);
 			isParry_ = false;
 		}

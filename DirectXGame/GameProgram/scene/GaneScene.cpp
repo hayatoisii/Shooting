@@ -62,14 +62,14 @@ void GameScene::Initialize() {
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
 	// ... (遷移スプライトの初期化)
 	transitionTextureHandle_ = KamataEngine::TextureManager::Load("black.png");
-	transitionSprite_ = Sprite::Create(transitionTextureHandle_, {0, 0});
-	Vector2 screenCenter = {WinApp::kWindowWidth / 2.0f, WinApp::kWindowHeight / 2.0f};
+	transitionSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
+	KamataEngine::Vector2 screenCenter = {WinApp::kWindowWidth / 2.0f, WinApp::kWindowHeight / 2.0f};
 	transitionSprite_->SetPosition(screenCenter);
 	transitionSprite_->SetAnchorPoint({0.5f, 0.5f});
 	transitionSprite_->SetSize({0.0f, 0.0f});
 
 	reticleTextureHandle_ = KamataEngine::TextureManager::Load("reticle.png");
-	reticleSprite_ = Sprite::Create(reticleTextureHandle_, {0, 0});
+	reticleSprite_ = KamataEngine::Sprite::Create(reticleTextureHandle_, {0, 0});
 	// 画面中央に配置
 	reticleSprite_->SetPosition(screenCenter);
 	// アンカーポイント（画像の中心）を中央に設定
@@ -94,10 +94,11 @@ void GameScene::Initialize() {
 
 	KamataEngine::AxisIndicator::GetInstance()->SetVisible(true);
 
-	railCamera_ = new RailCamera();
-	railCamera_->Initialize(railcameraPos, railcameraRad);
-	player_->SetParent(&railCamera_->GetWorldTransform());
-	player_->SetRailCamera(railCamera_);
+		railCamera_ = new RailCamera();
+		railCamera_->Initialize(railcameraPos, railcameraRad);
+		player_->SetParent(&railCamera_->GetWorldTransform());
+		player_->SetRailCamera(railCamera_);
+		player_->SetEnemies(&enemies_);
 
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
@@ -328,8 +329,8 @@ void GameScene::Update() {
 void GameScene::Draw() {
 	ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-	Sprite::PreDraw(commandList); /* 背景スプライト描画前処理 */
-	Sprite::PostDraw();
+	KamataEngine::Sprite::PreDraw(commandList); /* 背景スプライト描画前処理 */
+	KamataEngine::Sprite::PostDraw();
 	dxCommon_->ClearDepthBuffer();
 
 	KamataEngine::Model::PreDraw(commandList);
@@ -361,7 +362,7 @@ void GameScene::Draw() {
 
 	KamataEngine::Model::PostDraw();
 
-	Sprite::PreDraw(commandList);
+	KamataEngine::Sprite::PreDraw(commandList);
 	// 遷移スプライトは該当する状態のときだけ描画
 	if (sceneState == SceneState::TransitionToGame || sceneState == SceneState::TransitionFromGame) {
 		transitionSprite_->Draw();
@@ -371,9 +372,18 @@ void GameScene::Draw() {
 		if (reticleSprite_) { // nullptrチェック
 			reticleSprite_->Draw();
 		}
+		
+		// 敵の追尾スプライトを描画
+		if ((sceneState == SceneState::Game && isGameIntroFinished_) || sceneState == SceneState::over) {
+			for (Enemy* enemy : enemies_) {
+				if (enemy) {
+					enemy->DrawSprite();
+				}
+			}
+		}
 	}
 
-	Sprite::PostDraw();
+	KamataEngine::Sprite::PostDraw();
 }
 
 // ... (以降の関数 AddEnemyBullet, EnemySpawn, LoadEnemyPopData, UpdateEnemyPopCommands, CheckAllCollisions, Transitions はほぼ変更なし) ...
@@ -390,6 +400,7 @@ void GameScene::EnemySpawn(const Vector3& position) {
 	if (player_)
 		player_->SetEnemy(newEnemy); // Playerが存在するか確認
 	newEnemy->SetGameScene(this);
+	newEnemy->SetCamera(&camera_);
 	enemies_.push_back(newEnemy);
 }
 

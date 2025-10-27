@@ -2,6 +2,13 @@
 #include <3d/Model.h>
 #include <3d/Camera.h>
 #include <3d/WorldTransform.h>
+#include <vector>
+
+// 前方宣言
+namespace KamataEngine { struct Vector3; }
+
+class Enemy;
+
 class PlayerBullet {
 public:
 
@@ -20,6 +27,11 @@ public:
 	// 衝突を検出したら呼び出されるコールバック関数
 	void OnCollision();
 
+	// 追尾設定
+	void SetHomingTarget(Enemy* target) { homingTarget_ = target; }
+	void SetHomingEnabled(bool enabled) { isHomingEnabled_ = enabled; }
+	void SetHomingStrength(float strength) { homingStrength_ = strength; }
+
 private:
 
 	KamataEngine::WorldTransform worldtransfrom_;
@@ -29,6 +41,11 @@ private:
 	//uint32_t textureHandle_ = 0; 
 
 	KamataEngine::Vector3 velocity_;
+
+	// 追尾関連
+	Enemy* homingTarget_ = nullptr;
+	bool isHomingEnabled_ = false;
+	float homingStrength_ = 0.1f; // 追尾の強さ（控えめ：50%程度の命中率）
 
 	// 寿命<frm>
 	static const int32_t kLifeTime = 60 * 3;

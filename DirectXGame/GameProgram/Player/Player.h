@@ -35,6 +35,7 @@ public:
 	static inline const float kHeight = 1.0f;
 
 	void SetEnemy(Enemy* enemy) { enemy_ = enemy; }
+	void SetEnemies(const std::list<Enemy*>* enemies) { enemies_ = enemies; }
 	void SetParent(const WorldTransform* parent);
 	void SetRailCamera(RailCamera* camera);
 
@@ -65,6 +66,7 @@ private:
 	bool isParry_ = false;
 
 	Enemy* enemy_ = nullptr;
+	const std::list<Enemy*>* enemies_ = nullptr;
 
 	// 発射タイマー
 	int32_t spawnTimer = 0;

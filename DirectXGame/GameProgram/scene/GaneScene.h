@@ -85,7 +85,7 @@ private:
 	SceneState sceneState = SceneState::Start;
 
 	// 遷移用のスプライトとタイマー
-	Sprite* transitionSprite_ = nullptr;
+	KamataEngine::Sprite* transitionSprite_ = nullptr;
 	uint32_t transitionTextureHandle_ = 0;
 	float transitionTimer_ = 0.0f;
 	// 遷移にかかる時間（フレーム数）
@@ -103,7 +103,7 @@ private:
 	Vector3 playerIntroStartPosition_;       // イントロ開始時のプレイヤー座標
 	Vector3 playerIntroTargetPosition_;      // イントロ終了時（＝ゲーム開始時）のプレイヤー座標
 
-	Sprite* reticleSprite_ = nullptr;
+	KamataEngine::Sprite* reticleSprite_ = nullptr;
 	uint32_t reticleTextureHandle_ = 0;
 
 	float DistanceSquared(const Vector3& v1, const Vector3& v2);
