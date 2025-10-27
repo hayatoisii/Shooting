@@ -109,11 +109,8 @@ void Player::Attack() {
 					// 距離が近く、カメラ前方にいる敵を選択
 					if (distanceSq < minDistanceSq && distanceSq < maxHomingDistance * maxHomingDistance) {
 						// カメラ前方に対する角度チェック（60度以内）
-						float distance = sqrtf(distanceSq);
-						if (distance > 0.001f) { // 前方60度以内
 							minDistanceSq = distanceSq;
 							nearestEnemy = enemy;
-						}
 					}
 				}
 				
