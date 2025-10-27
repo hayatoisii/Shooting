@@ -26,9 +26,6 @@ float GameScene::DistanceSquared(const Vector3& v1, const Vector3& v2) {
 	return dx * dx + dy * dy + dz * dz;
 }
 
-
-
-
 GameScene::GameScene() {}
 
 GameScene::~GameScene() {
@@ -225,7 +222,7 @@ void GameScene::Update() {
 	}
 	case SceneState::Game: {
 		// デモ用自動復帰タイマー
-		//gameSceneTimer_++;
+		// gameSceneTimer_++;
 		if (gameSceneTimer_ > kGameTimeLimit_) {
 			sceneState = SceneState::Start;
 			camera_.Initialize(); // 通常カメラをリセット
@@ -253,6 +250,14 @@ void GameScene::Update() {
 			break;
 		}
 
+		// ▼▼▼ ここからが修正箇所 ▼▼▼
+
+		// ★ 1. 親であるレールカメラと視点カメラを「先」に更新する
+		railCamera_->Update();
+		camera_.matView = railCamera_->GetViewProjection().matView;
+		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
+		camera_.TransferMatrix();
+
 		// ★★★ イントロが終わってからゲームの更新処理を開始 ★★★
 		if (isGameIntroFinished_) {
 			UpdateEnemyPopCommands();       // 敵出現処理
@@ -270,7 +275,11 @@ void GameScene::Update() {
 				return false;
 			});
 			CheckAllCollisions(); // 当たり判定
-			player_->Update();    // プレイヤーの完全な更新（移動、攻撃、パーティクル等）
+
+			// ★ 2. 子であるプレイヤーを「後」で更新する
+			// (これで、player_->Update() は最新の railCamera_ の行列を参照できる)
+			player_->Update(); // プレイヤーの完全な更新（移動、攻撃、パーティクル等）
+
 		} else {
 			// イントロが終わるまではプレイヤーの行列更新とパーティクル更新のみ
 			if (player_) {
@@ -279,11 +288,11 @@ void GameScene::Update() {
 			}
 		}
 
-		// レールカメラと通常カメラは常に更新
-		railCamera_->Update();
-		camera_.matView = railCamera_->GetViewProjection().matView;
-		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-		camera_.TransferMatrix();
+		// ★ 3. ブロックの最後で実行していたカメラ更新処理は、
+		//    すでに先頭に移動したので「不要」
+
+		// ▲▲▲ 修正箇所ここまで ▲▲▲
+
 		break;
 	}
 	case SceneState::Clear: // Clear と over は変更なし

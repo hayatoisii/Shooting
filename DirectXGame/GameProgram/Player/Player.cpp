@@ -1,7 +1,7 @@
 #include "Player.h"
 #include "Enemy.h"
-#include <algorithm>
 #include "RailCamera.h"
+#include <algorithm>
 #include <cassert>
 
 Player::~Player() {
@@ -197,6 +197,6 @@ void Player::ResetRotation() {
 
 void Player::ResetParticles() {
 	if (engineExhaust_) {
-		    engineExhaust_->Clear(); // ParticleEmitter の Clear 関数を呼び出す
+		engineExhaust_->Clear(); // ParticleEmitter の Clear 関数を呼び出す
 	}
 }
