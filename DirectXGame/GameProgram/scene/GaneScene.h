@@ -79,7 +79,7 @@ private:
 	WorldTransform worldTransformTitleObject_;
 
 	// シーンの状態を管理する列挙型
-	enum class SceneState { Start, TransitionToGame, TransitionFromGame, Game, Clear, over };
+	enum class SceneState { Start, TransitionToGame, TransitionFromGame, GameIntro, Game, Clear, over };
 
 	// 現在のシーンの状態を管理する変数
 	SceneState sceneState = SceneState::Start;
@@ -97,8 +97,14 @@ private:
 
 	Vector3 playerPos = {0, 0, 30};
 
-		// ▼▼▼ ここから追加 ▼▼▼
-	int32_t gameSceneTimer_ = 0;         // ゲームシーンの時間を計測するタイマー
-	const int32_t kGameTimeLimit_ = 120; // 制限時間（2秒 * 60fps = 120フレーム）
-	                                     // ▲▲▲ ここまで追加 ▲▲▲
+	bool isGameIntroFinished_ = false;       // イントロが終わったかどうかのフラグ
+	float gameIntroTimer_ = 0.0f;            // イントロ用タイマー
+	const float kGameIntroDuration_ = 90.0f; // イントロの長さ（フレーム数、0.5秒）
+	Vector3 playerIntroStartPosition_;       // イントロ開始時のプレイヤー座標
+	Vector3 playerIntroTargetPosition_;      // イントロ終了時（＝ゲーム開始時）のプレイヤー座標
+
+	float DistanceSquared(const Vector3& v1, const Vector3& v2);
+
+	int32_t gameSceneTimer_ = 0;         
+	const int32_t kGameTimeLimit_ = 660;
 };

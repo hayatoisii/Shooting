@@ -67,9 +67,18 @@ void ParticleEmitter::CreateParticle(const KamataEngine::Vector3& position, cons
 			KamataEngine::Vector3 randomVelocity = {(MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f};
 			particle.velocity_ = velocity + randomVelocity;
 
-			particle.lifeTime_ = static_cast<float>(20 + MT::GetRand() % 15); // 寿命を少し調整
+			particle.lifeTime_ = static_cast<float>(5 + MT::GetRand() % 5); // 寿命を少し調整
 			particle.currentTime_ = 0;
 			return;
 		}
 	}
+}
+
+void ParticleEmitter::Clear() {
+	// 現在アクティブな全てのパーティクルを非アクティブにする
+	for (Particle& particle : particles_) {
+		particle.isActive_ = false;
+	}
+	// frequencyTimer_もリセットしておくと、シーン切り替え直後に意図せず生成されるのを防げる
+	frequencyTimer_ = 0;
 }

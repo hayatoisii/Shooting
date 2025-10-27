@@ -39,6 +39,10 @@ public:
 
 	void ResetRotation();
 
+	void ResetParticles();
+
+	KamataEngine::WorldTransform& GetWorldTransform() { return worldtransfrom_; }
+
 private:
 	
 	KamataEngine::WorldTransform worldtransfrom_;

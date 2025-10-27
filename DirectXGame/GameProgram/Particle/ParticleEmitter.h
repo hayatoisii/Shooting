@@ -10,6 +10,7 @@ public:
 	void Update();
 	void Draw(const KamataEngine::Camera& camera);
 	void Emit(const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity);
+	void Clear();
 
 private:
 	void CreateParticle(const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity);

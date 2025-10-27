@@ -1,11 +1,35 @@
 #include "GaneScene.h"
 #include "3d/AxisIndicator.h"
+#include <algorithm> // std::clamp のため
 #include <cassert>
+#include <cmath> // std::lerp, std::abs, std::pow, std::sqrtのため
 #include <fstream>
+
+// Vector3 線形補間ヘルパー関数
+KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine::Vector3& end, float t) {
+	t = std::clamp(t, 0.0f, 1.0f); // tを0から1の範囲に収める
+	return start + (end - start) * t;
+}
+
+// Vector3 間の距離を計算するヘルパー関数
+float Distance(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2) {
+	float dx = v1.x - v2.x;
+	float dy = v1.y - v2.y;
+	float dz = v1.z - v2.z;
+	return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+// 距離の2乗を計算するヘルパー関数（平方根計算を省略して高速）
+float GameScene::DistanceSquared(const Vector3& v1, const Vector3& v2) {
+	float dx = v1.x - v2.x;
+	float dy = v1.y - v2.y;
+	float dz = v1.z - v2.z;
+	return dx * dx + dy * dy + dz * dz;
+}
 
 GameScene::GameScene() {}
 
 GameScene::~GameScene() {
+	// ... (デストラクタは変更なし)
 	delete modelPlayer_;
 	delete modelEnemy_;
 	delete modelSkydome_;
@@ -14,7 +38,6 @@ GameScene::~GameScene() {
 	delete skydome_;
 	delete railCamera_;
 	delete transitionSprite_;
-
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
 	}
@@ -24,434 +47,446 @@ GameScene::~GameScene() {
 }
 
 void GameScene::Initialize() {
-
+	// ... (DirectX, Input, Audioなどの初期化)
 	dxCommon_ = DirectXCommon::GetInstance();
 	input_ = Input::GetInstance();
 	audio_ = Audio::GetInstance();
 
 	player_ = new Player();
 	skydome_ = new Skydome();
-	// 3Dモデルの生成
+	// ... (モデルの読み込み)
 	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly", true);
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
-
+	// ... (遷移スプライトの初期化)
 	transitionTextureHandle_ = KamataEngine::TextureManager::Load("black.png");
 	transitionSprite_ = Sprite::Create(transitionTextureHandle_, {0, 0});
-
 	Vector2 screenCenter = {WinApp::kWindowWidth / 2.0f, WinApp::kWindowHeight / 2.0f};
 	transitionSprite_->SetPosition(screenCenter);
-	// アンカーポイントを中心に設定して、中心から拡大・縮小するようにする
 	transitionSprite_->SetAnchorPoint({0.5f, 0.5f});
-	// 初期サイズを0に設定
 	transitionSprite_->SetSize({0.0f, 0.0f});
 
-	// ビュープロジェクションの初期化
-	// camera_.farZ = 1500.0f;
-
 	camera_.Initialize();
-	player_->Initialize(modelPlayer_, &camera_, playerPos);
+
+	// 自機とカメラの距離
+	playerIntroTargetPosition_ = {0.0f, -3.0f, 20.0f}; // Player::Initialize内のZ座標と合わせる
+
+	// イントロアニメーションの開始座標を定義（目標より奥）
+	playerIntroStartPosition_ = playerIntroTargetPosition_;
+	playerIntroStartPosition_.z += -50.0f; // 例: 50ユニット奥から開始
+
+	// プレイヤーをまず「イントロ開始座標」で初期化する
+	player_->Initialize(modelPlayer_, &camera_, playerIntroStartPosition_);
+
 	skydome_->Initialize(modelSkydome_, &camera_);
 	worldTransformTitleObject_.Initialize();
-
 	worldTransformTitleObject_.translation_ = {0.0f, 0.0f, -43.0f};
 	worldTransformTitleObject_.UpdateMatrix();
 
-	// 軸方向表示の表示を有効にする
 	KamataEngine::AxisIndicator::GetInstance()->SetVisible(true);
-	// 軸方向表示が参照するビュープロジェクションを指定する（アドレス渡し）
-	// KamataEngine::AxisIndicator::GetInstance()->SetTargetCamera(&camera_);
 
-	// Camera
 	railCamera_ = new RailCamera();
 	railCamera_->Initialize(railcameraPos, railcameraRad);
 	player_->SetParent(&railCamera_->GetWorldTransform());
 	player_->SetRailCamera(railCamera_);
 
 	LoadEnemyPopData();
-
-	// オーディオファイルのロード
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
 }
 
 void GameScene::Update() {
 
+	// Rキーリセットは常に受け付ける
 	if (input_->TriggerKey(DIK_R)) {
-		railCamera_->Reset();
-		player_->ResetRotation();
+		if (railCamera_) {
+			railCamera_->Reset();
+		}
+		if (player_) {
+			player_->ResetRotation();
+		}
 	}
 
 	switch (sceneState) {
 	case SceneState::Start: {
-		// スタートシーンの更新処理
+		// ... (Startシーンのロジックは変更なし)
 		if (input_->TriggerKey(DIK_SPACE)) {
 			sceneState = SceneState::TransitionToGame;
-			transitionTimer_ = 0.0f; // タイマーリセット
+			transitionTimer_ = 0.0f;
+			gameSceneTimer_ = 0;
 		}
-
+		// ... (タイトルアニメーション)
 		titleAnimationTimer_++;
 		const int32_t cycleFrames = kTitleRotateFrames + kTitlePauseFrames;
 		int32_t timeInCycle = titleAnimationTimer_ % cycleFrames;
-
 		if (timeInCycle < kTitleRotateFrames) {
+			// 回転中の処理
 			float progress = static_cast<float>(timeInCycle) / kTitleRotateFrames;
-
+			// イージング（ここでは EaseInOutSine）
 			float easedProgress = (1.0f - cosf(progress * 3.14159265f)) / 2.0f;
-
+			// Y軸周りに回転させる (0 -> 2π)
 			worldTransformTitleObject_.rotation_.y = easedProgress * (2.0f * 3.14159265f);
-
 		} else {
+			// ポーズ中の処理（もし何かあれば）
+			// 例: 回転をキープ
+			worldTransformTitleObject_.rotation_.y = 0.0f; // 2πは0と同じなのでリセット
 		}
-
 		worldTransformTitleObject_.UpdateMatrix();
-
 		break;
 	}
 	case SceneState::TransitionToGame: {
-		// タイマーを進める
+		// ... (遷移アニメーション（拡大）は変更なし)
 		transitionTimer_++;
-
-		// 画面の対角線の長さを計算し、円が画面を完全に覆うための最大スケールを求める
 		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
-
-		// 進捗率を計算 (0.0f -> 1.0f)
 		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
-
-		// イージングをかけて滑らかに拡大
 		float easedProgress = 1.0f - cosf(progress * 3.14159265f / 2.0f);
 		float scale = easedProgress * maxScale;
 		transitionSprite_->SetSize({scale, scale});
-
-		// アニメーションが終わったら次の遷移状態へ
 		if (transitionTimer_ >= kTransitionTime) {
 			sceneState = SceneState::TransitionFromGame;
-			transitionTimer_ = 0.0f; // タイマーリセット
+			transitionTimer_ = 0.0f;
 		}
-
 		break;
 	}
 	case SceneState::TransitionFromGame: {
-		// タイマーを進める
+		// ... (遷移アニメーション（縮小）)
 		transitionTimer_++;
-
 		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
-
-		// 進捗率を計算 (0.0f -> 1.0f)
 		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
-
-		// イージングをかけて滑らかに縮小
 		float easedProgress = sinf(progress * 3.14159265f / 2.0f);
 		float scale = (1.0f - easedProgress) * maxScale;
 		transitionSprite_->SetSize({scale, scale});
 
-		// アニメーションが終わったらゲームシーンへ
+		// ★★★ 遷移が終わったら GameIntro へ ★★★
 		if (transitionTimer_ >= kTransitionTime) {
-			sceneState = SceneState::Game;
+			sceneState = SceneState::GameIntro;
+			gameIntroTimer_ = 0.0f; // イントロタイマーリセット
+			// プレイヤーを開始位置にセット
+			player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+			player_->GetWorldTransform().UpdateMatrix(); // 行列を即時更新
+			isGameIntroFinished_ = false;                // イントロ完了フラグをリセット
 		}
 
-		// ★重要：遷移中もゲーム本体の更新処理を動かす
-		// これをしないと、遷移が終わった瞬間にオブジェクトがワープしたように見える
-		player_->Update();
-		railCamera_->Update();
+		// 遷移中もカメラとプレイヤーの「行列更新」だけは動かす
+		if (railCamera_)
+			railCamera_->Update();
+		if (player_)
+			player_->GetWorldTransform().UpdateMatrix(); // 座標だけ更新
 		camera_.matView = railCamera_->GetViewProjection().matView;
 		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
 		camera_.TransferMatrix();
-		UpdateEnemyPopCommands();
-		for (Enemy* enemy : enemies_) {
-			enemy->Update();
-		}
-		for (EnemyBullet* bullet : enemyBullets_) {
-			bullet->Update();
-		}
-		enemyBullets_.remove_if([](EnemyBullet* bullet) {
-			if (bullet->IsDead()) {
-				delete bullet;
-				return true;
-			}
-			return false;
-		});
-		CheckAllCollisions();
-
 		break;
 	}
-	case SceneState::Game:
-		// ゲームシーンの更新処理
-		for (Enemy* enemy : enemies_) {
-			enemy->Update();
-		}
+	case SceneState::GameIntro: { // ★★★ 新しい状態の処理 ★★★
+		// 1. イントロタイマーを進める
+		gameIntroTimer_++;
 
-		UpdateEnemyPopCommands();
+		// 2. 補間係数 t を計算 (0.0 -> 1.0)
+		float t = gameIntroTimer_ / kGameIntroDuration_;
+		// イージングを適用して動きを滑らかに（例: EaseOutCubic）
+		t = 1.0f - std::pow(1.0f - t, 3.0f);
+		t = std::clamp(t, 0.0f, 1.0f); // 念のため範囲内に収める
 
-		for (EnemyBullet* bullet : enemyBullets_) {
-			bullet->Update();
-		}
+		// 3. プレイヤーの位置を開始座標から目標座標へ線形補間
+		player_->GetWorldTransform().translation_ = Lerp(playerIntroStartPosition_, playerIntroTargetPosition_, t);
+		player_->GetWorldTransform().UpdateMatrix(); // プレイヤーの行列を更新
 
-		enemyBullets_.remove_if([](EnemyBullet* bullet) {
-			if (bullet->IsDead()) {
-				delete bullet;
-				return true;
-			}
-			return false;
-		});
-
-		CheckAllCollisions();
-
+		// 4. レールカメラも更新し続ける
 		railCamera_->Update();
-		player_->Update();
+		camera_.matView = railCamera_->GetViewProjection().matView;
+		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
+		camera_.TransferMatrix();
+
+		// 5. プレイヤーのパーティクルだけ更新 (もしPlayerクラスにUpdateParticlesOnlyがあれば)
+		// player_->UpdateParticlesOnly();
+
+		// 6. アニメーション終了判定
+		const float kArrivalThreshold = 0.1f; // 到着したとみなす距離
+		if (gameIntroTimer_ >= kGameIntroDuration_ || Distance(player_->GetWorldTransform().translation_, playerIntroTargetPosition_) < kArrivalThreshold) {
+			// 最終座標に確定させて Game 状態へ移行
+			player_->GetWorldTransform().translation_ = playerIntroTargetPosition_;
+			player_->GetWorldTransform().UpdateMatrix();
+			sceneState = SceneState::Game;
+			isGameIntroFinished_ = true; // イントロ完了フラグを立てる
+		}
+		// この状態では敵や弾の更新は行わない
+		break;
+	}
+	case SceneState::Game: {
+		// デモ用自動復帰タイマー
+		//gameSceneTimer_++;
+		if (gameSceneTimer_ > kGameTimeLimit_) {
+			sceneState = SceneState::Start;
+			camera_.Initialize(); // 通常カメラをリセット
+			camera_.TransferMatrix();
+			if (railCamera_) {
+				railCamera_->Reset();
+			} // レールカメラもリセット
+			if (player_) {
+				player_->ResetRotation(); // プレイヤーの回転リセット
+				// 次回のためにプレイヤー位置をイントロ開始位置に戻す
+				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+				player_->GetWorldTransform().UpdateMatrix();
+				player_->ResetParticles();
+			}
+			// 敵・弾のクリアと敵データの再読み込み
+			for (Enemy* enemy : enemies_) {
+				delete enemy;
+			}
+			enemies_.clear();
+			for (EnemyBullet* bullet : enemyBullets_) {
+				delete bullet;
+			}
+			enemyBullets_.clear();
+			LoadEnemyPopData();
+			break;
+		}
+
+		// ★★★ イントロが終わってからゲームの更新処理を開始 ★★★
+		if (isGameIntroFinished_) {
+			UpdateEnemyPopCommands();       // 敵出現処理
+			for (Enemy* enemy : enemies_) { // 敵の更新
+				enemy->Update();
+			}
+			for (EnemyBullet* bullet : enemyBullets_) { // 敵弾の更新
+				bullet->Update();
+			}
+			enemyBullets_.remove_if([](EnemyBullet* bullet) { // 敵弾の削除
+				if (bullet && bullet->IsDead()) {
+					delete bullet;
+					return true;
+				}
+				return false;
+			});
+			CheckAllCollisions(); // 当たり判定
+			player_->Update();    // プレイヤーの完全な更新（移動、攻撃、パーティクル等）
+		} else {
+			// イントロが終わるまではプレイヤーの行列更新とパーティクル更新のみ
+			if (player_) {
+				// player_->UpdateParticlesOnly(); // パーティクルのみ更新する場合
+				player_->GetWorldTransform().UpdateMatrix(); // 行列更新のみでも良いかも
+			}
+		}
+
+		// レールカメラと通常カメラは常に更新
+		railCamera_->Update();
 		camera_.matView = railCamera_->GetViewProjection().matView;
 		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
 		camera_.TransferMatrix();
 		break;
-	case SceneState::Clear:
-		// クリアシーンの更新処理
-		if (input_->TriggerKey(DIK_SPACE)) {
-			sceneState = SceneState::Start;
-		}
-		break;
+	}
+	case SceneState::Clear: // Clear と over は変更なし
 	case SceneState::over:
 		if (input_->TriggerKey(DIK_SPACE)) {
 			sceneState = SceneState::Start;
+			// タイトルに戻るときも状態をリセット
+			camera_.Initialize();
+			camera_.TransferMatrix();
+			if (railCamera_) {
+				railCamera_->Reset();
+			}
+			if (player_) {
+				player_->ResetRotation();
+				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+				player_->GetWorldTransform().UpdateMatrix();
+				player_->ResetParticles();
+			}
+			for (Enemy* enemy : enemies_) {
+				delete enemy;
+			}
+			enemies_.clear();
+			for (EnemyBullet* bullet : enemyBullets_) {
+				delete bullet;
+			}
+			enemyBullets_.clear();
+			LoadEnemyPopData();
 		}
-
 		break;
 	}
 }
 
 void GameScene::Draw() {
-
-	// コマンドリストの取得
 	ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
 
-#pragma region 背景スプライト描画
-	// 背景スプライト描画前処理
-	Sprite::PreDraw(commandList);
-	// ここでは背景スプライトは描画しない
+	Sprite::PreDraw(commandList); /* 背景スプライト描画前処理 */
 	Sprite::PostDraw();
 	dxCommon_->ClearDepthBuffer();
-#pragma endregion
 
-#pragma region 3Dオブジェクト描画
 	KamataEngine::Model::PreDraw(commandList);
 
-	// 遷移状態に応じて描画する3Dオブジェクトを決定
+	// シーン状態に応じて描画内容を切り替え
 	if (sceneState == SceneState::Start || sceneState == SceneState::TransitionToGame) {
-		// タイトルシーンの描画
 		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
-	} else if (sceneState == SceneState::Game || sceneState == SceneState::TransitionFromGame || sceneState == SceneState::over) {
-		// ゲームシーンの描画
+	} else if (
+	    sceneState == SceneState::GameIntro || // ★★★ イントロ中も描画 ★★★
+	    sceneState == SceneState::Game || sceneState == SceneState::TransitionFromGame || sceneState == SceneState::over) {
+		// イントロ、ゲーム中共通で描画するもの
 		player_->Draw();
-		for (Enemy* enemy : enemies_) {
-			enemy->Draw(camera_);
-		}
 		skydome_->Draw();
-		for (EnemyBullet* bullet : enemyBullets_) {
-			bullet->Draw(camera_);
+
+		// ★★★ ゲームが始まってから（イントロ完了後）描画するもの ★★★
+		if ((sceneState == SceneState::Game && isGameIntroFinished_) || sceneState == SceneState::over) {
+			for (Enemy* enemy : enemies_) {
+				if (enemy)
+					enemy->Draw(camera_);
+			}
+			for (EnemyBullet* bullet : enemyBullets_) {
+				if (bullet)
+					bullet->Draw(camera_);
+			}
 		}
 	} else if (sceneState == SceneState::Clear) {
-		// クリアシーンの描画
+		// クリア画面の描画
 	}
 
 	KamataEngine::Model::PostDraw();
-#pragma endregion
 
-#pragma region 前景スプライト描画
 	Sprite::PreDraw(commandList);
-
-	// 遷移スプライトの描画 (常に手前に表示する)
+	// 遷移スプライトは該当する状態のときだけ描画
 	if (sceneState == SceneState::TransitionToGame || sceneState == SceneState::TransitionFromGame) {
 		transitionSprite_->Draw();
 	}
-
 	Sprite::PostDraw();
-#pragma endregion
 }
 
-void GameScene::AddEnemyBullet(EnemyBullet* bullet) { enemyBullets_.push_back(bullet); }
+// ... (以降の関数 AddEnemyBullet, EnemySpawn, LoadEnemyPopData, UpdateEnemyPopCommands, CheckAllCollisions, Transitions はほぼ変更なし) ...
+
+void GameScene::AddEnemyBullet(EnemyBullet* bullet) {
+	if (bullet)
+		enemyBullets_.push_back(bullet);
+}
 
 void GameScene::EnemySpawn(const Vector3& position) {
-
 	Enemy* newEnemy = new Enemy();
 	newEnemy->Initialize(modelEnemy_, position);
-
-	// 敵キャラに自キャラのアドレスを渡す
 	newEnemy->SetPlayer(player_);
-	player_->SetEnemy(newEnemy);
+	if (player_)
+		player_->SetEnemy(newEnemy); // Playerが存在するか確認
 	newEnemy->SetGameScene(this);
-
 	enemies_.push_back(newEnemy);
 }
 
 void GameScene::LoadEnemyPopData() {
+	// 読み込む前にクリアする
+	enemyPopCommands.str("");
+	enemyPopCommands.clear(); // エラーフラグもクリア
 
-	// ファイルを開く
 	std::ifstream file;
 	file.open("Resources/enemyPop.csv");
 	assert(file.is_open());
-
-	// ファイルの内容を文字列ストリームにコピー
 	enemyPopCommands << file.rdbuf();
-
-	// ファイルを閉じる
 	file.close();
+
+	// タイマーフラグもリセット
+	timer = 0;
+	timerflag = false;
 }
 
 void GameScene::UpdateEnemyPopCommands() {
-
-	// 待機処理
 	if (timerflag) {
 		timer--;
 		if (timer <= 0) {
-			// 待機完了
 			timerflag = false;
 		}
 		return;
 	}
-
-	// 1行分の文字列を入れる変数
 	std::string line;
-
-	// コマンド実行ループ　
 	while (getline(enemyPopCommands, line)) {
-
-		// 1行分の文字列をストリームに変換して解析しやすくする
 		std::istringstream line_stream(line);
-
 		std::string word;
-		// ,区切りで行の先頭文字を取得
 		getline(line_stream, word, ',');
-
-		// "//"から始まる行はコメント
 		if (word.find("//") == 0) {
-			// コメント行を飛ばす
 			continue;
 		}
-
 		if (word.find("POP") == 0) {
-
-			// x座標
 			getline(line_stream, word, ',');
 			float x = (float)std::atof(word.c_str());
-
-			// y座標
 			getline(line_stream, word, ',');
 			float y = (float)std::atof(word.c_str());
-
-			// z座標
 			getline(line_stream, word, ',');
 			float z = (float)std::atof(word.c_str());
-
-			// 敵を発生させる
 			EnemySpawn(Vector3(x, y, z));
-
-			// WAITコマンド
 		} else if (word.find("WAIT") == 0) {
 			getline(line_stream, word, ',');
-
-			// 待ち時間
 			int32_t waitTime = atoi(word.c_str());
-
-			// 待機開始
-
 			timerflag = true;
 			timer = waitTime;
-
-			// コマンドループを抜ける
 			break;
 		}
 	}
 }
 
 void GameScene::CheckAllCollisions() {
+	if (!player_)
+		return; // プレイヤーがいない場合は何もしない
 
 	KamataEngine::Vector3 posA[3]{}, posB[3]{};
-	float radiusA[3] = {0.8f, 2.0f, 0.8f};  // プレイヤーの半径（固定値）
-	float radiusB[3] = {0.8f, 2.0f, 10.8f}; // 敵弾の半径（固定値）
-
-	// 自弾
+	float radiusA[3] = {0.8f, 2.0f, 0.8f};
+	float radiusB[3] = {0.8f, 2.0f, 10.8f}; // 半径の値は見直しが必要かも
 	const std::list<PlayerBullet*>& playerBullets = player_->GetBullets();
 
-#pragma region 自キャラと敵弾の当たり判定
-
-	// 自キャラの座標
+	// 自キャラ vs 敵弾
 	posA[0] = player_->GetWorldPosition();
-
-	// 自キャラと敵弾全ての当たり判定
 	for (EnemyBullet* bullet : enemyBullets_) {
-		// 敵弾の座標
+		if (!bullet)
+			continue; // nullptrチェック
 		posB[0] = bullet->GetWorldPosition();
-
-		// 2つの球の中心間の距離の二乗を計算
-		float distanceSquared = (posA[0].x - posB[0].x) * (posA[0].x - posB[0].x) + (posA[0].y - posB[0].y) * (posA[0].y - posB[0].y) + (posA[0].z - posB[0].z) * (posA[0].z - posB[0].z);
-
-		// 半径の合計の二乗
+		float distanceSquared = DistanceSquared(posA[0], posB[0]);
 		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
-
 		if (distanceSquared <= combinedRadiusSquared) {
-
 			hitCount2++;
 			if (hitCount2 >= 3) {
-				TransitionToClearScene2(); // カウントが5になったらクリアシーンに移行
+				TransitionToClearScene2();
+				return; // 状態が変わったら抜ける
 			}
 		}
 	}
 
-#pragma endregion
-
-#pragma region 自弾と敵キャラの当たり判定
-
-	for (Enemy* enemy : enemies_) {
-
-		// 敵
+	// 自弾 vs 敵キャラ
+	// 敵リストをコピーしてイテレート（安全な削除のため）
+	auto enemiesCopy = enemies_;
+	for (Enemy* enemy : enemiesCopy) {
+		if (!enemy || enemy->IsDead())
+			continue; // nullptrチェックと死亡チェック
 		posA[1] = enemy->GetWorldPosition();
-
 		for (PlayerBullet* bullet : playerBullets) {
-
+			if (!bullet || bullet->IsDead())
+				continue; // nullptrチェックと死亡チェック
 			posB[1] = bullet->GetWorldPosition();
-			float distanceSquared = (posA[1].x - posB[1].x) * (posA[1].x - posB[1].x) + (posA[1].y - posB[1].y) * (posA[1].y - posB[1].y) + (posA[1].z - posB[1].z) * (posA[1].z - posB[1].z);
-			float combinedRadiusSquared = (radiusA[2] + radiusB[2]) * (radiusA[2] + radiusB[2]);
-
+			float distanceSquared = DistanceSquared(posA[1], posB[1]);
+			float combinedRadiusSquared = (radiusA[2] + radiusB[2]) * (radiusA[2] + radiusB[2]); // インデックス注意: radiusA[1] かも？
 			if (distanceSquared <= combinedRadiusSquared) {
 				enemy->OnCollision();
 				bullet->OnCollision();
-				hitCount++; // カウントを増やす
-
-				// ヒット音を再生
-				audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
-
+				hitCount++;
+				if (audio_)
+					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f); // audio_ nullptrチェック
 				if (hitCount >= 5) {
-					TransitionToClearScene(); // カウントが5になったらクリアシーンに移行
+					TransitionToClearScene();
+					return; // 状態が変わったら抜ける
 				}
 			}
 		}
 	}
-
-#pragma endregion
-
-	// 削除する敵を一時的に保存するリスト
+	// 死んだ敵を元のリストから削除
+	enemies_.remove_if([](Enemy* enemy) {
+		if (enemy && enemy->IsDead()) {
+			delete enemy;
+			return true;
+		}
+		return false;
+	});
 }
 
 void GameScene::TransitionToClearScene() {
-
 	sceneState = SceneState::Clear;
-
-	// 敵の再出現を管理するためのコマンドをリセット
+	enemyPopCommands.str("");
 	enemyPopCommands.clear();
-	enemyPopCommands.str("POP,0,0,100");
-
-	playerPos = {0, 0, 30};
-
-	// 敵を再出現させる
-	UpdateEnemyPopCommands();
-
-	// カウントをリセット
+	// playerPos = {0, 0, 30}; // この変数は直接使っていない
 	hitCount = 0;
 }
 
 void GameScene::TransitionToClearScene2() {
-
 	sceneState = SceneState::over;
-
-	// カウントをリセット
 	hitCount2 = 0;
 }

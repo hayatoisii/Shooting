@@ -1,5 +1,6 @@
 #include "RailCamera.h"
 #include <KamataEngine.h>
+#include <algorithm> // Player.cpp と GaneScene.cpp で <algorithm> が使われているため、念のためインクルードします
 
 void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine::Vector3& rad) {
 
@@ -36,12 +37,24 @@ void RailCamera::Update() {
 	rotationVelocity_.x *= kRotFriction;
 	rotationVelocity_.y *= kRotFriction;
 
+	// ▼▼▼ 修正点 1：回転の適用順序を変更 ▼▼▼
+	// (カメラが横転するのを防ぎます)
+
+	// 1. 左右回転(Y軸回転)を先に適用する
 	KamataEngine::Matrix4x4 matRotY = KamataEngine::MathUtility::MakeRotateYMatrix(rotationVelocity_.y);
+	worldtransfrom_.matWorld_ = matRotY * worldtransfrom_.matWorld_;
 
+	// 2. 左右回転した後の、*新しい*「右」ベクトルを取得する
 	KamataEngine::Vector3 right = {worldtransfrom_.matWorld_.m[0][0], worldtransfrom_.matWorld_.m[0][1], worldtransfrom_.matWorld_.m[0][2]};
-	KamataEngine::Matrix4x4 matRotX = MakeRotateAxisAngle(right, rotationVelocity_.x); // `this->` は省略可能
 
-	worldtransfrom_.matWorld_ = matRotY * worldtransfrom_.matWorld_ * matRotX;
+	// 3. *新しい*「右」ベクトルを軸にして、上下回転(X軸回転)を適用する
+	KamataEngine::Matrix4x4 matRotX = MakeRotateAxisAngle(right, rotationVelocity_.x);
+	worldtransfrom_.matWorld_ = worldtransfrom_.matWorld_ * matRotX;
+
+	// (↓ 問題があった古い回転方法)
+	// worldtransfrom_.matWorld_ = matRotY * worldtransfrom_.matWorld_ * matRotX;
+
+	// ▲▲▲ 修正点 1 ここまで ▲▲▲
 
 	KamataEngine::Vector3 forward = {worldtransfrom_.matWorld_.m[2][0], worldtransfrom_.matWorld_.m[2][1], worldtransfrom_.matWorld_.m[2][2]};
 	forward = KamataEngine::MathUtility::Normalize(forward) * -1.0f;
@@ -85,13 +98,13 @@ KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
 KamataEngine::Matrix4x4 RailCamera::MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle) {
 	KamataEngine::Matrix4x4 result = this->MakeIdentityMatrix();
 
-	// ▼▼▼▼▼ ここからが修正箇所 ▼▼▼▼▼
-
-	// 1. constで変更できない`axis`を、変更可能なローカル変数`n`にコピーする
 	KamataEngine::Vector3 n = axis;
 
-	// 2. コピーした変数`n`をNormalize関数に渡す（これなら変更できる）
-	KamataEngine::MathUtility::Normalize(n);
+	// ▼▼▼ 修正点 2：Normalizeの戻り値を受け取る ▼▼▼
+	// 2. Normalize関数が返した「正規化済みのベクトル」を `n` 自身に代入する
+	n = KamataEngine::MathUtility::Normalize(n);
+	// ▲▲▲ 修正点 2 ここまで ▲▲▲
+
 	float cosTheta = std::cos(angle);
 	float sinTheta = std::sin(angle);
 	float oneMinusCos = 1.0f - cosTheta;
@@ -127,13 +140,13 @@ void RailCamera::Reset() {
 	// 5. 整合性を保つため、translation_メンバーも更新しておく
 	worldtransfrom_.translation_ = currentPosition;
 
-	// --- もし位置も初期化したい場合は、上のコードをコメントアウトし、下のコードを有効にしてください ---
-	/*
+	// ▼▼▼ 修正点 3：重複していたコードを削除 ▼▼▼
+	// (以下の3行は上の処理と重複しているため不要)
 	// 1. 回転の勢いを完全に止める
-	rotationVelocity_ = {0.0f, 0.0f, 0.0f};
+	// rotationVelocity_ = {0.0f, 0.0f, 0.0f};
 	// 2. ワールド行列を完全に初期状態（単位行列）に戻す
-	worldtransfrom_.matWorld_ = MakeIdentityMatrix();
+	// worldtransfrom_.matWorld_ = MakeIdentityMatrix();
 	// 3. WorldTransform内のtranslation_も念のため初期値に戻す
-	worldtransfrom_.translation_ = {0.0f, 0.0f, 0.0f};
-	*/
+	// worldtransfrom_.translation_ = {0.0f, 0.0f, 0.0f};
+	// ▲▲▲ 修正点 3 ここまで ▲▲▲
 }

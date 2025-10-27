@@ -19,20 +19,12 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	worldtransfrom_.translation_ = pos;
 	input_ = KamataEngine::Input::GetInstance();
-	worldtransfrom_.translation_.y = -3.0f;
-
-	// カメラからの距離を調整したい場合は、このZ座標の数値を変更します
-	worldtransfrom_.translation_.z = 28.0f;
 
 	worldtransfrom_.Initialize();
 
 	modelParticle_ = KamataEngine::Model::CreateFromOBJ("cube", true);
-
-	// ▼▼▼ ここが最重要修正ポイントです ▼▼▼
-	// 'engineExfrom_' になっていたタイプミスを 'engineExhaust_' に修正
 	engineExhaust_ = new ParticleEmitter();
 	engineExhaust_->Initialize(modelParticle_);
-	// ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
 }
 
 void Player::OnCollision() { isDead_ = true; }
@@ -87,7 +79,7 @@ void Player::Update() {
 		return false;
 	});
 
-	const float kPlayerMaxX = 3.0f;
+	const float kPlayerMaxX = 4.0f;
 	float targetX = 0.0f;
 	if (input_->PushKey(DIK_A)) {
 		targetX = kPlayerMaxX;
@@ -96,8 +88,10 @@ void Player::Update() {
 		targetX = -kPlayerMaxX;
 	}
 
-	const float kPlayerDefaultY = -3.0f;
-	float targetY = kPlayerDefaultY;
+	// ▼▼▼ 修正点 3：Y座標が戻らないようにする ▼▼▼
+	// 目標Y座標 (targetY) を、現在のY座標 (worldtransfrom_.translation_.y) に設定します。
+	float targetY = worldtransfrom_.translation_.y;
+	// ▲▲▲ 修正点 3 ここまで ▲▲▲
 
 	float moveLerpFactor = 0.0f;
 	if (input_->PushKey(DIK_A) || input_->PushKey(DIK_D)) {
@@ -106,21 +100,25 @@ void Player::Update() {
 		moveLerpFactor = 0.03f;
 	}
 	worldtransfrom_.translation_.x += (targetX - worldtransfrom_.translation_.x) * moveLerpFactor;
+
+	// Y軸は targetY と translation_.y が同じ値なので、右辺が 0 になり、Y座標は変更されなくなる
 	worldtransfrom_.translation_.y += (targetY - worldtransfrom_.translation_.y) * moveLerpFactor;
 
 	if (railCamera_) {
+		// 左右
 		float yawVelocity = railCamera_->GetRotationVelocity().y;
-		const float tiltFactor = -50.0f;
+		const float tiltFactor = -90.0f; // 傾きの速度
 		float targetRoll = yawVelocity * tiltFactor;
-		const float maxRollAngle = 0.5f;
+		const float maxRollAngle = 4.0f; // 傾きの最大値
 		targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
 		const float lerpFactor = 0.1f;
 		worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
 
+		// 上
 		float pitchVelocity = railCamera_->GetRotationVelocity().x;
-		const float pitchFactor = 20.0f;
+		const float pitchFactor = 70.0f;
 		float targetPitch = pitchVelocity * pitchFactor;
-		const float maxPitchAngle = 0.3f;
+		const float maxPitchAngle = 1.5f;
 		targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
 		worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
 	}
@@ -161,4 +159,10 @@ void Player::SetRailCamera(RailCamera* camera) { railCamera_ = camera; }
 void Player::ResetRotation() {
 	// Playerのローカルな回転（傾きなど）をすべてゼロに戻す
 	worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+}
+
+void Player::ResetParticles() {
+	if (engineExhaust_) {
+		    engineExhaust_->Clear(); // ParticleEmitter の Clear 関数を呼び出す
+	}
 }
