@@ -4,6 +4,7 @@
 #include <cmath>          // MathUtility::PI のためにインクルード
 
 void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine::Vector3& rad) {
+	initialPosition_ = pos;
 	// 初期位置を設定
 	worldtransfrom_.translation_ = pos;
 	// WorldTransform を初期化 (スケールと回転は単位行列、位置は pos)
@@ -95,22 +96,28 @@ void RailCamera::Update() {
 }
 
 void RailCamera::Reset() {
-	// 位置はそのまま、回転の勢いと累積角度をリセット
-	KamataEngine::Vector3 currentPosition = worldtransfrom_.translation_; // 位置を保持
+	// 回転の勢いと累積角度をリセット
 	rotationVelocity_ = {0.0f, 0.0f, 0.0f};
-
-	// 累積角度をリセット
 	totalYaw_ = 0.0f;
 	totalPitch_ = 0.0f;
 
-	// ワールド行列も初期化 (単位行列 + 位置)
-	//worldtransfrom_.matWorld_ = MakeIdentityMatrix();
-	worldtransfrom_.matWorld_.m[3][0] = currentPosition.x;
-	worldtransfrom_.matWorld_.m[3][1] = currentPosition.y;
-	worldtransfrom_.matWorld_.m[3][2] = currentPosition.z;
-	worldtransfrom_.translation_ = currentPosition; // translation_ も更新
+	// ★ 位置を currentPosition ではなく initialPosition_ に戻す
+	worldtransfrom_.matWorld_ = MakeIdentityMatrix();
+	worldtransfrom_.matWorld_.m[3][0] = initialPosition_.x;
+	worldtransfrom_.matWorld_.m[3][1] = initialPosition_.y;
+	worldtransfrom_.matWorld_.m[3][2] = initialPosition_.z;
+	worldtransfrom_.translation_ = initialPosition_; // translation_ も初期位置に
 
-	// ビュー行列も更新しておくのが安全
+	// ビュー行列も更新しておく
 	camera_.matView = Inverse(worldtransfrom_.matWorld_);
 	camera_.TransferMatrix();
+}
+
+// RailCamera クラスの MakeIdentityMatrix 実装例
+KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
+    KamataEngine::Matrix4x4 mat = {};
+    for (int i = 0; i < 4; ++i) {
+        mat.m[i][i] = 1.0f;
+    }
+    return mat;
 }

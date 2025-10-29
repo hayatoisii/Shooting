@@ -40,6 +40,9 @@
     <Filter Include="GameProgram\Skydome">
       <UniqueIdentifier>{1c2510fe-9aee-40f9-b92f-22a45286b407}</UniqueIdentifier>
     </Filter>
+    <Filter Include="GameProgram\MathUtility">
+      <UniqueIdentifier>{f1379ecc-de4e-49ea-abd2-a99503adb3a8}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">

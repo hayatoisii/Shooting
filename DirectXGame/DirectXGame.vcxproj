@@ -63,7 +63,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;_DEBUG;USE_IMGUI;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -86,7 +86,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>MinSpace</Optimization>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>

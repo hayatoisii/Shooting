@@ -39,6 +39,8 @@ private:
 
 	KamataEngine::WorldTransform worldtransfrom_;
 
+	KamataEngine::Vector3 initialPosition_;
+
 	KamataEngine::Camera camera_;
 
 	KamataEngine::Vector3 velocity_ = {1.0f,1.0f,1.0f};
