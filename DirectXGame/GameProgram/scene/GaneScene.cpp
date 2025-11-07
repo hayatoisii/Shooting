@@ -196,13 +196,7 @@ void GameScene::Update() {
 	}
 	case SceneState::Game: {
 		// ▼▼▼ 修正 ▼▼▼
-		// ゲーム内タイマーをここで進める
-		gameSceneTimer_++;
-
-		 if (gameSceneTimer_ >= 70) {
-		 	//TransitionToClearScene2(); // ゲームオーバーシーンに遷移
-		 //	break;                   // Game ステートの残りの処理はスキップ
-		 }
+//
 
 		// デモ用自動復帰タイマー (タイムオーバーでタイトルへ)
 		if (gameSceneTimer_ > kGameTimeLimit_) {

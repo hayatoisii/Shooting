@@ -24,7 +24,7 @@ void ParticleEmitter::Update() {
 
 			// 時間経過で小さくなって消える処理
 			//float lifeRatio = particle.currentTime_ / particle.lifeTime_;
-			float scale = 0.2f;
+			float scale = 0.3f;
 			particle.worldTransform_.scale_ = {scale, scale, scale};
 
 			particle.worldTransform_.UpdateMatrix();
@@ -67,7 +67,7 @@ void ParticleEmitter::CreateParticle(const KamataEngine::Vector3& position, cons
 			KamataEngine::Vector3 randomVelocity = {(MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f};
 			particle.velocity_ = velocity + randomVelocity;
 
-			particle.lifeTime_ = static_cast<float>(5 + MT::GetRand() % 5); // 寿命を少し調整
+			particle.lifeTime_ = static_cast<float>(3 + MT::GetRand() % 3); // 寿命を少し調整 static_cast<float>(4 + MT::GetRand() % 4);
 			particle.currentTime_ = 0;
 			return;
 		}

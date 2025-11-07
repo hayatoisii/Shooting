@@ -57,5 +57,6 @@ private:
 	// ▼▼▼ 追加 ▼▼▼
 	// ホーミング開始後のオーバーシュートチェック遅延タイマー
 	int homingCheckDelayTimer_ = 10; // 例: 10フレーム遅延
-	                                 // ▲▲▲ 追加完了 ▲▲▲
+	
+	int32_t homingDelayTimer_ = 0;
 };

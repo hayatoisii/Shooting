@@ -77,4 +77,9 @@ private:
 	class Sprite* targetSprite_ = nullptr;
 	bool isOnScreen_ = false;
 	KamataEngine::Vector2 screenPosition_;
+
+	bool wasOnScreenLastFrame_ = false; // 1フレーム前の画面内判定
+	float lockOnAnimRotation_ = 0.0f;   // ロックオン演出用の回転角度 (ラジアン)
+	float lockOnAnimScale_ = 1.0f;
+
 };

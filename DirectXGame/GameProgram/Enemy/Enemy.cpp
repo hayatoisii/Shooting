@@ -1,11 +1,11 @@
 #include "Enemy.h"
 #include "2d/Sprite.h"
-#include "GaneScene.h" // AddEnemyBullet のためにインクルード
+#include "GaneScene.h"
 #include "Player.h"
 #include "base/TextureManager.h"
 #include "base/WinApp.h"
 #include <algorithm>
-#include <cassert> // assert のためにインクルード
+#include <cassert>
 
 Enemy::~Enemy() {
 	delete modelbullet_;
@@ -32,6 +32,11 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 		targetSprite_->SetAnchorPoint({0.5f, 0.5f});
 	}
 	isOnScreen_ = false;
+
+	wasOnScreenLastFrame_ = false; // 最初は画面外として初期化
+	lockOnAnimRotation_ = 0.0f;    // 最初の回転は 0
+	lockOnAnimScale_ = 1.0f;
+
 }
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() {
@@ -70,7 +75,6 @@ void Enemy::Fire() {
 		KamataEngine::Vector3 playerWorldtransform = player_->GetWorldPosition();
 		KamataEngine::Vector3 enemyWorldtransform = GetWorldPosition();
 
-		// ▼▼▼ 修正 ▼▼▼
 		// ★ 向きを修正 (ターゲット - 自分)
 		KamataEngine::Vector3 homingBullet = playerWorldtransform - enemyWorldtransform;
 		// ▲▲▲ 修正完了 ▲▲▲
@@ -99,7 +103,7 @@ void Enemy::Fire() {
 
 void Enemy::Update() {
 
-	Fire();
+	//Fire();
 
 	// キャラクターの移動ベクトル
 	KamataEngine::Vector3 move = {0, 0, 0};
@@ -155,59 +159,90 @@ void Enemy::UpdateScreenPosition() {
 		return;
 	}
 
-	// ワールド座標を取得
-	KamataEngine::Vector3 worldPos = GetWorldPosition();
-
-	// カメラの行列
 	const KamataEngine::Matrix4x4& viewMatrix = camera_->matView;
 	const KamataEngine::Matrix4x4& projMatrix = camera_->matProjection;
 
-	// --- 1. ワールド -> ビュー変換 (vM形式) ---
+	// 1. ワールド -> ビュー座標変換
+	KamataEngine::Vector3 worldPos = GetWorldPosition();
 	KamataEngine::Vector3 viewPos;
-	viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + viewMatrix.m[3][0];
-	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + viewMatrix.m[3][1];
-	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + viewMatrix.m[3][2];
+	viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
+	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
+	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
 
-	// ▼▼▼ 修正 ▼▼▼
-	// カメラの前方にあるかチェック (ビュー座標のZがプラスか)
-	if (viewPos.z > 0.0f) {
-		// ▲▲▲ 修正完了 ▲▲▲
-
-		// --- 2. ビュー -> クリップ座標変換 (vM形式) ---
-		// viewPos (x, y, z, 1.0) * projMatrix
+	// 2. ビュー -> クリップ座標変換 & 画面内判定
+	if (viewPos.z > 0.0f) { // カメラの前方か
 		float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
 		float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
-
-		// ★ パースペクティブ除算に使う w (w_clip) は、プロジェクション行列をかけた結果の第4成分
 		float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
 
-		// (w_clip が 0 またはマイナスの場合も描画しない)
-		if (w_clip > 0.0f) {
-
-			// --- 3. パースペクティブ除算 (クリップ -> NDC) ---
+		if (w_clip > 0.0f) { // w が 0 より大きいか
 			float ndcX = clipX / w_clip;
 			float ndcY = clipY / w_clip;
 
-			// --- 4. NDC -> スクリーン座標 ---
-			float screenX = (ndcX + 1.0f) * 0.5f * WinApp::kWindowWidth;
-			float screenY = (1.0f - ndcY) * 0.5f * WinApp::kWindowHeight;
-
-			screenPosition_ = {screenX, screenY};
-
-			// 画面内判定 (NDCが -1.0～+1.0 の範囲内か)
-			bool isWithinBounds = (ndcX >= -1.0f && ndcX <= 1.0f) && (ndcY >= -1.0f && ndcY <= 1.0f);
-
-			if (isWithinBounds) {
-				isOnScreen_ = true;
-				targetSprite_->SetPosition(screenPosition_);
+			// 画面内 (NDC -1～1) か
+			if (ndcX >= -1.0f && ndcX <= 1.0f && ndcY >= -1.0f && ndcY <= 1.0f) {
+				isOnScreen_ = true; // ★ 画面内
+				// 4. NDC -> スクリーン座標変換
+				float screenX = (ndcX + 1.0f) * 0.5f * KamataEngine::WinApp::kWindowWidth;
+				float screenY = (1.0f - ndcY) * 0.5f * KamataEngine::WinApp::kWindowHeight;
+				targetSprite_->SetPosition({screenX, screenY});
 			} else {
-				isOnScreen_ = false; // 画面外
+				isOnScreen_ = false; // ★ 画面外 (NDC範囲外)
 			}
 		} else {
-			isOnScreen_ = false; // w_clip が0以下 (クリップ平面の手前か後方)
+			isOnScreen_ = false; // ★ 画面外 (w_clip <= 0)
 		}
 	} else {
-		// カメラの後方 (ビュー座標のZがマイナス)
-		isOnScreen_ = false;
+		isOnScreen_ = false; // ★ 画面外 (カメラの後ろ)
 	}
+
+	// --- ▼▼▼ ロックオン演出の計算 (ここから修正) ▼▼▼ ---
+
+	// 画面内に「入った」瞬間かどうか
+	bool justAppeared = (isOnScreen_ && !wasOnScreenLastFrame_);
+
+	if (justAppeared) {
+		// 1. 回転アニメーションを開始
+		lockOnAnimRotation_ = KamataEngine::MathUtility::PI * 1.0f; // 360度
+
+		// 2. スケールアニメーションを開始 (2倍の大きさから)
+		lockOnAnimScale_ = 2.0f;
+	}
+
+	// --- アニメーションの更新 ---
+	const float kLockOnAnimFriction = 0.90f; // 減速率 (90%に)
+	const float kTargetScale = 1.0f;         // 目標のスケール
+
+	// 1. 回転アニメーション (0 に近づける)
+	if (lockOnAnimRotation_ > 0.0f) {
+		lockOnAnimRotation_ *= kLockOnAnimFriction;
+		if (lockOnAnimRotation_ < 0.01f) {
+			lockOnAnimRotation_ = 0.0f;
+		}
+	}
+
+	// 2. スケールアニメーション (1.0 に近づける)
+	if (lockOnAnimScale_ != kTargetScale) {
+		// 目標スケール(1.0)と現在のスケールの差分に、減速率の残り(10%)を掛けて近づける
+		lockOnAnimScale_ += (kTargetScale - lockOnAnimScale_) * (1.0f - kLockOnAnimFriction);
+
+		// ほとんど 1.0f になったら補正
+		if (std::abs(lockOnAnimScale_ - kTargetScale) < 0.01f) {
+			lockOnAnimScale_ = kTargetScale;
+		}
+	}
+
+	// --- スプライトに適用 ---
+	if (targetSprite_) {
+		// 計算した回転をスプライトに設定
+		targetSprite_->SetRotation(lockOnAnimRotation_);
+
+		// 計算したスケールをスプライトのサイズに適用 (基本サイズ 50.0f に掛ける)
+		const float baseSize = 50.0f; // Initialize で設定した基本サイズと同じ値
+		targetSprite_->SetSize({baseSize * lockOnAnimScale_, baseSize * lockOnAnimScale_});
+	}
+
+	// 最後に、現在のフレームの画面内判定を「前のフレーム」として保存
+	wasOnScreenLastFrame_ = isOnScreen_;
+	// --- ▲▲▲ 追加完了 ▲▲▲ ---
 }
