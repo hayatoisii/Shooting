@@ -219,7 +219,7 @@ void Player::ResetParticles() {
 	}
 }
 
-// ゲームオーバー演出用の更新関数
+
 void Player::UpdateGameOver(float animationTime) {
 	// --- 1. 姿勢制御 (斜め下向き) ---
 	const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;
