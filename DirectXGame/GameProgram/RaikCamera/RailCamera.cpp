@@ -1,123 +1,161 @@
 #include "RailCamera.h"
-#include <KamataEngine.h> // KamataEngine ヘッダをインクルード
-#include <algorithm>      // std::clamp のためにインクルード
-#include <cmath>          // MathUtility::PI のためにインクルード
+#include "../../Quaternion.h" // (★ クォータニオンヘッダのパス)
+#include <KamataEngine.h>
+#include <algorithm>
+#include <cmath>
+
+// ▼▼▼ 足りないもの(1): 名前空間の指定 ▼▼▼
+// (これがないと Quaternion や Vector3 などが見つからずエラーになります)
+using namespace KamataEngine;
+// ▲▲▲ 修正完了 ▲▲▲
 
 void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine::Vector3& rad) {
 	initialPosition_ = pos;
-	// 初期位置を設定
+	initialRotationEuler_ = rad; // ★ 初期回転を保存
+
 	worldtransfrom_.translation_ = pos;
-	// WorldTransform を初期化 (スケールと回転は単位行列、位置は pos)
 	worldtransfrom_.Initialize();
-	// カメラを初期化
 	camera_.Initialize();
 
-	// 初期角度を設定 (引数 rad を使う場合)
-	totalPitch_ = rad.x; // 必要に応じてコメント解除
-	totalYaw_ = rad.y;   // 必要に応じてコメント解除
+	// ★ 初期オイラー角からクォータニオンを生成
+	Quaternion qPitch = Quaternion::MakeRotateAxisAngle({1.0f, 0.0f, 0.0f}, initialRotationEuler_.x);
+	Quaternion qYaw = Quaternion::MakeRotateAxisAngle({0.0f, 1.0f, 0.0f}, initialRotationEuler_.y);
+	// (ヨー -> ピッチ の順で合成)
+	rotation_ = qYaw * qPitch;
+	rotation_ = Quaternion::Normalize(rotation_);
 }
 
 void RailCamera::Update() {
-	// キーボード入力インスタンスの取得
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
-	// カメラの移動速度 (正の値)
-	const float kCameraSpeed = 0.5f;
-	// 回転加速度
-	const float kRotAcceleration = 0.0005f;
-	// 回転摩擦係数
-	const float kRotFriction = 0.95f;
+	const float kCameraSpeed = 0.5f; // ★ 自動前進する速度
+	const float kRotSpeed = 0.02f;   // 回転速度
 
-	// --- 1. 回転速度の更新 ---
-	// キー入力で回転速度を変化させる
-	if (input->PushKey(DIK_A)) {
-		rotationVelocity_.y -= kRotAcceleration; // 左回転 (ヨー速度を減らす)
-	} else if (input->PushKey(DIK_D)) {
-		rotationVelocity_.y += kRotAcceleration; // 右回転 (ヨー速度を増やす)
-	}
+	// --- 1. 回転量の決定 ---
+
+	float deltaYaw = 0.0f;   // ヨー (Y軸回転、首振り)
+	float deltaPitch = 0.0f; // ピッチ (X軸回転、上下)
+	float deltaRoll = 0.0f;  // ロール (Z軸回転、傾き)
+
+	// ▼▼▼ "自動前進 + WASD/矢印で回転" の操作系 ▼▼▼
+
+	// ピッチ (上下) -> W/Sキー
 	if (input->PushKey(DIK_W)) {
-		rotationVelocity_.x -= kRotAcceleration / 1.5f; // 上回転 (ピッチ速度を減らす)
-	} else if (input->PushKey(DIK_S)) {
-		rotationVelocity_.x += kRotAcceleration / 1.5f; // 下回転 (ピッチ速度を増やす)
+		deltaPitch = -kRotSpeed; // 上昇
+	}
+	if (input->PushKey(DIK_S)) {
+		deltaPitch = kRotSpeed; // 下降
 	}
 
-	// 摩擦による減速
-	rotationVelocity_.x *= kRotFriction;
-	rotationVelocity_.y *= kRotFriction;
+	// ヨー (左右の首振り) -> A/Dキー
+	if (input->PushKey(DIK_A)) {
+		deltaYaw = -kRotSpeed; // 左旋回
+	}
+	if (input->PushKey(DIK_D)) {
+		deltaYaw = kRotSpeed; // 右旋回
+	}
 
-	// --- 2. 累積角度の更新 ---
-	totalYaw_ += rotationVelocity_.y;   // ヨー角を更新
-	totalPitch_ += rotationVelocity_.x; // ピッチ角を更新
+	// ロール (左右の傾き) -> 矢印キー LEFT/RIGHT
+	if (input->PushKey(DIK_LEFT)) {
+		deltaRoll = -kRotSpeed;
+	}
+	if (input->PushKey(DIK_RIGHT)) {
+		deltaRoll = kRotSpeed;
+	}
 
-	// --- 3. ピッチ角の制限 ---
-	// 真上 (約+89.4度) や真下 (約-89.4度) に行きすぎないように制限
-	const float pitchLimit = KamataEngine::MathUtility::PI / 2.0f - 0.01f;
-	totalPitch_ = std::clamp(totalPitch_, -pitchLimit, pitchLimit);
+	// (矢印キー UP/DOWN はピッチと重複するため、ここでは使わない)
 
-	// --- 4. 回転行列の作成 ---
-	// 累積したヨー角とピッチ角から回転行列を作成
-	// Y軸周りの回転 (ヨー)
-	KamataEngine::Matrix4x4 matRotY = KamataEngine::MathUtility::MakeRotateYMatrix(totalYaw_);
-	// X軸周りの回転 (ピッチ)
-	KamataEngine::Matrix4x4 matRotX = KamataEngine::MathUtility::MakeRotateXMatrix(totalPitch_);
-	// 回転行列を合成 (X回転を適用した後にY回転を適用)
-	KamataEngine::Matrix4x4 rotationMatrix = matRotX * matRotY;
+	// ▲▲▲ 操作系の変更完了 ▲▲▲
 
-	// --- 5. 移動方向と移動量の計算 ---
-	// 回転行列からカメラのローカル +Z軸 ベクトルを取得 (進行方向)
-	KamataEngine::Vector3 lookDirection;
-	lookDirection.x = rotationMatrix.m[2][0]; // ★ 符号を元に戻しました
-	lookDirection.y = rotationMatrix.m[2][1]; // ★ 符号を元に戻しました
-	lookDirection.z = rotationMatrix.m[2][2]; // ★ 符号を元に戻しました
-	// lookDirection = KamataEngine::MathUtility::Normalize(lookDirection); // 必要であれば正規化
+	// Playerが参照できるようにメンバ変数に保存
+	lastDeltaYaw_ = deltaYaw;
+	lastDeltaPitch_ = deltaPitch;
+	// (必要なら lastDeltaRoll_ も .h に追加して保存)
 
-	// 移動量を計算 (前方ベクトル * 速度)
-	KamataEngine::Vector3 move = lookDirection * kCameraSpeed;
+	// --- 3. 差分回転クォータニオンの生成 ---
 
-	// --- 6. ワールド行列の更新 ---
-	// 現在の位置に移動量を加算して新しい位置を計算
-	KamataEngine::Vector3 currentPosition = worldtransfrom_.translation_;
-	KamataEngine::Vector3 newPosition = currentPosition + move;
+	// (現在の回転からローカル軸を取得)
+	Matrix4x4 currentRotationMatrix = Quaternion::MakeMatrix(rotation_);
+	Vector3 localXAxis = {currentRotationMatrix.m[0][0], currentRotationMatrix.m[0][1], currentRotationMatrix.m[0][2]};
+	Vector3 localYAxis = {currentRotationMatrix.m[1][0], currentRotationMatrix.m[1][1], currentRotationMatrix.m[1][2]};
+	Vector3 localZAxis = {currentRotationMatrix.m[2][0], currentRotationMatrix.m[2][1], currentRotationMatrix.m[2][2]};
 
-	// ワールド行列を新しい回転と位置で再構築 (スケールは{1,1,1}とする)
-	worldtransfrom_.matWorld_ = rotationMatrix;        // まず回転行列をコピー
-	worldtransfrom_.matWorld_.m[3][0] = newPosition.x; // 平行移動成分を設定
+	localXAxis = localXAxis.Normalize();
+	localYAxis = localYAxis.Normalize();
+	localZAxis = localZAxis.Normalize();
+
+	// ヨー回転（左右首振り）: ローカルY軸周り (機体の上方向)
+	Quaternion deltaQuatYaw = Quaternion::MakeRotateAxisAngle(localYAxis, deltaYaw);
+
+	// ピッチ回転（上下）: ローカルX軸周り (機体の右方向)
+	Quaternion deltaQuatPitch = Quaternion::MakeRotateAxisAngle(localXAxis, deltaPitch);
+
+	// ロール回転（傾き）: ローカルZ軸周り (機体の前方向)
+	Quaternion deltaQuatRoll = Quaternion::MakeRotateAxisAngle(localZAxis, deltaRoll);
+
+	// --- 4. 回転の合成 ---
+	rotation_ = deltaQuatRoll * deltaQuatPitch * deltaQuatYaw * rotation_;
+	rotation_ = Quaternion::Normalize(rotation_);
+
+	// --- 5. 回転行列の生成 ---
+	Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
+
+	// --- 6. 移動処理 (★ 常に自動で前進) ---
+	Vector3 move = {0.0f, 0.0f, 0.0f};
+
+	// ★ 常に前進 (ローカルZ軸方向)
+	move.z += kCameraSpeed;
+
+	// (W/S/A/Dキーでの移動は行わない)
+
+	// 回転行列に基づいて移動ベクトルを変換
+	move = KamataEngine::MathUtility::TransformNormal(move, rotationMatrix);
+
+	Vector3 currentPosition = worldtransfrom_.translation_;
+	Vector3 newPosition = currentPosition + move;
+
+	// ワールド行列を新しい回転と位置で再構築
+	worldtransfrom_.matWorld_ = rotationMatrix;
+	worldtransfrom_.matWorld_.m[3][0] = newPosition.x;
 	worldtransfrom_.matWorld_.m[3][1] = newPosition.y;
 	worldtransfrom_.matWorld_.m[3][2] = newPosition.z;
 
-	// WorldTransform の translation_ メンバーも更新しておく
 	worldtransfrom_.translation_ = newPosition;
 
 	// --- 7. ビュー行列の更新 ---
-	// ワールド行列の逆行列をビュー行列として設定
-	camera_.matView = Inverse(worldtransfrom_.matWorld_);
-	// カメラの行列をGPUに転送 (必要な場合)
+	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
 	camera_.TransferMatrix();
 }
-
 void RailCamera::Reset() {
-	// 回転の勢いと累積角度をリセット
-	rotationVelocity_ = {0.0f, 0.0f, 0.0f};
-	totalYaw_ = 0.0f;
-	totalPitch_ = 0.0f;
+	// ★ 回転を初期クォータニオンに戻す
+	Quaternion qPitch = Quaternion::MakeRotateAxisAngle({1.0f, 0.0f, 0.0f}, initialRotationEuler_.x);
+	Quaternion qYaw = Quaternion::MakeRotateAxisAngle({0.0f, 1.0f, 0.0f}, initialRotationEuler_.y);
+	rotation_ = qYaw * qPitch;
+	rotation_ = KamataEngine::Quaternion::Normalize(rotation_);
 
-	// ★ 位置を currentPosition ではなく initialPosition_ に戻す
-	worldtransfrom_.matWorld_ = MakeIdentityMatrix();
+	// 位置を initialPosition_ に戻す
+	worldtransfrom_.matWorld_ = MakeIdentityMatrix(); // (MakeIdentityMatrix()は.hに残している前提)
 	worldtransfrom_.matWorld_.m[3][0] = initialPosition_.x;
 	worldtransfrom_.matWorld_.m[3][1] = initialPosition_.y;
 	worldtransfrom_.matWorld_.m[3][2] = initialPosition_.z;
-	worldtransfrom_.translation_ = initialPosition_; // translation_ も初期位置に
+	worldtransfrom_.translation_ = initialPosition_;
 
-	// ビュー行列も更新しておく
-	camera_.matView = Inverse(worldtransfrom_.matWorld_);
+	// (ビュー行列の更新も忘れずに)
+	// ▼▼▼ 足りないもの(4): Inverse の呼び出し方 ▼▼▼
+	// camera_.matView = Inverse(worldtransfrom_.matWorld_); // ★ 修正前 (エラー)
+	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_); // ★ 修正後
+	// ▲▲▲ 修正完了 ▲▲▲
 	camera_.TransferMatrix();
 }
 
-// RailCamera クラスの MakeIdentityMatrix 実装例
+// RailCamera::MakeRotateAxisAngle は廃止
+
+// MakeIdentityMatrix は Reset で使われているため残す
 KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
-    KamataEngine::Matrix4x4 mat = {};
-    for (int i = 0; i < 4; ++i) {
-        mat.m[i][i] = 1.0f;
-    }
-    return mat;
+	KamataEngine::Matrix4x4 result = {};
+	result.m[0][0] = 1.0f;
+	result.m[1][1] = 1.0f;
+	result.m[2][2] = 1.0f;
+	result.m[3][3] = 1.0f;
+	return result;
 }

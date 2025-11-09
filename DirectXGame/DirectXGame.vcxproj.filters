@@ -84,6 +84,9 @@
     <ClCompile Include="GameProgram\MT\AABB.cpp">
       <Filter>GameProgram\MT</Filter>
     </ClCompile>
+    <ClCompile Include="Quaternion.cpp">
+      <Filter>GameProgram\MT</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\SpritePS.hlsl">
@@ -169,6 +172,9 @@
       <Filter>GameProgram\MT</Filter>
     </ClInclude>
     <ClInclude Include="GameProgram\MT\AABB.h">
+      <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="Quaternion.h">
       <Filter>GameProgram\MT</Filter>
     </ClInclude>
   </ItemGroup>

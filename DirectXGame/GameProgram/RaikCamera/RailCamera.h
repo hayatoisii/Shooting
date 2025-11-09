@@ -1,14 +1,14 @@
 #pragma once
-#include<3d/WorldTransform.h>
+#include "MT.h"
 #include <3d/Camera.h>
-#include"MT.h"
+#include "../../Quaternion.h"
+#include <3d/WorldTransform.h>
 
 class Player;
 
 class RailCamera {
 
 public:
-
 	struct Rect {
 		float left = 0.0f;
 		float right = 1.0f;
@@ -25,25 +25,27 @@ public:
 	const Camera& GetViewProjection() { return camera_; }
 	const WorldTransform& GetWorldTransform() { return worldtransfrom_; }
 
-	const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; }
+	float GetLastDeltaYaw() const { return lastDeltaYaw_; }
+	float GetLastDeltaPitch() const { return lastDeltaPitch_; }
 
-	void Reset(); 
+	// const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; } // ★ 廃止
 
-	KamataEngine::Matrix4x4 MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle);
+	void Reset();
+
+	// KamataEngine::Matrix4x4 MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle); // ★ 廃止 (クォータニオン関数を使用)
 	KamataEngine::Matrix4x4 MakeIdentityMatrix();
 
 private:
 
-	float totalYaw_ = 0.0f;   // 水平回転 (左右)
-	float totalPitch_ = 0.0f; // 垂直回転 (上下)
-
 	KamataEngine::WorldTransform worldtransfrom_;
 
 	KamataEngine::Vector3 initialPosition_;
+	KamataEngine::Vector3 initialRotationEuler_; // ★ リセット用に初期回転（オイラー角）を保持
 
-	KamataEngine::Camera camera_;
+	KamataEngine::Quaternion rotation_; // ★ 現在の回転をクォータニオンで保持
 
-	KamataEngine::Vector3 velocity_ = {1.0f,1.0f,1.0f};
-	KamataEngine::Vector3 rotationVelocity_ = {0.0f, 0.0f, 0.0f};
+	Camera camera_; // (元ファイルに無かったですが、Updateで使っているので追加)
 
+	float lastDeltaYaw_ = 0.0f;
+	float lastDeltaPitch_ = 0.0f;
 };
