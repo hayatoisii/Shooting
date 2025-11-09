@@ -1,7 +1,7 @@
 #pragma once
+#include "../../Quaternion.h" // (クォータニオンのヘッダパス)
 #include "MT.h"
 #include <3d/Camera.h>
-#include "../../Quaternion.h"
 #include <3d/WorldTransform.h>
 
 class Player;
@@ -25,18 +25,16 @@ public:
 	const Camera& GetViewProjection() { return camera_; }
 	const WorldTransform& GetWorldTransform() { return worldtransfrom_; }
 
-	float GetLastDeltaYaw() const { return lastDeltaYaw_; }
-	float GetLastDeltaPitch() const { return lastDeltaPitch_; }
-
-	// const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; } // ★ 廃止
+	// ▼▼▼ 慣性のために復活 ▼▼▼
+	const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; }
+	// ▲▲▲ 復活完了 ▲▲▲
 
 	void Reset();
 
-	// KamataEngine::Matrix4x4 MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle); // ★ 廃止 (クォータニオン関数を使用)
+	// KamataEngine::Matrix4x4 MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle); // ★ 廃止
 	KamataEngine::Matrix4x4 MakeIdentityMatrix();
 
 private:
-
 	KamataEngine::WorldTransform worldtransfrom_;
 
 	KamataEngine::Vector3 initialPosition_;
@@ -44,8 +42,9 @@ private:
 
 	KamataEngine::Quaternion rotation_; // ★ 現在の回転をクォータニオンで保持
 
-	Camera camera_; // (元ファイルに無かったですが、Updateで使っているので追加)
+	// ▼▼▼ 慣性のために復活 ▼▼▼
+	KamataEngine::Vector3 rotationVelocity_{0.0f, 0.0f, 0.0f}; // X:Pitch, Y:Yaw, Z:Roll の速度
+	// ▲▲▲ 復活完了 ▲▲▲
 
-	float lastDeltaYaw_ = 0.0f;
-	float lastDeltaPitch_ = 0.0f;
+	Camera camera_; // (元ファイルに無かったですが、Updateで使っているので追加)
 };

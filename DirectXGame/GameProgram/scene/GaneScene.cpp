@@ -97,15 +97,6 @@ void GameScene::Initialize() {
 
 void GameScene::Update() {
 
-	if (input_->TriggerKey(DIK_R)) {
-		if (railCamera_) {
-			railCamera_->Reset();
-		}
-		if (player_) {
-			player_->ResetRotation();
-		}
-	}
-
 	switch (sceneState) {
 	case SceneState::Start: {
 		if (input_->TriggerKey(DIK_SPACE)) {

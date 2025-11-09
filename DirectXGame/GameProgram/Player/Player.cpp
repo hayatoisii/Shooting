@@ -158,27 +158,30 @@ void Player::Update() {
 	worldtransfrom_.translation_.x += (targetX - worldtransfrom_.translation_.x) * moveLerpFactor;
 	worldtransfrom_.translation_.y += (targetY - worldtransfrom_.translation_.y) * moveLerpFactor;
 
-	// --- 回転処理 (カメラの動きに連動) ---
-	if (railCamera_) {
+    if (railCamera_) {
 		const float lerpFactor = 0.1f;
 
-		// float yawVelocity = railCamera_->GetRotationVelocity().y; // ★ 修正前
-		float yawDelta = railCamera_->GetLastDeltaYaw(); // ★ 修正後
-		const float tiltFactor = -30.0f;                 // 傾き係数
-		// float targetRoll = yawVelocity * tiltFactor;               // ★ 修正前
-		float targetRoll = yawDelta * tiltFactor; // ★ 修正後
-		const float maxRollAngle = 4.0f;          // 最大傾き
+		// ▼▼▼ 慣性のある速度を参照するように戻す ▼▼▼
+
+		// float yawDelta = railCamera_->GetLastDeltaYaw(); // ★ 修正前
+		float yawVelocity = railCamera_->GetRotationVelocity().y; // ★ 修正後
+		const float tiltFactor = -75.0f;
+		// float targetRoll = yawDelta * tiltFactor;    // ★ 修正前
+		float targetRoll = yawVelocity * tiltFactor; // ★ 修正後 (ヨーの「勢い」で機体を傾ける)
+		const float maxRollAngle = 4.0f;
 		targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
 		worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
 
-		// float pitchVelocity = railCamera_->GetRotationVelocity().x; // ★ 修正前
-		float pitchDelta = railCamera_->GetLastDeltaPitch(); // ★ 修正後
-		const float pitchFactor = 15.0f;                     // 傾き係数
-		// float targetPitch = pitchVelocity * pitchFactor;             // ★ 修正前
-		float targetPitch = pitchDelta * pitchFactor; // ★ 修正後
-		const float maxPitchAngle = 1.5f;             // 最大傾き
+		// float pitchDelta = railCamera_->GetLastDeltaPitch(); // ★ 修正前
+		float pitchVelocity = railCamera_->GetRotationVelocity().x; // ★ 修正後
+		const float pitchFactor = 15.0f;
+		// float targetPitch = pitchDelta * pitchFactor; // ★ 修正前
+		float targetPitch = pitchVelocity * pitchFactor; // ★ 修正後 (ピッチの「勢い」で機体を傾ける)
+		const float maxPitchAngle = 1.5f;
 		targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
 		worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
+
+		// ▲▲▲ 修正完了 ▲▲▲
 	}
 
 	// --- ワールド行列の更新 ---

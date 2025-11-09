@@ -44,6 +44,13 @@ struct Vector3 final {
 		float invLen = 1.0f / std::sqrt(lenSq);
 		return {x * invLen, y * invLen, z * invLen};
 	}
+	// *= 演算子のオーバーロードを追加
+	Vector3& operator*=(float scalar) {
+		this->x *= scalar;
+		this->y *= scalar;
+		this->z *= scalar;
+		return *this;
+	}
 };
 
 } // namespace KamataEngine
