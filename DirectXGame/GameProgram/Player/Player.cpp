@@ -164,7 +164,7 @@ void Player::Update() {
 
 		// float yawVelocity = railCamera_->GetRotationVelocity().y; // ★ 修正前
 		float yawDelta = railCamera_->GetLastDeltaYaw(); // ★ 修正後
-		const float tiltFactor = -75.0f;                 // 傾き係数
+		const float tiltFactor = -30.0f;                 // 傾き係数
 		// float targetRoll = yawVelocity * tiltFactor;               // ★ 修正前
 		float targetRoll = yawDelta * tiltFactor; // ★ 修正後
 		const float maxRollAngle = 4.0f;          // 最大傾き
@@ -173,7 +173,7 @@ void Player::Update() {
 
 		// float pitchVelocity = railCamera_->GetRotationVelocity().x; // ★ 修正前
 		float pitchDelta = railCamera_->GetLastDeltaPitch(); // ★ 修正後
-		const float pitchFactor = 35.0f;                     // 傾き係数
+		const float pitchFactor = 15.0f;                     // 傾き係数
 		// float targetPitch = pitchVelocity * pitchFactor;             // ★ 修正前
 		float targetPitch = pitchDelta * pitchFactor; // ★ 修正後
 		const float maxPitchAngle = 1.5f;             // 最大傾き
