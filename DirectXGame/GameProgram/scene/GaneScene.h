@@ -96,5 +96,7 @@ private:
 
 	// ▼▼▼ 追加 ▼▼▼
 	float gameOverTimer_ = 0.0f; // ゲームオーバー演出用タイマー
-	                             // ▲▲▲ 追加完了 ▲▲▲
+	
+	// カメラ位置アンカー
+	WorldTransform cameraPositionAnchor_;
 };

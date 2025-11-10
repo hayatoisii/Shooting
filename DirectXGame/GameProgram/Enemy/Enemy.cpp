@@ -7,6 +7,11 @@
 #include <algorithm>
 #include <cassert>
 
+// ▼▼▼ 1. include の不足を修正 ▼▼▼
+#include "KamataEngine.h" // MathUtility (Normalize, Length) のために追加
+#include <cmath>          // std::cos, std::sin のために追加
+// ▲▲▲ 修正完了 ▲▲▲
+
 Enemy::~Enemy() {
 	delete modelbullet_;
 	delete targetSprite_;
@@ -17,13 +22,22 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	model_ = model;
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	worldtransfrom_.translation_ = pos;
+
+	// ▼▼▼ 2. Initialize の変数名を修正 ▼▼▼
+	// initialRelativePos_ = pos; // ★ 修正前
+	initialWorldPos_ = pos; // ★ 修正後 (スポーン時の「ワールド座標」を保存)
+	// ▲▲▲ 修正完了 ▲▲▲
+
+	circleTimer_ = 0.0f; // タイマーをリセット
+
+	isFollowing_ = false;
+
 	worldtransfrom_.Initialize();
-	worldtransfrom_.UpdateMatrix(); // 初期化後に行列を更新
-	// UpdateScreenPosition(); // camera_ がセットされる前に呼ばれるため削除
+	// worldtransfrom_.UpdateMatrix(); // Initialize内でも呼ばれるので不要
 
 	hp_ = 8;
 
-	// 追尾スプライトの初期化
+	// ( ... スプライト初期化 ... )
 	uint32_t texHandle = TextureManager::Load("redbox.png");
 	targetSprite_ = Sprite::Create(texHandle, {0, 0});
 	if (targetSprite_) {
@@ -32,17 +46,13 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 		targetSprite_->SetAnchorPoint({0.5f, 0.5f});
 	}
 	isOnScreen_ = false;
-
-	wasOnScreenLastFrame_ = false; // 最初は画面外として初期化
-	lockOnAnimRotation_ = 0.0f;    // 最初の回転は 0
+	wasOnScreenLastFrame_ = false;
+	lockOnAnimRotation_ = 0.0f;
 	lockOnAnimScale_ = 1.0f;
-
 }
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() {
-	// ワールド座標を入れる変数
 	KamataEngine::Vector3 worldPos;
-	// ワールド行列の平行移動成分を取得（ワールド座標）
 	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
 	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
 	worldPos.z = worldtransfrom_.matWorld_.m[3][2];
@@ -50,10 +60,9 @@ KamataEngine::Vector3 Enemy::GetWorldPosition() {
 }
 
 void Enemy::OnCollision() {
-	hp_--; // HPを1減らす
-
-	if (hp_ <= 0) {     // HPが0以下になったら
-		isDead_ = true; // 死亡フラグを立てる
+	hp_--;
+	if (hp_ <= 0) {
+		isDead_ = true;
 	};
 }
 
@@ -61,39 +70,30 @@ void Enemy::Fire() {
 	assert(player_);
 	spawnTimer--;
 
-	if (spawnTimer < 0.0f) { // 0.0f より小さい
+	if (spawnTimer < 0.0f) {
 
-		KamataEngine::Vector3 moveBullet = GetWorldPosition(); // 発射位置
-
-		// ▼▼▼ 修正 ▼▼▼
-		// 弾の速度
-		const float kBulletSpeed = 10.0f; // ★ 0.0f ではなく、1.0f などの速度に
-		// ▲▲▲ 修正完了 ▲▲▲
-
+		KamataEngine::Vector3 moveBullet = GetWorldPosition();
+		const float kBulletSpeed = 10.0f;
 		KamataEngine::Vector3 velocity(0, 0, 0);
 
 		KamataEngine::Vector3 playerWorldtransform = player_->GetWorldPosition();
 		KamataEngine::Vector3 enemyWorldtransform = GetWorldPosition();
 
-		// ★ 向きを修正 (ターゲット - 自分)
 		KamataEngine::Vector3 homingBullet = playerWorldtransform - enemyWorldtransform;
+
+		// ▼▼▼ 3. Fire の Normalize 呼び出しを修正 ▼▼▼
+		// homingBullet = Normalize(homingBullet); // ★ 修正前 (エラー)
+		homingBullet = KamataEngine::MathUtility::Normalize(homingBullet); // ★ 修正後
 		// ▲▲▲ 修正完了 ▲▲▲
 
-		homingBullet = Normalize(homingBullet);
-
-		// ▼▼▼ 修正 ▼▼▼
-		// ★ 速度を代入 (+= ではなく =)
 		velocity.x = kBulletSpeed * homingBullet.x;
 		velocity.y = kBulletSpeed * homingBullet.y;
 		velocity.z = kBulletSpeed * homingBullet.z;
-		// ▲▲▲ 修正完了 ▲▲▲
 
-		// 弾を生成し、初期化
 		EnemyBullet* newBullet = new EnemyBullet();
-		newBullet->Initialize(modelbullet_, moveBullet, velocity); // これで速度 (0,0,0) 以外が入る
+		newBullet->Initialize(modelbullet_, moveBullet, velocity);
 
-		// 弾を登録する
-		if (gameScene_) { // gameScene_ が null でないか確認
+		if (gameScene_) {
 			gameScene_->AddEnemyBullet(newBullet);
 		}
 
@@ -103,42 +103,79 @@ void Enemy::Fire() {
 
 void Enemy::Update() {
 
-	//Fire();
+	// Fire();
 
-	// キャラクターの移動ベクトル
-	KamataEngine::Vector3 move = {0, 0, 0};
+	// --- 1. 必要な情報を取得 ---
+	assert(player_ && "Enemy::Update() player_ が null です");
+	KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+	KamataEngine::Vector3 myCenterPos = initialWorldPos_;
 
-	// ▼▼▼ 修正 ▼▼▼
-	// 接近
-	KamataEngine::Vector3 accessSpeed = {0.1f, 0.1f, 0.1f}; // ★ 1.1f だと速すぎるので 0.1f に
-	// 離脱
-	KamataEngine::Vector3 eliminationSpeed = {0.3f, 0.3f, 0.3f};
+	// --- 2. プレイヤーと敵（の中心）との距離を計算 ---
+	KamataEngine::Vector3 vecToPlayer = playerPos - myCenterPos;
+	float distance = KamataEngine::MathUtility::Length(vecToPlayer);
 
-	switch (phase_) {
-	case Phase::Approach:
-	default:
+	// ▼▼▼ ステップ3のロジックを修正 ▼▼▼
 
-		worldtransfrom_.translation_.z -= accessSpeed.z;
+	// --- 3. 距離に基づき、円運動の中心 (center) を決定 ---
+	const float kEngageDistance = 400.0f; // ★ この距離より近づくと、追従をやめる
+	const float kFollowDistance = 500.0f; // ★ この距離より離れると、追従を始める
 
-		// ★ 0.0f (プレイヤー) より手前 (奥) の 20.0f あたりで止まるように調整
-		if (worldtransfrom_.translation_.z < 20.0f) {
-			phase_ = Phase::Leave;
+	KamataEngine::Vector3 center; // このフレームで円運動の中心に使う座標
+
+	if (isFollowing_) {
+		// 【現在、追従モードの場合】
+		KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
+
+		// 1. プレイヤーから 600 離れた位置を「このフレームの中心」として計算
+		center = playerPos - (dirToPlayer * kFollowDistance);
+
+		// ▼▼▼ 修正 ▼▼▼
+		// ★ 追従モード中は、基準位置(initialWorldPos_)も常に更新する
+		initialWorldPos_ = center;
+		// ▲▲▲ 修正完了 ▲▲▲
+
+		if (distance < kEngageDistance) {
+			// 2. プレイヤーが十分近づいた(500未満)ので、追従をやめる
+			isFollowing_ = false;
+
+			// 3. (基準位置は ↑ で更新済み)
+			// initialWorldPos_ = center; // ★ この行は不要
 		}
-		break;
-	case Phase::Leave:
+		// (else: まだ離れている(500以上)なら、center を使い、基準位置も更新)
 
-		// ★ 上 (y) に消えるのではなく、奥 (z) に戻るように変更
-		worldtransfrom_.translation_.z += accessSpeed.z;
-		// ★ ある程度奥 (例: 60.0f) に戻ったら、再度 Approach にする
-		if (worldtransfrom_.translation_.z > 60.0f) {
-			phase_ = Phase::Approach;
+	} else {
+		// 【現在、戦闘（ワールド固定）モードの場合】
+
+		// 1. 基準位置(initialWorldPos_)をそのまま使う
+		center = initialWorldPos_;
+
+		if (distance > kFollowDistance) {
+			// 2. プレイヤーが離れすぎた(600超過)ので、追従を開始
+			isFollowing_ = true;
+
+			// 3. 追従を開始する瞬間の「中心」も計算
+			KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
+			center = playerPos - (dirToPlayer * kFollowDistance);
+
+			// ★ 追従開始時も、基準位置(initialWorldPos_)を更新する
+			initialWorldPos_ = center;
 		}
-		break;
 	}
 
+	// --- 4. 円運動の計算 ---
+	const float kCircleRadius = 650.0f;
+	const float kCircleSpeed = 0.0008f;
+
+	circleTimer_ += kCircleSpeed;
+
+	worldtransfrom_.translation_.x = center.x + (kCircleRadius * std::cos(circleTimer_));
+	worldtransfrom_.translation_.y = center.y + (kCircleRadius * std::sin(circleTimer_));
+	worldtransfrom_.translation_.z = center.z;
+
+	// --- 5. ワールド行列の更新 ---
 	worldtransfrom_.UpdateMatrix();
 
-	// 画面内判定とスプライト位置の更新
+	// --- 6. 画面内判定とスプライト位置の更新 ---
 	if (camera_ && targetSprite_) {
 		UpdateScreenPosition();
 	}
@@ -147,12 +184,12 @@ void Enemy::Update() {
 void Enemy::Draw(const KamataEngine::Camera& camera) { model_->Draw(worldtransfrom_, camera); }
 
 void Enemy::DrawSprite() {
-
 	if (isOnScreen_ && targetSprite_) {
 		targetSprite_->Draw();
 	}
 }
 
+// ... (UpdateScreenPosition 関数はご提示のコードのままでOK) ...
 void Enemy::UpdateScreenPosition() {
 	if (!camera_ || !targetSprite_) {
 		isOnScreen_ = false;
@@ -196,24 +233,18 @@ void Enemy::UpdateScreenPosition() {
 		isOnScreen_ = false; // ★ 画面外 (カメラの後ろ)
 	}
 
-	// --- ▼▼▼ ロックオン演出の計算 (ここから修正) ▼▼▼ ---
+	// --- ▼▼▼ ロックオン演出の計算 ▼▼▼ ---
 
-	// 画面内に「入った」瞬間かどうか
 	bool justAppeared = (isOnScreen_ && !wasOnScreenLastFrame_);
 
 	if (justAppeared) {
-		// 1. 回転アニメーションを開始
-		lockOnAnimRotation_ = KamataEngine::MathUtility::PI * 1.0f; // 360度
-
-		// 2. スケールアニメーションを開始 (2倍の大きさから)
+		lockOnAnimRotation_ = KamataEngine::MathUtility::PI * 1.0f;
 		lockOnAnimScale_ = 2.0f;
 	}
 
-	// --- アニメーションの更新 ---
-	const float kLockOnAnimFriction = 0.90f; // 減速率 (90%に)
-	const float kTargetScale = 1.0f;         // 目標のスケール
+	const float kLockOnAnimFriction = 0.90f;
+	const float kTargetScale = 1.0f;
 
-	// 1. 回転アニメーション (0 に近づける)
 	if (lockOnAnimRotation_ > 0.0f) {
 		lockOnAnimRotation_ *= kLockOnAnimFriction;
 		if (lockOnAnimRotation_ < 0.01f) {
@@ -221,28 +252,20 @@ void Enemy::UpdateScreenPosition() {
 		}
 	}
 
-	// 2. スケールアニメーション (1.0 に近づける)
 	if (lockOnAnimScale_ != kTargetScale) {
-		// 目標スケール(1.0)と現在のスケールの差分に、減速率の残り(10%)を掛けて近づける
 		lockOnAnimScale_ += (kTargetScale - lockOnAnimScale_) * (1.0f - kLockOnAnimFriction);
-
-		// ほとんど 1.0f になったら補正
 		if (std::abs(lockOnAnimScale_ - kTargetScale) < 0.01f) {
 			lockOnAnimScale_ = kTargetScale;
 		}
 	}
 
-	// --- スプライトに適用 ---
 	if (targetSprite_) {
-		// 計算した回転をスプライトに設定
 		targetSprite_->SetRotation(lockOnAnimRotation_);
-
-		// 計算したスケールをスプライトのサイズに適用 (基本サイズ 50.0f に掛ける)
-		const float baseSize = 50.0f; // Initialize で設定した基本サイズと同じ値
+		const float baseSize = 50.0f;
 		targetSprite_->SetSize({baseSize * lockOnAnimScale_, baseSize * lockOnAnimScale_});
 	}
 
-	// 最後に、現在のフレームの画面内判定を「前のフレーム」として保存
 	wasOnScreenLastFrame_ = isOnScreen_;
-	// --- ▲▲▲ 追加完了 ▲▲▲ ---
 }
+
+void Enemy::SetParent(const KamataEngine::WorldTransform* parent) { worldtransfrom_.parent_ = parent; }

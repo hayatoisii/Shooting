@@ -145,43 +145,38 @@ void Player::Update() {
 	});
 
 	// --- 移動処理 ---
-	const float kPlayerMaxX = 2.5f; // 横移動の限界値
-	float targetX = 0.0f;
-	if (input_->PushKey(DIK_A)) {
-		targetX = kPlayerMaxX;
-	}
-	if (input_->PushKey(DIK_D)) {
-		targetX = -kPlayerMaxX;
-	}
-	float targetY = worldtransfrom_.translation_.y;
-	float moveLerpFactor = (input_->PushKey(DIK_A) || input_->PushKey(DIK_D)) ? 0.015f : 0.03f;
-	worldtransfrom_.translation_.x += (targetX - worldtransfrom_.translation_.x) * moveLerpFactor;
-	worldtransfrom_.translation_.y += (targetY - worldtransfrom_.translation_.y) * moveLerpFactor;
+	//const float kPlayerMaxX = 2.5f; // 横移動の限界値
+	//float targetX = 0.0f;
+	//if (input_->PushKey(DIK_A)) {
+	//	targetX = kPlayerMaxX;
+	//}
+	//if (input_->PushKey(DIK_D)) {
+	//	targetX = -kPlayerMaxX;
+	//}
+	//float targetY = worldtransfrom_.translation_.y;
+	//float moveLerpFactor = (input_->PushKey(DIK_A) || input_->PushKey(DIK_D)) ? 0.015f : 0.03f;
+	//worldtransfrom_.translation_.x += (targetX - worldtransfrom_.translation_.x) * moveLerpFactor;
+	//worldtransfrom_.translation_.y += (targetY - worldtransfrom_.translation_.y) * moveLerpFactor;
 
-    if (railCamera_) {
+  // --- 回転処理 (カメラの動きに連動) ---
+	if (railCamera_) {
 		const float lerpFactor = 0.1f;
 
-		// ▼▼▼ 慣性のある速度を参照するように戻す ▼▼▼
-
-		// float yawDelta = railCamera_->GetLastDeltaYaw(); // ★ 修正前
-		float yawVelocity = railCamera_->GetRotationVelocity().y; // ★ 修正後
-		const float tiltFactor = -75.0f;
-		// float targetRoll = yawDelta * tiltFactor;    // ★ 修正前
-		float targetRoll = yawVelocity * tiltFactor; // ★ 修正後 (ヨーの「勢い」で機体を傾ける)
-		const float maxRollAngle = 4.0f;
+		// 1. ロール（A/Dキー）の勢いで機体を傾ける (ロール)
+		float rollVelocity = railCamera_->GetRotationVelocity().z; // ★ 修正後 (ロール速度を参照)
+		const float tiltFactor = 7.0f; // 傾き係数  0でもいい
+		float targetRoll = rollVelocity * tiltFactor; // ★ 修正後
+		const float maxRollAngle = 4.0f; // 最大傾き
 		targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
 		worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
 
-		// float pitchDelta = railCamera_->GetLastDeltaPitch(); // ★ 修正前
-		float pitchVelocity = railCamera_->GetRotationVelocity().x; // ★ 修正後
-		const float pitchFactor = 15.0f;
-		// float targetPitch = pitchDelta * pitchFactor; // ★ 修正前
-		float targetPitch = pitchVelocity * pitchFactor; // ★ 修正後 (ピッチの「勢い」で機体を傾ける)
-		const float maxPitchAngle = 1.5f;
+		// 2. ピッチ（W/S）の勢いで機首をわずかに上下させる (ピッチ)
+		float pitchVelocity = railCamera_->GetRotationVelocity().x; // ピッチ速度を取得
+		const float pitchFactor = 15.0f; // 35                            // 傾き係数
+		float targetPitch = pitchVelocity * pitchFactor;
+		const float maxPitchAngle = 1.5f; // 最大傾き
 		targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
 		worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
-
-		// ▲▲▲ 修正完了 ▲▲▲
 	}
 
 	// --- ワールド行列の更新 ---

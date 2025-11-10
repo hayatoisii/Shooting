@@ -4,23 +4,18 @@
 #include <algorithm>
 #include <cmath>
 
-// ▼▼▼ 足りないもの(1): 名前空間の指定 ▼▼▼
-// (これがないと Quaternion や Vector3 などが見つからずエラーになります)
 using namespace KamataEngine;
-// ▲▲▲ 修正完了 ▲▲▲
 
 void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine::Vector3& rad) {
 	initialPosition_ = pos;
-	initialRotationEuler_ = rad; // ★ 初期回転を保存
+	initialRotationEuler_ = rad;
 
 	worldtransfrom_.translation_ = pos;
 	worldtransfrom_.Initialize();
 	camera_.Initialize();
 
-	// ★ 初期オイラー角からクォータニオンを生成
 	Quaternion qPitch = Quaternion::MakeRotateAxisAngle({1.0f, 0.0f, 0.0f}, initialRotationEuler_.x);
 	Quaternion qYaw = Quaternion::MakeRotateAxisAngle({0.0f, 1.0f, 0.0f}, initialRotationEuler_.y);
-	// (ヨー -> ピッチ の順で合成)
 	rotation_ = qYaw * qPitch;
 	rotation_ = Quaternion::Normalize(rotation_);
 }
@@ -28,12 +23,9 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 void RailCamera::Update() {
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
-	const float kCameraSpeed = 0.8f;
-
-	// ▼▼▼ 慣性のために定数を復活 ▼▼▼
-	const float kRotAcceleration = 0.0006f; // 回転加速度 const float kRotAcceleration = 0.0005f;
-	const float kRotFriction = 0.95f;       // 回転摩擦 (1に近いほど慣性が残る)
-	// ▲▲▲ 復活完了 ▲▲▲
+	const float kCameraSpeed = 2.0f; // 0.8f; // 1.5
+	const float kRotAcceleration = 0.0008f; // 0.0006f;  // 0.001f;
+	const float kRotFriction = 0.95f;
 
 	// --- 1. 回転「速度」の更新 (慣性モデル) ---
 
@@ -41,61 +33,63 @@ void RailCamera::Update() {
 
 	// (キー入力による加速度計算)
 	if (input->PushKey(DIK_W)) {
-		rotAcceleration.x = -kRotAcceleration;
+		rotAcceleration.x = -kRotAcceleration; // ピッチ
 	}
 	if (input->PushKey(DIK_S)) {
-		rotAcceleration.x = kRotAcceleration;
+		rotAcceleration.x = kRotAcceleration; // ピッチ
 	}
+
+	// ▼▼▼ A/D と LEFT/RIGHT の役割を入れ替え ▼▼▼
+
 	if (input->PushKey(DIK_A)) {
-		rotAcceleration.y = -kRotAcceleration;
+		// rotAcceleration.y = -kRotAcceleration; // ★ 修正前 (ヨー)
+		rotAcceleration.z = kRotAcceleration; // ★ 修正後 (ロール)
 	}
 	if (input->PushKey(DIK_D)) {
-		rotAcceleration.y = kRotAcceleration;
+		// rotAcceleration.y = kRotAcceleration; // ★ 修正前 (ヨー)
+		rotAcceleration.z = -kRotAcceleration; // ★ 修正後 (ロール)
 	}
 	if (input->PushKey(DIK_LEFT)) {
-		rotAcceleration.z = -kRotAcceleration;
+		// rotAcceleration.z = -kRotAcceleration; // ★ 修正前 (ロール)
+		rotAcceleration.y = -kRotAcceleration; // ★ 修正後 (ヨー)
 	}
 	if (input->PushKey(DIK_RIGHT)) {
-		rotAcceleration.z = kRotAcceleration;
+		// rotAcceleration.z = kRotAcceleration; // ★ 修正前 (ロール)
+		rotAcceleration.y = kRotAcceleration; // ★ 修正後 (ヨー)
 	}
+	// ▲▲▲ 修正完了 ▲▲▲
 
 	// 加速度を速度に反映
 	rotationVelocity_ += rotAcceleration;
 
-	// キー入力があったかどうかをチェック
-	//const float kInputThreshold = 0.0001f; // 入力検知のしきい値
-	//bool isInputActive = (std::abs(rotAcceleration.x) > kInputThreshold || std::abs(rotAcceleration.y) > kInputThreshold || std::abs(rotAcceleration.z) > kInputThreshold);
-
-	// ▼▼▼ 自動水平復元処理を追加 ▼▼▼
-
-	// --- 2. 自動水平復元 (キー入力がない場合) ---
+	// --- 2. 自動水平復元 (Rキーが押されている場合) ---
 	if (input->PushKey(DIK_R)) {
 
-		// ★ 水平に戻すための「復元力」を加える
-		const float kRestoreAcceleration = 0.001f; // 水平に戻ろうとする加速度 (kRotAccelerationより少し弱め)
+		const float kRestoreAcceleration = 0.001f; // (ご提示の値)
 
-		// 1. 現在の回転行列からローカル軸(右/前)を取得
 		Matrix4x4 currentRotationMatrix = Quaternion::MakeMatrix(rotation_);
 		Vector3 localX_Right = {currentRotationMatrix.m[0][0], currentRotationMatrix.m[0][1], currentRotationMatrix.m[0][2]};
 		Vector3 localZ_Forward = {currentRotationMatrix.m[2][0], currentRotationMatrix.m[2][1], currentRotationMatrix.m[2][2]};
 
+		// ▼▼▼ 暴走しないよう復元ロジックの符号を両方修正 ▼▼▼
+
 		// 2. ロール（傾き）の復元
-		// localX_Right.y は、機体の右(X)がワールドの上(Y)をどれだけ向いているかを示す
-		// (これが 0 になるようにロール速度(Z)を加える)
-		// (localX.y が + なら右が上 -> 左ロール(Zマイナス)方向に加速)
-		rotationVelocity_.z -= localX_Right.y * kRestoreAcceleration;
-		rotationVelocity_.x += localZ_Forward.y * kRestoreAcceleration;
+		// (localX.y が + なら左傾き -> 右ロール(Zプラス)方向に加速)
+		// rotationVelocity_.z -= localX_Right.y * kRestoreAcceleration; // ★ 修正前 (暴走)
+		rotationVelocity_.z += localX_Right.y * kRestoreAcceleration; // ★ 修正後 (z +=)
+
+		// 3. ピッチ（上下）の復元
+		// (localZ.y が + なら機首上げ -> 機首下げ(Xマイナス)方向に加速)
+		// rotationVelocity_.x += localZ_Forward.y * kRestoreAcceleration; // ★ 修正前 (暴走)
+		rotationVelocity_.x -= localZ_Forward.y * kRestoreAcceleration; // ★ 修正後 (x -=)
+
+		// ▲▲▲ 修正完了 ▲▲▲
 	}
-	// ▲▲▲ 修正完了 ▲▲▲
 
 	// --- 3. 摩擦を適用 ---
-	// (摩擦は復元力とキー入力の両方に適用される)
 	rotationVelocity_ *= kRotFriction;
 
 	// --- 4. 差分回転クォータニオンの生成 ---
-
-	// (現在の回転からローカル軸を取得)
-	// (★ 復元処理で Matrix を計算している可能性があるので、ここで改めて計算する)
 	Matrix4x4 currentRotationMatrix = Quaternion::MakeMatrix(rotation_);
 	Vector3 localXAxis = {currentRotationMatrix.m[0][0], currentRotationMatrix.m[0][1], currentRotationMatrix.m[0][2]};
 	Vector3 localYAxis = {currentRotationMatrix.m[1][0], currentRotationMatrix.m[1][1], currentRotationMatrix.m[1][2]};
@@ -105,12 +99,10 @@ void RailCamera::Update() {
 	localYAxis = localYAxis.Normalize();
 	localZAxis = localZAxis.Normalize();
 
-	// (慣性を持つ rotationVelocity_ から回転量を決定)
 	float deltaPitch = rotationVelocity_.x;
 	float deltaYaw = rotationVelocity_.y;
 	float deltaRoll = rotationVelocity_.z;
 
-	// (ヨー、ピッチ、ロールのクォータニオン生成)
 	Quaternion deltaQuatYaw = Quaternion::MakeRotateAxisAngle(localYAxis, deltaYaw);
 	Quaternion deltaQuatPitch = Quaternion::MakeRotateAxisAngle(localXAxis, deltaPitch);
 	Quaternion deltaQuatRoll = Quaternion::MakeRotateAxisAngle(localZAxis, deltaRoll);
@@ -120,7 +112,6 @@ void RailCamera::Update() {
 	rotation_ = Quaternion::Normalize(rotation_);
 
 	// --- 6. 回転行列の生成 ---
-	// (★ 5 で rotation_ が更新されたので、行列も更新する)
 	Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
 
 	// --- 7. 移動処理 (★ 常に自動で前進) ---
@@ -154,9 +145,11 @@ void RailCamera::Reset() {
 	// 位置を initialPosition_ に戻す
 	worldtransfrom_.matWorld_ = MakeIdentityMatrix();
 	worldtransfrom_.matWorld_.m[3][0] = initialPosition_.x;
-	// ... (中略) ...
+	worldtransfrom_.matWorld_.m[3][1] = initialPosition_.y; // (★ y に修正)
+	worldtransfrom_.matWorld_.m[3][2] = initialPosition_.z;
 	worldtransfrom_.translation_ = initialPosition_;
 
+	// (ビュー行列の更新も忘れずに)
 	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
 	camera_.TransferMatrix();
 }
