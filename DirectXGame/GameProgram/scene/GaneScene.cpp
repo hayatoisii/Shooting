@@ -39,6 +39,7 @@ GameScene::~GameScene() {
 	delete railCamera_;
 	delete reticleSprite_;
 	delete transitionSprite_;
+	delete taitoruSprite_;
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
 	}
@@ -74,6 +75,12 @@ void GameScene::Initialize() {
 	reticleSprite_ = KamataEngine::Sprite::Create(reticleTextureHandle_, {0, 0});
 	reticleSprite_->SetPosition(screenCenter);
 	reticleSprite_->SetAnchorPoint({0.5f, 0.5f});
+
+	taitoruTextureHandle_ = KamataEngine::TextureManager::Load("sousa.png");
+	taitoruSprite_ = KamataEngine::Sprite::Create(taitoruTextureHandle_, {0, 0});
+
+	taitoruSprite_->SetPosition(screenCenter); // 画面中央に配置
+	taitoruSprite_->SetAnchorPoint({0.5f, 0.5f});
 
 	camera_.Initialize();
 
@@ -413,6 +420,12 @@ void GameScene::Draw() {
 
 	KamataEngine::Sprite::PreDraw(commandList);
 
+	if (sceneState == SceneState::Start || sceneState == SceneState::TransitionToGame) {
+		if (taitoruSprite_) {
+			taitoruSprite_->Draw();
+		}
+	}
+
 	if (sceneState == SceneState::TransitionToGame || sceneState == SceneState::TransitionFromGame) {
 		transitionSprite_->Draw();
 	}
@@ -602,10 +615,45 @@ void GameScene::CheckAllCollisions() {
 }
 
 void GameScene::TransitionToClearScene() {
-	sceneState = SceneState::Clear;
-	enemyPopCommands.str("");
-	enemyPopCommands.clear();
-	hitCount = 0;
+	// sceneState = SceneState::Clear; // Clear には行かず Start にする
+	sceneState = SceneState::Start;
+
+	gameOverTimer_ = 0; // (念のためタイマー系もリセット)
+	hitCount = 0;       // 撃破数リセット
+	hitCount2 = 0;
+
+	camera_.Initialize();
+	camera_.TransferMatrix();
+
+	if (railCamera_) {
+		railCamera_->Reset();
+	}
+
+	if (player_) {
+		player_->ResetRotation();
+		player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+		player_->GetWorldTransform().UpdateMatrix();
+		player_->ResetParticles();
+		player_->ResetBullets(); // (弾のリセットも行う)
+	}
+
+	for (Enemy* enemy : enemies_) {
+		delete enemy;
+	}
+	enemies_.clear();
+	for (EnemyBullet* bullet : enemyBullets_) {
+		delete bullet;
+	}
+	enemyBullets_.clear();
+
+	for (Meteorite* meteor : meteorites_) {
+		delete meteor;
+	}
+	meteorites_.clear();
+	meteoriteSpawnTimer_ = 0;
+
+	LoadEnemyPopData();
+	hasSpawnedEnemies_ = false;
 }
 
 void GameScene::TransitionToClearScene2() {
@@ -638,7 +686,7 @@ void GameScene::SpawnMeteorite() {
 	KamataEngine::Vector3 offset = randomDir * kSpawnDistance;
 	KamataEngine::Vector3 spawnPos = cameraPos + offset;
 
-	// 5. スケールと半径をランダム
+	// スケールと半径をランダム
 	const float kBaseRadius = 2.0f;
 	const float kMinScale = 1.0f;
 	const float kMaxScale = 5.0f;

@@ -19,38 +19,41 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 	rotation_ = qYaw * qPitch;
 	rotation_ = Quaternion::Normalize(rotation_);
 
-	canMove_ = false; 
+	canMove_ = false;
 }
 
 void RailCamera::Update() {
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
 	// 自動飛行の速度
-	const float kCameraSpeed = 5.0f;        // 0.8f; // 1.5
-	const float kRotAcceleration = 0.0008f; // 0.0006f;  // 0.001f;
+	const float kCameraSpeed = 5.0f;          // 0.8f; // 1.5
+	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002
+	const float kRollAcceleration = 0.0016f;   // 横の回転
+	const float kYawAcceleration = 0.0008f;    // 左右の旋回0.001
 	const float kRotFriction = 0.95f;
+	const float kYawFriction = 0.86f;
+	const float kXawFriction = 0.88f;
 
 	Vector3 rotAcceleration = {0.0f, 0.0f, 0.0f};
 
 	if (input->PushKey(DIK_W)) {
-		rotAcceleration.x = -kRotAcceleration;
+		rotAcceleration.x = -kPitchAcceleration;
 	}
 	if (input->PushKey(DIK_S)) {
-		rotAcceleration.x = kRotAcceleration;
-	}
-
-
-	if (input->PushKey(DIK_A)) {
-		rotAcceleration.z = kRotAcceleration; // ロール
-	}
-	if (input->PushKey(DIK_D)) {
-		rotAcceleration.z = -kRotAcceleration; // ロール
+		rotAcceleration.x = kPitchAcceleration;
 	}
 	if (input->PushKey(DIK_LEFT)) {
-		rotAcceleration.y = -kRotAcceleration; // ヨー
+		rotAcceleration.z = kRollAcceleration; // ロール
 	}
 	if (input->PushKey(DIK_RIGHT)) {
-		rotAcceleration.y = kRotAcceleration; // ヨー
+		rotAcceleration.z = -kRollAcceleration; // ロール
+	}
+
+	if (input->PushKey(DIK_A)) {
+		rotAcceleration.y = -kYawAcceleration; // ヨー
+	}
+	if (input->PushKey(DIK_D)) {
+		rotAcceleration.y = kYawAcceleration; // ヨー
 	}
 
 	rotationVelocity_ += rotAcceleration;
@@ -69,7 +72,9 @@ void RailCamera::Update() {
 		rotationVelocity_.x -= localZ_Forward.y * kRestoreAcceleration;
 	}
 
-	rotationVelocity_ *= kRotFriction;
+	rotationVelocity_.x *= kXawFriction;
+	rotationVelocity_.z *= kRotFriction;
+	rotationVelocity_.y *= kYawFriction;
 
 	// クォータニオン
 	Matrix4x4 currentRotationMatrix = Quaternion::MakeMatrix(rotation_);
@@ -132,7 +137,7 @@ void RailCamera::Reset() {
 	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
 	camera_.TransferMatrix();
 
-	canMove_ = false; 
+	canMove_ = false;
 }
 
 KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {

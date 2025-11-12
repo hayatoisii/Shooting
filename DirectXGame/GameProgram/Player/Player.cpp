@@ -31,6 +31,7 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 
 	hp_ = 3;
 	isDead_ = false;
+	shotTimer_ = 0;
 }
 
 void Player::OnCollision() {
@@ -42,13 +43,19 @@ void Player::OnCollision() {
 }
 
 void Player::Attack() {
+
+	if (shotTimer_ > 0) {
+		shotTimer_--;
+	}
+
+	// これGameScene始まるまで撃たせないようにするやつ
 	specialTimer--;
 	if (specialTimer < 0) {
-		if (input_->TriggerKey(DIK_SPACE)) {
+		if (input_->PushKey(DIK_SPACE) && shotTimer_ <= 0) {
 			assert(railCamera_);
 
-			KamataEngine::Vector3 moveBullet = GetWorldPosition();
-			moveBullet.y -= 0.5f; // 弾の発射位置を調整
+			KamataEngine::Vector3 bulletOffset = {0.0f, -1.0f, 0.0f};
+			KamataEngine::Vector3 moveBullet = KamataEngine::MathUtility::Transform(bulletOffset, worldtransfrom_.matWorld_);
 			const float kBulletSpeed = 20.0f; // 弾速
 			KamataEngine::Vector3 velocity;
 
@@ -104,6 +111,8 @@ void Player::Attack() {
 			}
 
 			bullets_.push_back(newBullet);
+			// 連射の速度
+			shotTimer_ = 5;
 			isParry_ = false;
 		}
 	}
@@ -128,7 +137,6 @@ AABB Player::GetAABB() {
 void Player::SetParent(const KamataEngine::WorldTransform* parent) { worldtransfrom_.parent_ = parent; }
 
 void Player::Update() {
-	Attack(); // 攻撃処理
 
 	for (PlayerBullet* bullet : bullets_) {
 		bullet->Update();
@@ -141,28 +149,36 @@ void Player::Update() {
 		return false;
 	});
 
-
-	if (railCamera_) {
+if (railCamera_) {
 		const float lerpFactor = 0.1f;
 
-		// ロール、自機少し傾け
+		// ロール
 		float rollVelocity = railCamera_->GetRotationVelocity().z;
-		const float tiltFactor = 7.0f; // 傾き
+		const float tiltFactor = 5.0f; // 傾き
 		float targetRoll = rollVelocity * tiltFactor;
-		const float maxRollAngle = 4.0f; // 最大傾き
+
+		// ヨー
+		float yawVelocity = railCamera_->GetRotationVelocity().y; // ヨーの速度を取得
+		const float yawTiltFactor = 50.0f;
+
+		targetRoll -= yawVelocity * yawTiltFactor;
+
+		const float maxRollAngle = 4.0f;
 		targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
 		worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
 
 		// 上下
 		float pitchVelocity = railCamera_->GetRotationVelocity().x;
-		const float pitchFactor = 15.0f; // 35
+		const float pitchFactor = 12.0f;
 		float targetPitch = pitchVelocity * pitchFactor;
-		const float maxPitchAngle = 1.5f; // 最大傾き
+		const float maxPitchAngle = 1.5f;
 		targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
 		worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
 	}
 
 	worldtransfrom_.UpdateMatrix();
+
+	Attack();
 
 	// 排気パーティクル
 	if (engineExhaust_) {
@@ -202,7 +218,6 @@ void Player::ResetParticles() {
 		engineExhaust_->Clear();
 	}
 }
-
 
 void Player::UpdateGameOver(float animationTime) {
 	// 姿勢制御

@@ -43,7 +43,7 @@ void ParticleEmitter::Emit(const KamataEngine::Vector3& position, const KamataEn
 	if (frequencyTimer_ >= frequency_) {
 
 		// 一回の発生のパーティクル数
-		const int particlesToEmit = 5;
+		const int particlesToEmit = 4;
 
 		for (int i = 0; i < particlesToEmit; ++i) {
 			CreateParticle(position, velocity);

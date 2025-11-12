@@ -106,4 +106,6 @@ private:
 	int meteoriteSpawnTimer_;
 	int meteoriteUpdateCounter_;
 
+	KamataEngine::Sprite* taitoruSprite_ = nullptr;
+	uint32_t taitoruTextureHandle_ = 0;
 };

@@ -2,7 +2,7 @@
 #include "Enemy.h"
 #include "base/TextureManager.h"
 #include <cassert>
-#include <math.h> // sqrtf を使うため
+#include <math.h>
 
 PlayerBullet::~PlayerBullet() { model_ = nullptr; }
 
@@ -15,8 +15,6 @@ void PlayerBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Ve
 }
 
 void PlayerBullet::OnCollision() { isDead_ = true; }
-
-// PlayerBullet.cpp
 
 void PlayerBullet::Update() {
 
@@ -32,31 +30,25 @@ void PlayerBullet::Update() {
         KamataEngine::Vector3 toTarget = targetPos - bulletPos;
         float distance = sqrtf(toTarget.x * toTarget.x + toTarget.y * toTarget.y + toTarget.z * toTarget.z);
         
-        // ▼▼▼ 修正点 1: 停止距離の定義 ▼▼▼
         const float stopHomingDistance = 1.0f; // この距離より近づいたらホーミング停止
-        // ▲▲▲ ▲▲▲
-        
+
         const float maxHomingDistance = 500.0f; 
         if (distance > maxHomingDistance) {
             isHomingEnabled_ = false; 
             homingTarget_ = nullptr;
-        // ▼▼▼ 修正点 2: 
-        // チェックを追加 ▼▼▼
-        } else if (distance < stopHomingDistance) { // ★ 停止距離より近ければ
-            isHomingEnabled_ = false;             // ★ ホーミングを無効化
+ 
+        } else if (distance < stopHomingDistance) { // 停止距離より近ければ
+            isHomingEnabled_ = false;             // ホーミングを無効化
             homingTarget_ = nullptr;
-        // ▲▲▲ ▲▲▲
-        } else if (distance > 0.001f) { // ゼロ除算を避け、停止距離よりは遠い場合
+        } else if (distance > 0.001f) {
             toTarget.x /= distance;
             toTarget.y /= distance;
             toTarget.z /= distance;
 
-            // 遅延タイマーを減らす
             if (homingCheckDelayTimer_ > 0) {
                 homingCheckDelayTimer_--;
             }
 
-            // オーバーシュートチェック (タイマーが0以下の場合のみ実行)
             bool passedTarget = false;
             if (homingCheckDelayTimer_ <= 0) { 
                 float dotVT = velocity_.x * toTarget.x + velocity_.y * toTarget.y + velocity_.z * toTarget.z;
@@ -87,7 +79,6 @@ void PlayerBullet::Update() {
         }
     }
 
-    // 座標更新 (ホーミング処理の後)
     worldtransfrom_.translation_.x += velocity_.x;
     worldtransfrom_.translation_.y += velocity_.y;
     worldtransfrom_.translation_.z += velocity_.z;

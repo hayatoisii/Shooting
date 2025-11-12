@@ -62,4 +62,5 @@ private:
 
 	int hp_ = 3;
 	bool isDead_ = false;
+	int shotTimer_;
 };
