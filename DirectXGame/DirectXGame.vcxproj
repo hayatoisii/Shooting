@@ -119,6 +119,7 @@
     <ClCompile Include="GameProgram\RaikCamera\RailCamera.cpp" />
     <ClCompile Include="GameProgram\skydome\Skydome.cpp" />
     <ClCompile Include="GameProgram\MT\worldTransformEx.cpp" />
+    <ClCompile Include="Meteorite.cpp" />
     <ClCompile Include="Quaternion.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -209,6 +210,7 @@
     <ClInclude Include="GameProgram\RaikCamera\RailCamera.h" />
     <ClInclude Include="GameProgram\skydome\Skydome.h" />
     <ClInclude Include="GameProgram\MT\worldTransformEx.h" />
+    <ClInclude Include="Meteorite.h" />
     <ClInclude Include="Quaternion.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

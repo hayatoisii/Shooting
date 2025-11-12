@@ -5,6 +5,7 @@
 #include "Player.h"
 #include "RailCamera.h"
 #include "Skydome.h"
+#include "../../Meteorite.h"
 #include <sstream>
 using namespace KamataEngine;
 
@@ -19,14 +20,13 @@ public:
 	void Initialize();
 	void Update();
 	void Draw();
-	// 衝突判定と応答
+
 	void CheckAllCollisions();
 
 	void TransitionToClearScene();
 
 	void TransitionToClearScene2();
 
-	// 弾を追加
 	void AddEnemyBullet(EnemyBullet* enemyBullet);
 	const std::list<EnemyBullet*>& GetEnemyBullets() const { return enemyBullets_; }
 
@@ -34,7 +34,9 @@ public:
 	void UpdateEnemyPopCommands();
 	void EnemySpawn(const Vector3& position);
 
-	// 敵一括生成フラグ
+	void SpawnMeteorite();
+	void UpdateMeteorites();
+
 	bool hasSpawnedEnemies_ = false;
 
 private:
@@ -54,10 +56,10 @@ private:
 	Model* modelEnemy_ = nullptr;
 
 	int32_t gameSceneTimer_ = 0;
-	const int32_t kGameTimeLimit_ = 60 * 30; // 30秒
+	const int32_t kGameTimeLimit_ = 60 * 30;
 
 	Vector3 railcameraPos = {0, 5, -50};
-	Vector3 railcameraRad = {0, 0, 0};
+	Vector3 railcameraRad = {0, 3.14159f, 0};
 
 	std::list<EnemyBullet*> enemyBullets_;
 	std::stringstream enemyPopCommands;
@@ -68,7 +70,7 @@ private:
 	const int32_t kTitlePauseFrames = 60;
 
 	int hitCount = 0;
-	int hitCount2 = 0; // ★ HP制にするならこのカウンターは不要かも
+	int hitCount2 = 0;
 
 	Model* modelTitleObject_ = nullptr;
 	WorldTransform worldTransformTitleObject_;
@@ -89,14 +91,19 @@ private:
 	Vector3 playerIntroStartPosition_ = {0.0f, -3.0f, -30.0f};
 	Vector3 playerIntroTargetPosition_ = {0.0f, -3.0f, 20.0f};
 	float gameIntroTimer_ = 0.0f;
-	const float kGameIntroDuration_ = 120.0f; // 2秒
+	const float kGameIntroDuration_ = 120.0f;
 	bool isGameIntroFinished_ = false;
 
 	Camera camera_ = {};
 
-	// ▼▼▼ 追加 ▼▼▼
-	float gameOverTimer_ = 0.0f; // ゲームオーバー演出用タイマー
+	float gameOverTimer_ = 0.0f;
 	
 	// カメラ位置アンカー
 	WorldTransform cameraPositionAnchor_;
+	
+	KamataEngine::Model* modelMeteorite_;
+	std::list<Meteorite*> meteorites_;
+	int meteoriteSpawnTimer_;
+	int meteoriteUpdateCounter_;
+
 };

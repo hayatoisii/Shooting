@@ -6,38 +6,43 @@
 #include "base/WinApp.h"
 #include <algorithm>
 #include <cassert>
-
-// ▼▼▼ 1. include の不足を修正 ▼▼▼
-#include "KamataEngine.h" // MathUtility (Normalize, Length) のために追加
-#include <cmath>          // std::cos, std::sin のために追加
-// ▲▲▲ 修正完了 ▲▲▲
+#include "KamataEngine.h"
+#include <cmath>
 
 Enemy::~Enemy() {
 	delete modelbullet_;
 	delete targetSprite_;
+	delete directionIndicatorSprite_;
 }
 
 void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& pos) {
 	assert(model);
 	model_ = model;
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("cube", true);
+	worldtransfrom_.Initialize();
 	worldtransfrom_.translation_ = pos;
 
-	// ▼▼▼ 2. Initialize の変数名を修正 ▼▼▼
-	// initialRelativePos_ = pos; // ★ 修正前
-	initialWorldPos_ = pos; // ★ 修正後 (スポーン時の「ワールド座標」を保存)
-	// ▲▲▲ 修正完了 ▲▲▲
+	initialWorldPos_ = pos;
 
-	circleTimer_ = 0.0f; // タイマーをリセット
+	circleTimer_ = 0.0f;
 
 	isFollowing_ = false;
 
-	worldtransfrom_.Initialize();
-	// worldtransfrom_.UpdateMatrix(); // Initialize内でも呼ばれるので不要
+	isFollowingFast_ = false;
+	
+	worldtransfrom_.UpdateMatrix();
 
-	hp_ = 8;
+	hp_ = 4;
 
-	// ( ... スプライト初期化 ... )
+	uint32_t indicatorHandle = TextureManager::Load("indicator.png");
+	directionIndicatorSprite_ = Sprite::Create(indicatorHandle, {0, 0});
+	if (directionIndicatorSprite_) {
+		directionIndicatorSprite_->SetSize({40.0f, 40.0f});
+		directionIndicatorSprite_->SetColor({1.0f, 1.0f, 0.0f, 1.0f});
+		directionIndicatorSprite_->SetAnchorPoint({0.5f, 0.5f});
+	}
+	isOffScreen_ = false;
+
 	uint32_t texHandle = TextureManager::Load("redbox.png");
 	targetSprite_ = Sprite::Create(texHandle, {0, 0});
 	if (targetSprite_) {
@@ -81,10 +86,7 @@ void Enemy::Fire() {
 
 		KamataEngine::Vector3 homingBullet = playerWorldtransform - enemyWorldtransform;
 
-		// ▼▼▼ 3. Fire の Normalize 呼び出しを修正 ▼▼▼
-		// homingBullet = Normalize(homingBullet); // ★ 修正前 (エラー)
-		homingBullet = KamataEngine::MathUtility::Normalize(homingBullet); // ★ 修正後
-		// ▲▲▲ 修正完了 ▲▲▲
+		homingBullet = KamataEngine::MathUtility::Normalize(homingBullet);
 
 		velocity.x = kBulletSpeed * homingBullet.x;
 		velocity.y = kBulletSpeed * homingBullet.y;
@@ -105,77 +107,48 @@ void Enemy::Update() {
 
 	// Fire();
 
-	// --- 1. 必要な情報を取得 ---
 	assert(player_ && "Enemy::Update() player_ が null です");
 	KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-	KamataEngine::Vector3 myCenterPos = initialWorldPos_;
+	KamataEngine::Vector3 myCurrentPos = GetWorldPosition();
 
-	// --- 2. プレイヤーと敵（の中心）との距離を計算 ---
-	KamataEngine::Vector3 vecToPlayer = playerPos - myCenterPos;
+	KamataEngine::Vector3 vecToPlayer = playerPos - myCurrentPos;
 	float distance = KamataEngine::MathUtility::Length(vecToPlayer);
 
-	// ▼▼▼ ステップ3のロジックを修正 ▼▼▼
+	// この数値よりPlayerから離れたらEnemyが追尾する
+	const float kFarDistance = 2500.0f;
+	// これより近づいたら追尾やめる
+	const float kNearDistance = 2490.0f;
+    // 追尾速度
+	const float kFastSpeed = 5.0f;
+	// 常に進み続ける速度
+	const float kSlowSpeed = 0.1f;
 
-	// --- 3. 距離に基づき、円運動の中心 (center) を決定 ---
-	const float kEngageDistance = 400.0f; // ★ この距離より近づくと、追従をやめる
-	const float kFollowDistance = 500.0f; // ★ この距離より離れると、追従を始める
+	float currentSpeed = 0.0f;
 
-	KamataEngine::Vector3 center; // このフレームで円運動の中心に使う座標
-
-	if (isFollowing_) {
-		// 【現在、追従モードの場合】
-		KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
-
-		// 1. プレイヤーから 600 離れた位置を「このフレームの中心」として計算
-		center = playerPos - (dirToPlayer * kFollowDistance);
-
-		// ▼▼▼ 修正 ▼▼▼
-		// ★ 追従モード中は、基準位置(initialWorldPos_)も常に更新する
-		initialWorldPos_ = center;
-		// ▲▲▲ 修正完了 ▲▲▲
-
-		if (distance < kEngageDistance) {
-			// 2. プレイヤーが十分近づいた(500未満)ので、追従をやめる
-			isFollowing_ = false;
-
-			// 3. (基準位置は ↑ で更新済み)
-			// initialWorldPos_ = center; // ★ この行は不要
-		}
-		// (else: まだ離れている(500以上)なら、center を使い、基準位置も更新)
-
+	if (distance > kFarDistance) {
+		isFollowingFast_ = true;
+		currentSpeed = kFastSpeed;
+	} else if (distance < kNearDistance) {
+		isFollowingFast_ = false;
+		currentSpeed = kSlowSpeed;
 	} else {
-		// 【現在、戦闘（ワールド固定）モードの場合】
-
-		// 1. 基準位置(initialWorldPos_)をそのまま使う
-		center = initialWorldPos_;
-
-		if (distance > kFollowDistance) {
-			// 2. プレイヤーが離れすぎた(600超過)ので、追従を開始
-			isFollowing_ = true;
-
-			// 3. 追従を開始する瞬間の「中心」も計算
-			KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
-			center = playerPos - (dirToPlayer * kFollowDistance);
-
-			// ★ 追従開始時も、基準位置(initialWorldPos_)を更新する
-			initialWorldPos_ = center;
-		}
+		currentSpeed = (isFollowingFast_) ? kFastSpeed : kSlowSpeed;
 	}
 
-	// --- 4. 円運動の計算 ---
-	const float kCircleRadius = 650.0f;
-	const float kCircleSpeed = 0.0008f;
+	if (distance < 0.01f) {
+		currentSpeed = 0.0f;
+	}
 
-	circleTimer_ += kCircleSpeed;
+	KamataEngine::Vector3 velocity = {0.0f, 0.0f, 0.0f};
+	if (currentSpeed > 0.0f) {
+		KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
+		velocity = dirToPlayer * currentSpeed;
+	}
 
-	worldtransfrom_.translation_.x = center.x + (kCircleRadius * std::cos(circleTimer_));
-	worldtransfrom_.translation_.y = center.y + (kCircleRadius * std::sin(circleTimer_));
-	worldtransfrom_.translation_.z = center.z;
-
-	// --- 5. ワールド行列の更新 ---
+	KamataEngine::Vector3 newPosition = myCurrentPos + velocity;
+	worldtransfrom_.translation_ = newPosition;
 	worldtransfrom_.UpdateMatrix();
 
-	// --- 6. 画面内判定とスプライト位置の更新 ---
 	if (camera_ && targetSprite_) {
 		UpdateScreenPosition();
 	}
@@ -187,53 +160,98 @@ void Enemy::DrawSprite() {
 	if (isOnScreen_ && targetSprite_) {
 		targetSprite_->Draw();
 	}
+
+	if (isOffScreen_ && directionIndicatorSprite_) {
+		directionIndicatorSprite_->Draw();
+	}
 }
 
-// ... (UpdateScreenPosition 関数はご提示のコードのままでOK) ...
 void Enemy::UpdateScreenPosition() {
-	if (!camera_ || !targetSprite_) {
+	if (!camera_ || !targetSprite_ || !directionIndicatorSprite_) {
 		isOnScreen_ = false;
+		isOffScreen_ = false;
 		return;
 	}
-
 	const KamataEngine::Matrix4x4& viewMatrix = camera_->matView;
 	const KamataEngine::Matrix4x4& projMatrix = camera_->matProjection;
+	KamataEngine::Vector2 screenCenter = {KamataEngine::WinApp::kWindowWidth / 2.0f, KamataEngine::WinApp::kWindowHeight / 2.0f};
 
-	// 1. ワールド -> ビュー座標変換
 	KamataEngine::Vector3 worldPos = GetWorldPosition();
 	KamataEngine::Vector3 viewPos;
 	viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
 	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
 	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
 
-	// 2. ビュー -> クリップ座標変換 & 画面内判定
-	if (viewPos.z > 0.0f) { // カメラの前方か
+	if (viewPos.z > 0.0f) {
 		float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
 		float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
 		float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
 
-		if (w_clip > 0.0f) { // w が 0 より大きいか
+		if (w_clip > 0.0f) {
 			float ndcX = clipX / w_clip;
 			float ndcY = clipY / w_clip;
 
-			// 画面内 (NDC -1～1) か
 			if (ndcX >= -1.0f && ndcX <= 1.0f && ndcY >= -1.0f && ndcY <= 1.0f) {
-				isOnScreen_ = true; // ★ 画面内
-				// 4. NDC -> スクリーン座標変換
+				// 画面内
+				isOnScreen_ = true;
+				isOffScreen_ = false;
 				float screenX = (ndcX + 1.0f) * 0.5f * KamataEngine::WinApp::kWindowWidth;
 				float screenY = (1.0f - ndcY) * 0.5f * KamataEngine::WinApp::kWindowHeight;
 				targetSprite_->SetPosition({screenX, screenY});
 			} else {
-				isOnScreen_ = false; // ★ 画面外 (NDC範囲外)
+				// 画面外・前方
+				isOnScreen_ = false;
+				isOffScreen_ = true;
+				float screenX = (ndcX + 1.0f) * 0.5f * KamataEngine::WinApp::kWindowWidth;
+				float screenY = (1.0f - ndcY) * 0.5f * KamataEngine::WinApp::kWindowHeight;
+				KamataEngine::Vector2 vecFromCenter = {screenX - screenCenter.x, screenY - screenCenter.y};
+				float angle = std::atan2(vecFromCenter.y, vecFromCenter.x);
+
+				const float kIndicatorRadius = 70.0f;
+				float indicatorX = screenCenter.x + kIndicatorRadius * std::cos(angle);
+				float indicatorY = screenCenter.y + kIndicatorRadius * std::sin(angle);
+
+				const float kScreenMargin = 20.0f;
+				indicatorX = std::clamp(indicatorX, kScreenMargin, KamataEngine::WinApp::kWindowWidth - kScreenMargin);
+				indicatorY = std::clamp(indicatorY, kScreenMargin, KamataEngine::WinApp::kWindowHeight - kScreenMargin);
+
+				directionIndicatorSprite_->SetPosition({indicatorX, indicatorY});
+				directionIndicatorSprite_->SetRotation(angle + KamataEngine::MathUtility::PI / 2.0f);
 			}
 		} else {
-			isOnScreen_ = false; // ★ 画面外 (w_clip <= 0)
+			isOnScreen_ = false;
+			isOffScreen_ = true;
+
+			float angle = std::atan2(-viewPos.y, -viewPos.x);
+
+			const float kIndicatorRadius = 70.0f;
+			float indicatorX = screenCenter.x + kIndicatorRadius * std::cos(angle);
+			float indicatorY = screenCenter.y + kIndicatorRadius * std::sin(angle);
+
+			const float kScreenMargin = 20.0f;
+			indicatorX = std::clamp(indicatorX, kScreenMargin, KamataEngine::WinApp::kWindowWidth - kScreenMargin);
+			indicatorY = std::clamp(indicatorY, kScreenMargin, KamataEngine::WinApp::kWindowHeight - kScreenMargin);
+
+			directionIndicatorSprite_->SetPosition({indicatorX, indicatorY});
+			directionIndicatorSprite_->SetRotation(angle + KamataEngine::MathUtility::PI / 2.0f);
 		}
 	} else {
-		isOnScreen_ = false; // ★ 画面外 (カメラの後ろ)
-	}
+		isOnScreen_ = false;
+		isOffScreen_ = true;
 
-	// --- ▼▼▼ ロックオン演出の計算 ▼▼▼ ---
+		float angle = std::atan2(-viewPos.y, -viewPos.x);
+
+		const float kIndicatorRadius = 70.0f;
+		float indicatorX = screenCenter.x + kIndicatorRadius * std::cos(angle);
+		float indicatorY = screenCenter.y + kIndicatorRadius * std::sin(angle);
+
+		const float kScreenMargin = 20.0f;
+		indicatorX = std::clamp(indicatorX, kScreenMargin, KamataEngine::WinApp::kWindowWidth - kScreenMargin);
+		indicatorY = std::clamp(indicatorY, kScreenMargin, KamataEngine::WinApp::kWindowHeight - kScreenMargin);
+
+		directionIndicatorSprite_->SetPosition({indicatorX, indicatorY});
+		directionIndicatorSprite_->SetRotation(angle + KamataEngine::MathUtility::PI / 2.0f);
+	}
 
 	bool justAppeared = (isOnScreen_ && !wasOnScreenLastFrame_);
 

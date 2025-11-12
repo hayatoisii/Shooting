@@ -87,6 +87,9 @@
     <ClCompile Include="Quaternion.cpp">
       <Filter>GameProgram\MT</Filter>
     </ClCompile>
+    <ClCompile Include="Meteorite.cpp">
+      <Filter>GameProgram\Enemy</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\SpritePS.hlsl">
@@ -176,6 +179,9 @@
     </ClInclude>
     <ClInclude Include="Quaternion.h">
       <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="Meteorite.h">
+      <Filter>GameProgram\Enemy</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

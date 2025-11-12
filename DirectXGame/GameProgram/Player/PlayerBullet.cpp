@@ -40,7 +40,8 @@ void PlayerBullet::Update() {
         if (distance > maxHomingDistance) {
             isHomingEnabled_ = false; 
             homingTarget_ = nullptr;
-        // ▼▼▼ 修正点 2: 距離チェックを追加 ▼▼▼
+        // ▼▼▼ 修正点 2: 
+        // チェックを追加 ▼▼▼
         } else if (distance < stopHomingDistance) { // ★ 停止距離より近ければ
             isHomingEnabled_ = false;             // ★ ホーミングを無効化
             homingTarget_ = nullptr;

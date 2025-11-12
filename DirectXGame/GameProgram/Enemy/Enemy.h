@@ -80,14 +80,17 @@ private:
 	KamataEngine::Vector2 screenPosition_;
 
 	bool wasOnScreenLastFrame_ = false; // 1フレーム前の画面内判定
-	float lockOnAnimRotation_ = 0.0f;   // ロックオン演出用の回転角度 (ラジアン)
+	float lockOnAnimRotation_ = 0.0f;
 	float lockOnAnimScale_ = 1.0f;
 
+	KamataEngine::Sprite* directionIndicatorSprite_;
+	bool isOffScreen_;
 
-	KamataEngine::Vector3 initialRelativePos_; // スポーン時の相対座標 (円運動の中心)
-	KamataEngine::Vector3 initialWorldPos_;    // スポーン時のワールド座標
-	float circleTimer_ = 0.0f;                 // 円運動の角度計算用タイマー
+	KamataEngine::Vector3 initialRelativePos_;
+	KamataEngine::Vector3 initialWorldPos_;
+	float circleTimer_ = 0.0f;
 
 	bool isFollowing_ = false;
+	bool isFollowingFast_ = false;
 
 };

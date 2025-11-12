@@ -1,10 +1,10 @@
 #include "Player.h"
-#include "Enemy.h"      // Enemy クラスの定義が必要
-#include "RailCamera.h" // RailCamera クラスの定義が必要
-#include <algorithm>    // std::clamp
+#include "Enemy.h"
+#include "RailCamera.h"
+#include <algorithm>
 #include <cassert>
-#include <cmath>  // sqrt, sqrtf, std::rand, RAND_MAX
-#include <limits> // FLT_MAX
+#include <cmath>
+#include <limits>
 
 Player::~Player() {
 	delete modelbullet_;
@@ -19,25 +19,25 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	assert(model);
 	model_ = model;
 	camera_ = camera;
-	modelbullet_ = KamataEngine::Model::CreateFromOBJ("Bullet", true); // "Bullet" モデルを使用
+	modelbullet_ = KamataEngine::Model::CreateFromOBJ("Bullet", true);
 	worldtransfrom_.translation_ = pos;
 	input_ = KamataEngine::Input::GetInstance();
 
 	worldtransfrom_.Initialize();
 
-	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true); // "flare" モデルを使用
+	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true);
 	engineExhaust_ = new ParticleEmitter();
 	engineExhaust_->Initialize(modelParticle_);
 
-	hp_ = 3;         // ★ HP初期化
-	isDead_ = false; // 死亡フラグ初期化
+	hp_ = 3;
+	isDead_ = false;
 }
 
 void Player::OnCollision() {
-	// isDead_ = true; // 即死ではなくHPを減らす
-	hp_--;           // HPを減らす
-	if (hp_ <= 0) {  // HPが0以下になったら
-		isDead_ = true; // 死亡フラグを立てる
+	// isDead_ = true; // 即死
+	hp_--;
+	if (hp_ <= 0) {
+		isDead_ = true;
 	}
 }
 
@@ -95,10 +95,8 @@ void Player::Attack() {
 			PlayerBullet* newBullet = new PlayerBullet();
 			newBullet->Initialize(modelbullet_, moveBullet, velocity);
 
-			// ▼▼▼ ホーミング強度を修正 ▼▼▼
-			// 0.10f だと緩すぎるため、1.0f (100%補正) に変更
+			// ホーミング強度
 			newBullet->SetHomingStrength(1.0f);
-			// ▲▲▲ 修正完了 ▲▲▲
 
 			if (nearestOnScreenEnemy) {
 				newBullet->SetHomingTarget(nearestOnScreenEnemy);
@@ -132,7 +130,6 @@ void Player::SetParent(const KamataEngine::WorldTransform* parent) { worldtransf
 void Player::Update() {
 	Attack(); // 攻撃処理
 
-	// 弾の更新と削除
 	for (PlayerBullet* bullet : bullets_) {
 		bullet->Update();
 	}
@@ -144,48 +141,33 @@ void Player::Update() {
 		return false;
 	});
 
-	// --- 移動処理 ---
-	//const float kPlayerMaxX = 2.5f; // 横移動の限界値
-	//float targetX = 0.0f;
-	//if (input_->PushKey(DIK_A)) {
-	//	targetX = kPlayerMaxX;
-	//}
-	//if (input_->PushKey(DIK_D)) {
-	//	targetX = -kPlayerMaxX;
-	//}
-	//float targetY = worldtransfrom_.translation_.y;
-	//float moveLerpFactor = (input_->PushKey(DIK_A) || input_->PushKey(DIK_D)) ? 0.015f : 0.03f;
-	//worldtransfrom_.translation_.x += (targetX - worldtransfrom_.translation_.x) * moveLerpFactor;
-	//worldtransfrom_.translation_.y += (targetY - worldtransfrom_.translation_.y) * moveLerpFactor;
 
-  // --- 回転処理 (カメラの動きに連動) ---
 	if (railCamera_) {
 		const float lerpFactor = 0.1f;
 
-		// 1. ロール（A/Dキー）の勢いで機体を傾ける (ロール)
-		float rollVelocity = railCamera_->GetRotationVelocity().z; // ★ 修正後 (ロール速度を参照)
-		const float tiltFactor = 7.0f; // 傾き係数  0でもいい
-		float targetRoll = rollVelocity * tiltFactor; // ★ 修正後
+		// ロール、自機少し傾け
+		float rollVelocity = railCamera_->GetRotationVelocity().z;
+		const float tiltFactor = 7.0f; // 傾き
+		float targetRoll = rollVelocity * tiltFactor;
 		const float maxRollAngle = 4.0f; // 最大傾き
 		targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
 		worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
 
-		// 2. ピッチ（W/S）の勢いで機首をわずかに上下させる (ピッチ)
-		float pitchVelocity = railCamera_->GetRotationVelocity().x; // ピッチ速度を取得
-		const float pitchFactor = 15.0f; // 35                            // 傾き係数
+		// 上下
+		float pitchVelocity = railCamera_->GetRotationVelocity().x;
+		const float pitchFactor = 15.0f; // 35
 		float targetPitch = pitchVelocity * pitchFactor;
 		const float maxPitchAngle = 1.5f; // 最大傾き
 		targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
 		worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
 	}
 
-	// --- ワールド行列の更新 ---
 	worldtransfrom_.UpdateMatrix();
 
-	// --- 排気パーティクルの処理 ---
+	// 排気パーティクル
 	if (engineExhaust_) {
-		KamataEngine::Vector3 exhaustOffset = {0.0f, -0.5f, -2.0f};
-		KamataEngine::Vector3 emitterPos = KamataEngine::MathUtility::Transform(exhaustOffset, worldtransfrom_.matWorld_); // TransformNormal ではなく Transform
+		KamataEngine::Vector3 exhaustOffset = {0.0f, -0.3f, -3.0f};
+		KamataEngine::Vector3 emitterPos = KamataEngine::MathUtility::Transform(exhaustOffset, worldtransfrom_.matWorld_);
 
 		KamataEngine::Vector3 playerBackVector = {-worldtransfrom_.matWorld_.m[2][0], -worldtransfrom_.matWorld_.m[2][1], -worldtransfrom_.matWorld_.m[2][2]};
 		playerBackVector = KamataEngine::MathUtility::Normalize(playerBackVector);
@@ -194,7 +176,7 @@ void Player::Update() {
 		KamataEngine::Vector3 exhaustVelocity = playerBackVector * exhaustSpeed;
 
 		engineExhaust_->Emit(emitterPos, exhaustVelocity);
-		engineExhaust_->Update(); // ★ UpdateGameOver との重複注意
+		engineExhaust_->Update();
 	}
 }
 
@@ -223,26 +205,25 @@ void Player::ResetParticles() {
 
 
 void Player::UpdateGameOver(float animationTime) {
-	// --- 1. 姿勢制御 (斜め下向き) ---
+	// 姿勢制御
 	const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;
 	worldtransfrom_.rotation_.x = pitchDownAngle;
 
-	// --- 2. 回転 (徐々に加速) ---
+	// 回転
 	const float baseSpinSpeed = 0.01f;
 	const float spinAcceleration = 0.0005f;
 	float currentSpinSpeed = baseSpinSpeed + spinAcceleration * animationTime;
-	worldtransfrom_.rotation_.y += currentSpinSpeed; // Y軸周りに回転
+	worldtransfrom_.rotation_.y += currentSpinSpeed;
 
-	// --- 3. 移動 (徐々に加速して落下) ---
+	// 移動
 	const float baseFallSpeed = 0.02f;
 	const float fallAcceleration = 0.001f;
 	float currentFallSpeed = baseFallSpeed + fallAcceleration * animationTime;
-	worldtransfrom_.translation_.y -= currentFallSpeed; // Y座標を減らす
+	worldtransfrom_.translation_.y -= currentFallSpeed;
 
-	// --- 4. ワールド行列を更新 ---
-	worldtransfrom_.UpdateMatrix(); // ここまでの変更を反映
+	worldtransfrom_.UpdateMatrix();
 
-	// --- 5. パーティクル放出 (斜め右上へ) ---
+	// パーティクル放出
 	if (engineExhaust_) {
 		KamataEngine::Vector3 emitOffset = {0.8f, 0.0f, -0.8f};
 		KamataEngine::Vector3 worldEmitPos = KamataEngine::MathUtility::Transform(emitOffset, worldtransfrom_.matWorld_);
@@ -254,8 +235,14 @@ void Player::UpdateGameOver(float animationTime) {
 		engineExhaust_->Emit(worldEmitPos, smokeVelocity);
 	}
 
-	// --- 6. パーティクルシステム自体の更新 ---
 	if (engineExhaust_) {
-		engineExhaust_->Update(); // ★ ゲームオーバー中はここで更新
+		engineExhaust_->Update();
 	}
+}
+
+void Player::ResetBullets() {
+	for (PlayerBullet* bullet : bullets_) {
+		delete bullet;
+	}
+	bullets_.clear();
 }

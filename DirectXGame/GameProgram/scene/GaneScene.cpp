@@ -1,23 +1,21 @@
 #include "GaneScene.h"
 #include "3d/AxisIndicator.h"
-#include <algorithm> // std::clamp のため
+#include <algorithm>
 #include <cassert>
-#include <cmath> // std::lerp, std::abs, std::pow, std::sqrtのため
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 
 KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine::Vector3& end, float t) {
-	t = std::clamp(t, 0.0f, 1.0f); // tを0から1の範囲に収める
+	t = std::clamp(t, 0.0f, 1.0f);
 	return start + (end - start) * t;
 }
-
-// Vector3 間の距離を計算するヘルパー関数
 float Distance(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2) {
 	float dx = v1.x - v2.x;
 	float dy = v1.y - v2.y;
 	float dz = v1.z - v2.z;
 	return std::sqrt(dx * dx + dy * dy + dz * dz);
 }
-// 距離の2乗を計算するヘルパー関数（平方根計算を省略して高速）
 float GameScene::DistanceSquared(const Vector3& v1, const Vector3& v2) {
 	float dx = v1.x - v2.x;
 	float dy = v1.y - v2.y;
@@ -32,6 +30,10 @@ GameScene::~GameScene() {
 	delete modelEnemy_;
 	delete modelSkydome_;
 	delete modelTitleObject_;
+	delete modelMeteorite_;
+	for (Meteorite* meteor : meteorites_) {
+		delete meteor;
+	}
 	delete player_;
 	delete skydome_;
 	delete railCamera_;
@@ -53,10 +55,13 @@ void GameScene::Initialize() {
 	player_ = new Player();
 	skydome_ = new Skydome();
 
-	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly", true);
+	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly2", true);
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
+
+	modelMeteorite_ = KamataEngine::Model::CreateFromOBJ("meteorite", true);
+	meteoriteSpawnTimer_ = 0;
 
 	transitionTextureHandle_ = KamataEngine::TextureManager::Load("black.png");
 	transitionSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
@@ -87,7 +92,7 @@ void GameScene::Initialize() {
 
 	railCamera_ = new RailCamera();
 	railCamera_->Initialize(railcameraPos, railcameraRad);
-	cameraPositionAnchor_.Initialize(); // (★ ご提示のコードで適用済み)
+	cameraPositionAnchor_.Initialize();
 	player_->SetParent(&railCamera_->GetWorldTransform());
 	player_->SetRailCamera(railCamera_);
 	player_->SetEnemies(&enemies_);
@@ -102,11 +107,10 @@ void GameScene::Update() {
 
 	switch (sceneState) {
 	case SceneState::Start: {
-		// ( ... Start 処理 ... )
 		if (input_->TriggerKey(DIK_SPACE)) {
 			sceneState = SceneState::TransitionToGame;
 			transitionTimer_ = 0.0f;
-			gameSceneTimer_ = 0; // ゲームタイマーリセット
+			gameSceneTimer_ = 0;
 		}
 		titleAnimationTimer_++;
 		const int32_t cycleFrames = kTitleRotateFrames + kTitlePauseFrames;
@@ -122,7 +126,6 @@ void GameScene::Update() {
 		break;
 	}
 	case SceneState::TransitionToGame: {
-		// ( ... TransitionToGame 処理 ... )
 		transitionTimer_++;
 		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
 		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
@@ -136,7 +139,6 @@ void GameScene::Update() {
 		break;
 	}
 	case SceneState::TransitionFromGame: {
-		// ( ... TransitionFromGame 処理 ... )
 		transitionTimer_++;
 		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
 		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
@@ -150,14 +152,14 @@ void GameScene::Update() {
 			player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
 			player_->GetWorldTransform().UpdateMatrix();
 			isGameIntroFinished_ = false;
+			UpdateEnemyPopCommands();
 		}
 
 		if (railCamera_) {
 			railCamera_->Update();
-			// ▼▼▼ アンカー更新処理を追加 ▼▼▼
+			// アンカー更新
 			cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 			cameraPositionAnchor_.UpdateMatrix();
-			// ▲▲▲ 追加完了 ▲▲▲
 		}
 		if (player_)
 			player_->GetWorldTransform().UpdateMatrix();
@@ -167,7 +169,6 @@ void GameScene::Update() {
 		break;
 	}
 	case SceneState::GameIntro: {
-		// ( ... GameIntro 処理 ... )
 		gameIntroTimer_++;
 
 		float t = gameIntroTimer_ / kGameIntroDuration_;
@@ -178,10 +179,9 @@ void GameScene::Update() {
 		player_->GetWorldTransform().UpdateMatrix();
 
 		railCamera_->Update();
-		// ▼▼▼ アンカー更新処理を追加 ▼▼▼
+		// アンカー更新
 		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 		cameraPositionAnchor_.UpdateMatrix();
-		// ▲▲▲ 追加完了 ▲▲▲
 		camera_.matView = railCamera_->GetViewProjection().matView;
 		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
 		camera_.TransferMatrix();
@@ -193,16 +193,18 @@ void GameScene::Update() {
 			sceneState = SceneState::Game;
 			isGameIntroFinished_ = true;
 			gameSceneTimer_ = 0;
+
+			// Gameが始まってから移動するようにする
+			if (railCamera_) {
+				railCamera_->SetCanMove(true);
+			}
 		}
 		break;
 	}
 	case SceneState::Game: {
-		// ( ... Game 処理 ... )
-
-		// デモ用自動復帰タイマー (タイムオーバーでタイトルへ)
+		// デモ用自動復帰タイマー
 		if (gameSceneTimer_ > kGameTimeLimit_) {
 			sceneState = SceneState::Start;
-			// (リセット処理)
 			camera_.Initialize();
 			camera_.TransferMatrix();
 			if (railCamera_) {
@@ -213,6 +215,7 @@ void GameScene::Update() {
 				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
 				player_->GetWorldTransform().UpdateMatrix();
 				player_->ResetParticles();
+				player_->ResetBullets();
 			}
 			for (Enemy* enemy : enemies_) {
 				delete enemy;
@@ -222,6 +225,13 @@ void GameScene::Update() {
 				delete bullet;
 			}
 			enemyBullets_.clear();
+
+			for (Meteorite* meteor : meteorites_) {
+				delete meteor;
+			}
+			meteorites_.clear();
+			meteoriteSpawnTimer_ = 0;
+
 			LoadEnemyPopData();
 			hasSpawnedEnemies_ = false;
 			break;
@@ -229,16 +239,25 @@ void GameScene::Update() {
 
 		// --- 通常のゲーム処理 ---
 		railCamera_->Update();
-		// ▼▼▼ アンカー更新処理を追加 ▼▼▼
 		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 		cameraPositionAnchor_.UpdateMatrix();
-		// ▲▲▲ 追加完了 ▲▲▲
 		camera_.matView = railCamera_->GetViewProjection().matView;
 		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
 		camera_.TransferMatrix();
 
 		if (isGameIntroFinished_) {
-			UpdateEnemyPopCommands();
+			const int kSpawnsPerFrame = 1;
+			meteoriteSpawnTimer_--;
+			if (meteoriteSpawnTimer_ <= 0) {
+				for (int i = 0; i < kSpawnsPerFrame; ++i) {
+					SpawnMeteorite();
+				}
+				// 隕石の数
+				meteoriteSpawnTimer_ = 1;
+			}
+
+			UpdateMeteorites();
+
 			for (Enemy* enemy : enemies_) {
 				enemy->Update();
 			}
@@ -265,7 +284,6 @@ void GameScene::Update() {
 		break;
 	}
 	case SceneState::Clear:
-		// ( ... Clear 処理 ... )
 		if (input_->TriggerKey(DIK_SPACE)) {
 			sceneState = SceneState::Start;
 			gameOverTimer_ = 0;
@@ -279,6 +297,7 @@ void GameScene::Update() {
 				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
 				player_->GetWorldTransform().UpdateMatrix();
 				player_->ResetParticles();
+				player_->ResetBullets();
 			}
 			for (Enemy* enemy : enemies_) {
 				delete enemy;
@@ -288,13 +307,19 @@ void GameScene::Update() {
 				delete bullet;
 			}
 			enemyBullets_.clear();
+
+			for (Meteorite* meteor : meteorites_) {
+				delete meteor;
+			}
+			meteorites_.clear();
+			meteoriteSpawnTimer_ = 0;
+
 			LoadEnemyPopData();
 			hasSpawnedEnemies_ = false;
 		}
 		break;
 
 	case SceneState::over:
-		// ( ... over 処理 ... )
 		gameOverTimer_++;
 
 		if (player_) {
@@ -302,7 +327,6 @@ void GameScene::Update() {
 		}
 
 		if (railCamera_) {
-			// (アンカーの更新もここで行う)
 			cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 			cameraPositionAnchor_.UpdateMatrix();
 
@@ -328,6 +352,7 @@ void GameScene::Update() {
 				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
 				player_->GetWorldTransform().UpdateMatrix();
 				player_->ResetParticles();
+				player_->ResetBullets();
 			}
 
 			for (Enemy* enemy : enemies_) {
@@ -338,6 +363,11 @@ void GameScene::Update() {
 				delete bullet;
 			}
 			enemyBullets_.clear();
+			for (Meteorite* meteor : meteorites_) {
+				delete meteor;
+			}
+			meteorites_.clear();
+			meteoriteSpawnTimer_ = 0;
 
 			LoadEnemyPopData();
 			hasSpawnedEnemies_ = false;
@@ -369,9 +399,14 @@ void GameScene::Draw() {
 				if (bullet)
 					bullet->Draw(camera_);
 			}
+
+			for (Meteorite* meteor : meteorites_) {
+				if (meteor) {
+					meteor->Draw(camera_);
+				}
+			}
 		}
 	} else if (sceneState == SceneState::Clear) {
-		// ( ... Clear 描画 ... )
 	}
 
 	KamataEngine::Model::PostDraw();
@@ -406,15 +441,20 @@ void GameScene::AddEnemyBullet(EnemyBullet* bullet) {
 
 void GameScene::EnemySpawn(const Vector3& position) {
 	Enemy* newEnemy = new Enemy();
-	newEnemy->Initialize(modelEnemy_, position);
+
+	assert(railCamera_ && "EnemySpawn: railCamera_ が null です");
+	KamataEngine::Vector3 playerPos = railCamera_->GetWorldTransform().translation_;
+
+	KamataEngine::Vector3 spawnPosWorld;
+	spawnPosWorld.x = playerPos.x + position.x;
+	spawnPosWorld.y = playerPos.y + position.y;
+	spawnPosWorld.z = playerPos.z + position.z;
+
 	newEnemy->SetPlayer(player_);
 	newEnemy->SetGameScene(this);
 	newEnemy->SetCamera(&camera_);
 
-	// ▼▼▼ 親をアンカーに変更 ▼▼▼
-	// newEnemy->SetParent(&railCamera_->GetWorldTransform()); // ★ 修正前
-	//newEnemy->SetParent(&cameraPositionAnchor_); // ★ 修正後
-	// ▲▲▲ 修正完了 ▲▲▲
+	newEnemy->Initialize(modelEnemy_, spawnPosWorld);
 
 	enemies_.push_back(newEnemy);
 }
@@ -497,7 +537,31 @@ void GameScene::CheckAllCollisions() {
 		}
 	}
 
-	// --- 自弾 vs 敵キャラ ---
+	// 自キャラ vs 隕石 の判定
+	posA[0] = player_->GetWorldPosition(); // プレイヤー位置
+	float playerRadius = radiusA[0];       // プレイヤー半径
+
+	for (Meteorite* meteor : meteorites_) {
+		if (!meteor || meteor->IsDead())
+			continue;
+
+		posB[0] = meteor->GetWorldPosition();
+		float meteoriteRadius = meteor->GetRadius();
+		float distanceSquared = DistanceSquared(posA[0], posB[0]);
+		float combinedRadiusSquared = (playerRadius + meteoriteRadius) * (playerRadius + meteoriteRadius);
+
+		if (distanceSquared <= combinedRadiusSquared) {
+			player_->OnCollision();
+			meteor->OnCollision();
+
+			if (player_->IsDead()) {
+				TransitionToClearScene2();
+				return;
+			}
+		}
+	}
+
+	// 自弾 vs 敵キャラ
 	auto enemiesCopy = enemies_;
 	for (Enemy* enemy : enemiesCopy) {
 		if (!enemy || enemy->IsDead())
@@ -520,7 +584,7 @@ void GameScene::CheckAllCollisions() {
 				if (audio_)
 					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
 
-				if (hitCount >= 5) {
+				if (hitCount >= 1) {
 					TransitionToClearScene();
 					return;
 				}
@@ -528,7 +592,6 @@ void GameScene::CheckAllCollisions() {
 		}
 	}
 
-	// 死んだ敵をリストから削除
 	enemies_.remove_if([](Enemy* enemy) {
 		if (enemy && enemy->IsDead()) {
 			delete enemy;
@@ -542,11 +605,72 @@ void GameScene::TransitionToClearScene() {
 	sceneState = SceneState::Clear;
 	enemyPopCommands.str("");
 	enemyPopCommands.clear();
-	hitCount = 0; // 撃破数リセット
+	hitCount = 0;
 }
 
 void GameScene::TransitionToClearScene2() {
 	sceneState = SceneState::over;
 	gameOverTimer_ = 0;
 	hitCount2 = 0;
+}
+
+
+void GameScene::SpawnMeteorite() {
+	assert(railCamera_);
+	assert(modelMeteorite_);
+
+	KamataEngine::Vector3 cameraPos = railCamera_->GetWorldTransform().translation_;
+
+	float randomYaw = (static_cast<float>(std::rand()) / RAND_MAX) * (KamataEngine::MathUtility::PI * 2.0f);
+
+	float randomPitchFactor = (static_cast<float>(std::rand()) / RAND_MAX) * 2.0f - 1.0f;      // -1.0f ～ 1.0f
+	float randomPitch = std::acos(randomPitchFactor) - (KamataEngine::MathUtility::PI / 2.0f);
+
+	KamataEngine::Vector3 randomDir;
+	randomDir.x = std::cos(randomPitch) * std::sin(randomYaw);
+	randomDir.y = std::sin(randomPitch);
+	randomDir.z = std::cos(randomPitch) * std::cos(randomYaw);
+	randomDir = KamataEngine::MathUtility::Normalize(randomDir);
+
+	// この距離に隕石が発生する
+	const float kSpawnDistance = 800.0f;
+
+	KamataEngine::Vector3 offset = randomDir * kSpawnDistance;
+	KamataEngine::Vector3 spawnPos = cameraPos + offset;
+
+	// 5. スケールと半径をランダム
+	const float kBaseRadius = 2.0f;
+	const float kMinScale = 1.0f;
+	const float kMaxScale = 5.0f;
+
+	float randFactor = static_cast<float>(std::rand()) / RAND_MAX;
+	float randomBaseScale = kMinScale + (randFactor * (kMaxScale - kMinScale));
+	float randomRadius = kBaseRadius * randomBaseScale;
+	Meteorite* newMeteor = new Meteorite();
+	newMeteor->Initialize(modelMeteorite_, spawnPos, randomBaseScale, randomRadius);
+	meteorites_.push_back(newMeteor);
+}
+
+void GameScene::UpdateMeteorites() {
+	//　この数値より離れたら隕石を消去
+	const float kDespawnDistanceSq = 800.0f * 800.0f;
+	KamataEngine::Vector3 playerPos = railCamera_->GetWorldTransform().translation_;
+
+	for (Meteorite* meteor : meteorites_) {
+
+		meteor->Update(playerPos);
+		float distSq = DistanceSquared(playerPos, meteor->GetWorldPosition());
+
+		if (distSq > kDespawnDistanceSq) {
+				meteor->OnCollision();
+		}
+	}
+
+	meteorites_.remove_if([](Meteorite* meteor) {
+		if (meteor && meteor->IsDead()) {
+			delete meteor;
+			return true;
+		}
+		return false;
+	});
 }

@@ -4,7 +4,7 @@
 void ParticleEmitter::Initialize(KamataEngine::Model* model) {
 	model_ = model;
 	particles_.resize(100);
-	frequency_ = 1; // 少し発生頻度を上げてみましょう
+	frequency_ = 1; // 発生頻度
 	frequencyTimer_ = 0;
 }
 
@@ -19,11 +19,9 @@ void ParticleEmitter::Update() {
 				continue;
 			}
 
-			// 速度が0なので、この行は実質何もしないが、構造として残しておく
 			particle.worldTransform_.translation_ += particle.velocity_;
 
 			// 時間経過で小さくなって消える処理
-			//float lifeRatio = particle.currentTime_ / particle.lifeTime_;
 			float scale = 0.3f;
 			particle.worldTransform_.scale_ = {scale, scale, scale};
 
@@ -44,10 +42,9 @@ void ParticleEmitter::Emit(const KamataEngine::Vector3& position, const KamataEn
 	frequencyTimer_++;
 	if (frequencyTimer_ >= frequency_) {
 
-		// 一度に生成したいパーティクルの数 (この数値を増やすと、より煙が濃くなります)
-		const int particlesToEmit = 10;
+		// 一回の発生のパーティクル数
+		const int particlesToEmit = 5;
 
-		// 指定した数だけ、CreateParticleを繰り返し呼び出す
 		for (int i = 0; i < particlesToEmit; ++i) {
 			CreateParticle(position, velocity);
 		}
@@ -62,12 +59,11 @@ void ParticleEmitter::CreateParticle(const KamataEngine::Vector3& position, cons
 			particle.worldTransform_.translation_ = position;
 			particle.worldTransform_.Initialize();
 
-			// ▼▼▼ 受け取った速度をパーティクルに設定 ▼▼▼
 			// 少しだけランダムなばらつきを加える
-			KamataEngine::Vector3 randomVelocity = {(MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f};
+			KamataEngine::Vector3 randomVelocity = {(MT::GetRand() / (float)RAND_MAX - 0.8f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f, (MT::GetRand() / (float)RAND_MAX - 0.5f) * 0.1f};
 			particle.velocity_ = velocity + randomVelocity;
 
-			particle.lifeTime_ = static_cast<float>(3 + MT::GetRand() % 3); // 寿命を少し調整 static_cast<float>(4 + MT::GetRand() % 4);
+			particle.lifeTime_ = static_cast<float>(3 + MT::GetRand() % 3);
 			particle.currentTime_ = 0;
 			return;
 		}
@@ -75,10 +71,8 @@ void ParticleEmitter::CreateParticle(const KamataEngine::Vector3& position, cons
 }
 
 void ParticleEmitter::Clear() {
-	// 現在アクティブな全てのパーティクルを非アクティブにする
 	for (Particle& particle : particles_) {
 		particle.isActive_ = false;
 	}
-	// frequencyTimer_もリセットしておくと、シーン切り替え直後に意図せず生成されるのを防げる
 	frequencyTimer_ = 0;
 }
