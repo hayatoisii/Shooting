@@ -40,6 +40,8 @@ public:
 	void SpawnMeteorite();
 	void UpdateMeteorites();
 
+	void RequestExplosion(const KamataEngine::Vector3& position);
+
 	bool hasSpawnedEnemies_ = false;
 
 private:
@@ -114,4 +116,7 @@ private:
 
 	KamataEngine::Sprite* aimAssistCircleSprite_ = nullptr;
 	uint32_t aimAssistCircleTextureHandle_ = 0;
+
+	KamataEngine::Model* modelParticle_ = nullptr;
+	ParticleEmitter* explosionEmitter_ = nullptr;
 };

@@ -1,12 +1,12 @@
 #include "Enemy.h"
 #include "2d/Sprite.h"
 #include "GaneScene.h"
+#include "KamataEngine.h"
 #include "Player.h"
 #include "base/TextureManager.h"
 #include "base/WinApp.h"
 #include <algorithm>
 #include <cassert>
-#include "KamataEngine.h"
 #include <cmath>
 
 Enemy::~Enemy() {
@@ -30,10 +30,10 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	isFollowing_ = false;
 
 	isFollowingFast_ = false;
-	
+
 	worldtransfrom_.UpdateMatrix();
 
-	hp_ = 30;
+	hp_ = 20;
 
 	uint32_t indicatorHandle = TextureManager::Load("indicator.png");
 	directionIndicatorSprite_ = Sprite::Create(indicatorHandle, {0, 0});
@@ -77,6 +77,9 @@ void Enemy::OnCollision() {
 	hp_--;
 	if (hp_ <= 0) {
 		isDead_ = true;
+		if (gameScene_) {
+			gameScene_->RequestExplosion(GetWorldPosition());
+		}
 	};
 }
 
@@ -128,7 +131,7 @@ void Enemy::Update() {
 	const float kFarDistance = 2500.0f;
 	// これより近づいたら追尾やめる
 	const float kNearDistance = 2490.0f;
-    // 追尾速度
+	// 追尾速度
 	const float kFastSpeed = 5.0f;
 	// 常に進み続ける速度
 	const float kSlowSpeed = 0.1f;
@@ -136,29 +139,28 @@ void Enemy::Update() {
 	float currentSpeed = 0.0f;
 
 	if (distance > kFarDistance) {
-		isFollowingFast_ = true;
-		currentSpeed = kFastSpeed;
+	    isFollowingFast_ = true;
+	    currentSpeed = kFastSpeed;
 	} else if (distance < kNearDistance) {
-		isFollowingFast_ = false;
-		currentSpeed = kSlowSpeed;
+	    isFollowingFast_ = false;
+	    currentSpeed = kSlowSpeed;
 	} else {
-		currentSpeed = (isFollowingFast_) ? kFastSpeed : kSlowSpeed;
+	    currentSpeed = (isFollowingFast_) ? kFastSpeed : kSlowSpeed;
 	}
 
 	if (distance < 0.01f) {
-		currentSpeed = 0.0f;
+	    currentSpeed = 0.0f;
 	}
 
 	KamataEngine::Vector3 velocity = {0.0f, 0.0f, 0.0f};
 	if (currentSpeed > 0.0f) {
-		KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
-		velocity = dirToPlayer * currentSpeed;
+	    KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
+	    velocity = dirToPlayer * currentSpeed;
 	}
 
 	KamataEngine::Vector3 newPosition = myCurrentPos + velocity;
 	worldtransfrom_.translation_ = newPosition;
 	*/
-
 
 	worldtransfrom_.UpdateMatrix();
 
@@ -185,7 +187,7 @@ void Enemy::DrawSprite() {
 
 void Enemy::UpdateScreenPosition() {
 
-	//isAssistLocked_ = false;
+	// isAssistLocked_ = false;
 
 	if (!camera_ || !targetSprite_ || !directionIndicatorSprite_) {
 		isOnScreen_ = false;

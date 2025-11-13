@@ -41,6 +41,8 @@ GameScene::~GameScene() {
 	delete transitionSprite_;
 	delete taitoruSprite_;
 	delete aimAssistCircleSprite_;
+	delete explosionEmitter_;
+	delete modelParticle_;
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
 	}
@@ -83,6 +85,12 @@ void GameScene::Initialize() {
 	aimAssistCircleTextureHandle_ = KamataEngine::TextureManager::Load("aimCircle.png");
 	aimAssistCircleSprite_ = KamataEngine::Sprite::Create(aimAssistCircleTextureHandle_, {0, 0});
 	aimAssistCircleSprite_->SetSize({0.0f, 0.0f});
+
+	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true);
+	explosionEmitter_ = new ParticleEmitter();
+	if (explosionEmitter_) {
+		explosionEmitter_->Initialize(modelParticle_);
+	}
 
 	if (aimAssistCircleSprite_) {
 		aimAssistCircleSprite_->SetPosition(screenCenter);    // 画面中央
@@ -200,6 +208,11 @@ void GameScene::Update() {
 
 		UpdateAimAssist();
 		railCamera_->Update();
+
+		if (explosionEmitter_) {
+			explosionEmitter_->Update();
+		}
+
 		// アンカー更新
 		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 		cameraPositionAnchor_.UpdateMatrix();
@@ -268,6 +281,10 @@ void GameScene::Update() {
 
 		UpdateAimAssist();
 
+		if (explosionEmitter_) {
+			explosionEmitter_->Update();
+		}
+
 		if (isGameIntroFinished_) {
 			const int kSpawnsPerFrame = 0;
 			meteoriteSpawnTimer_--;
@@ -279,8 +296,7 @@ void GameScene::Update() {
 				meteoriteSpawnTimer_ = 0;
 			}
 
-
-			//UpdateMeteorites();
+			// UpdateMeteorites();
 
 			for (Enemy* enemy : enemies_) {
 				enemy->Update();
@@ -413,6 +429,10 @@ void GameScene::Draw() {
 
 		player_->Draw();
 		skydome_->Draw();
+
+		if (explosionEmitter_) {
+			explosionEmitter_->Draw(camera_);
+		}
 
 		if ((sceneState == SceneState::Game && isGameIntroFinished_) || sceneState == SceneState::over) {
 			for (Enemy* enemy : enemies_) {
@@ -618,7 +638,7 @@ void GameScene::CheckAllCollisions() {
 					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
 
 				if (hitCount >= 1) {
-					TransitionToClearScene();
+					// TransitionToClearScene();
 					return;
 				}
 			}
@@ -755,7 +775,7 @@ KamataEngine::Vector3 GameScene::ProjectToNDC(const KamataEngine::Vector3& world
 	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
 	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
 
-	if (viewPos.z < 0.0f) { 
+	if (viewPos.z < 0.0f) {
 		return {0.0f, 0.0f, -1.0f};
 	}
 
@@ -790,7 +810,7 @@ void GameScene::UpdateAimAssist() {
 	// 1. スプライトの「見た目」の円の半径
 	const float kVisualRadius = 0.08f;
 	// 2. アシストが反応する「判定」の円の半径
-	const float kDetectionRadius = 0.11f;//0.1f
+	const float kDetectionRadius = 0.11f; // 0.1f
 
 	// 3. 判定に使うための「2乗した」値
 	const float kVisualRadiusSq = kVisualRadius * kVisualRadius;
@@ -850,4 +870,20 @@ void GameScene::UpdateAimAssist() {
 
 		// ▲▲▲ 修正完了 ▲▲▲
 	}
+}
+
+void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
+	if (!explosionEmitter_) {
+		return;
+	}
+
+	// ★ ParticleEmitter に追加した「EmitBurst」関数を呼ぶ
+	explosionEmitter_->EmitBurst(
+	    position, // 発生座標
+	    50,       // 粒の数
+	    3.0f,     // 速度
+	    30.0f,    // 寿命 (30フレーム)
+	    1.0f,     // 開始スケール
+	    0.0f      // 終了スケール
+	);
 }
