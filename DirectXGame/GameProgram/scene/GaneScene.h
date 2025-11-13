@@ -34,6 +34,9 @@ public:
 	void UpdateEnemyPopCommands();
 	void EnemySpawn(const Vector3& position);
 
+	void UpdateAimAssist();
+	KamataEngine::Vector3 ProjectToNDC(const KamataEngine::Vector3& worldPos);
+
 	void SpawnMeteorite();
 	void UpdateMeteorites();
 

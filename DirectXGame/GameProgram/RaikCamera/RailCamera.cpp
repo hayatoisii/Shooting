@@ -20,21 +20,24 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 	rotation_ = Quaternion::Normalize(rotation_);
 
 	canMove_ = false;
+
+	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
 }
 
 void RailCamera::Update() {
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
 	// 自動飛行の速度
-	const float kCameraSpeed = 5.0f;          // 0.8f; // 1.5
-	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002
-	const float kRollAcceleration = 0.0016f;   // 横の回転
-	const float kYawAcceleration = 0.0008f;    // 左右の旋回0.001
+	const float kCameraSpeed = 4.0f;          // 0.8f; // 1.5
+	const float kPitchAcceleration = 0.0022f; // 縦の回転 0.002　　//0.0022f
+	const float kRollAcceleration = 0.0016f;  // 横の回転
+	const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
 	const float kRotFriction = 0.95f;
 	const float kYawFriction = 0.86f;
-	const float kXawFriction = 0.88f;
+	const float kXawFriction = 0.89f; // 89
 
-	Vector3 rotAcceleration = {0.0f, 0.0f, 0.0f};
+	Vector3 rotAcceleration = assistAcceleration_;
+	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
 
 	if (input->PushKey(DIK_W)) {
 		rotAcceleration.x = -kPitchAcceleration;
@@ -127,6 +130,7 @@ void RailCamera::Reset() {
 	rotation_ = KamataEngine::Quaternion::Normalize(rotation_);
 
 	rotationVelocity_ = {0.0f, 0.0f, 0.0f};
+	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
 
 	worldtransfrom_.matWorld_ = MakeIdentityMatrix();
 	worldtransfrom_.matWorld_.m[3][0] = initialPosition_.x;
@@ -147,4 +151,17 @@ KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
 	result.m[2][2] = 1.0f;
 	result.m[3][3] = 1.0f;
 	return result;
+}
+
+void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
+	// ★ 視点が吸い寄せられる強さ (この値を調整)
+	const float kAimAssistStrength = 0.002f;
+
+	// (※キー操作設定 (A/D=ヨー, W/S=ピッチ) に合わせて加速度を設定)
+
+	// ターゲットが右(ndcX > 0)なら、右(Dキー)方向の加速度(y+)を加える
+	assistAcceleration_.y += ndcX * kAimAssistStrength;
+
+	// ターゲットが上(ndcY > 0)なら、上(Wキー)方向の加速度(x-)を加える
+	assistAcceleration_.x -= ndcY * kAimAssistStrength;
 }

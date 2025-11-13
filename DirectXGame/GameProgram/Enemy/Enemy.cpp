@@ -32,7 +32,7 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	
 	worldtransfrom_.UpdateMatrix();
 
-	hp_ = 15;
+	hp_ = 2;
 
 	uint32_t indicatorHandle = TextureManager::Load("indicator.png");
 	directionIndicatorSprite_ = Sprite::Create(indicatorHandle, {0, 0});
@@ -108,6 +108,7 @@ void Enemy::Update() {
 	// Fire();
 
 	assert(player_ && "Enemy::Update() player_ が null です");
+	/*/
 	KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 	KamataEngine::Vector3 myCurrentPos = GetWorldPosition();
 
@@ -147,6 +148,9 @@ void Enemy::Update() {
 
 	KamataEngine::Vector3 newPosition = myCurrentPos + velocity;
 	worldtransfrom_.translation_ = newPosition;
+	/*/
+
+
 	worldtransfrom_.UpdateMatrix();
 
 	if (camera_ && targetSprite_) {

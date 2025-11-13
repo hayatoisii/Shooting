@@ -252,6 +252,8 @@ void GameScene::Update() {
 		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
 		camera_.TransferMatrix();
 
+		UpdateAimAssist();
+
 		if (isGameIntroFinished_) {
 			const int kSpawnsPerFrame = 1;
 			meteoriteSpawnTimer_--;
@@ -662,7 +664,6 @@ void GameScene::TransitionToClearScene2() {
 	hitCount2 = 0;
 }
 
-
 void GameScene::SpawnMeteorite() {
 	assert(railCamera_);
 	assert(modelMeteorite_);
@@ -671,7 +672,7 @@ void GameScene::SpawnMeteorite() {
 
 	float randomYaw = (static_cast<float>(std::rand()) / RAND_MAX) * (KamataEngine::MathUtility::PI * 2.0f);
 
-	float randomPitchFactor = (static_cast<float>(std::rand()) / RAND_MAX) * 2.0f - 1.0f;      // -1.0f ～ 1.0f
+	float randomPitchFactor = (static_cast<float>(std::rand()) / RAND_MAX) * 2.0f - 1.0f; // -1.0f ～ 1.0f
 	float randomPitch = std::acos(randomPitchFactor) - (KamataEngine::MathUtility::PI / 2.0f);
 
 	KamataEngine::Vector3 randomDir;
@@ -681,15 +682,15 @@ void GameScene::SpawnMeteorite() {
 	randomDir = KamataEngine::MathUtility::Normalize(randomDir);
 
 	// この距離に隕石が発生する
-	const float kSpawnDistance = 800.0f;
+	const float kSpawnDistance = 0.0f;
 
 	KamataEngine::Vector3 offset = randomDir * kSpawnDistance;
 	KamataEngine::Vector3 spawnPos = cameraPos + offset;
 
 	// スケールと半径をランダム
-	const float kBaseRadius = 2.0f;
-	const float kMinScale = 1.0f;
-	const float kMaxScale = 5.0f;
+	const float kBaseRadius = 0.0f;
+	const float kMinScale = 0.0f;
+	const float kMaxScale = 0.0f;
 
 	float randFactor = static_cast<float>(std::rand()) / RAND_MAX;
 	float randomBaseScale = kMinScale + (randFactor * (kMaxScale - kMinScale));
@@ -700,8 +701,8 @@ void GameScene::SpawnMeteorite() {
 }
 
 void GameScene::UpdateMeteorites() {
-	//　この数値より離れたら隕石を消去
-	const float kDespawnDistanceSq = 800.0f * 800.0f;
+	// 　この数値より離れたら隕石を消去
+	const float kDespawnDistanceSq = 0.0f * 0.0f;
 	KamataEngine::Vector3 playerPos = railCamera_->GetWorldTransform().translation_;
 
 	for (Meteorite* meteor : meteorites_) {
@@ -710,7 +711,7 @@ void GameScene::UpdateMeteorites() {
 		float distSq = DistanceSquared(playerPos, meteor->GetWorldPosition());
 
 		if (distSq > kDespawnDistanceSq) {
-				meteor->OnCollision();
+			meteor->OnCollision();
 		}
 	}
 
@@ -721,4 +722,75 @@ void GameScene::UpdateMeteorites() {
 		}
 		return false;
 	});
+}
+
+KamataEngine::Vector3 GameScene::ProjectToNDC(const KamataEngine::Vector3& worldPos) {
+	if (!railCamera_) {
+		return {0.0f, 0.0f, -1.0f};
+	}
+
+	const KamataEngine::Matrix4x4& viewMatrix = railCamera_->GetViewProjection().matView;
+	const KamataEngine::Matrix4x4& projMatrix = railCamera_->GetViewProjection().matProjection;
+
+	KamataEngine::Vector3 viewPos;
+	viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
+	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
+	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
+
+	if (viewPos.z < 0.0f) { 
+		return {0.0f, 0.0f, -1.0f};
+	}
+
+	float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
+	float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
+	float clipZ = viewPos.x * projMatrix.m[0][2] + viewPos.y * projMatrix.m[1][2] + viewPos.z * projMatrix.m[2][2] + 1.0f * projMatrix.m[3][2];
+
+	float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
+
+	if (std::abs(w_clip) < 0.001f || w_clip < 0.0f) {
+		return {0.0f, 0.0f, -1.0f};
+	}
+
+	float ndcX = clipX / w_clip;
+	float ndcY = clipY / w_clip;
+	float ndcZ = clipZ / w_clip;
+
+	return {ndcX, ndcY, ndcZ};
+}
+
+void GameScene::UpdateAimAssist() {
+	if (!railCamera_)
+		return;
+
+	// この範囲に敵が入ったらアシストされる
+	const float kAimAssistRadius = 0.3f;
+	const float kAimAssistRadiusSq = kAimAssistRadius * kAimAssistRadius;
+
+	float minNdcDistSq = kAimAssistRadiusSq;         // 範囲内の最短距離
+	Enemy* bestTarget = nullptr;                     // 最も近い敵
+	KamataEngine::Vector3 bestTargetNdc = {0, 0, 0};
+
+	for (Enemy* enemy : enemies_) {
+		if (!enemy || enemy->IsDead()) {
+			continue;
+		}
+
+		KamataEngine::Vector3 ndc = ProjectToNDC(enemy->GetWorldPosition());
+
+		if (ndc.z < 0.0f) {
+			continue;
+		}
+
+		float ndcDistSq = ndc.x * ndc.x + ndc.y * ndc.y;
+
+		if (ndcDistSq < minNdcDistSq) {
+			minNdcDistSq = ndcDistSq;
+			bestTarget = enemy;
+			bestTargetNdc = ndc;
+		}
+	}
+
+	if (bestTarget) {
+		railCamera_->ApplyAimAssist(bestTargetNdc.x, bestTargetNdc.y);
+	}
 }

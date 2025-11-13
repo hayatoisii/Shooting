@@ -31,6 +31,8 @@ public:
 
 	void Reset();
 
+	void ApplyAimAssist(float ndcX, float ndcY);
+
 	KamataEngine::Matrix4x4 MakeIdentityMatrix();
 
 private:
@@ -42,6 +44,8 @@ private:
 	KamataEngine::Quaternion rotation_;
 
 	KamataEngine::Vector3 rotationVelocity_{0.0f, 0.0f, 0.0f};
+
+	KamataEngine::Vector3 assistAcceleration_ = {0.0f, 0.0f, 0.0f}; // アシストによる加速度
 
 	Camera camera_;
 
