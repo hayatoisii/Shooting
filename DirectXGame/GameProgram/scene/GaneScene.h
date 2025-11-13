@@ -111,4 +111,7 @@ private:
 
 	KamataEngine::Sprite* taitoruSprite_ = nullptr;
 	uint32_t taitoruTextureHandle_ = 0;
+
+	KamataEngine::Sprite* aimAssistCircleSprite_ = nullptr;
+	uint32_t aimAssistCircleTextureHandle_ = 0;
 };

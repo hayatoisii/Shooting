@@ -22,6 +22,7 @@ void PlayerBullet::Update() {
         isDead_ = true;
     }
 
+    /*
     // 追尾処理
     if (isHomingEnabled_ && homingTarget_ && !homingTarget_->IsDead()) {
         KamataEngine::Vector3 targetPos = homingTarget_->GetWorldPosition();
@@ -78,6 +79,7 @@ void PlayerBullet::Update() {
             }
         }
     }
+    */
 
     worldtransfrom_.translation_.x += velocity_.x;
     worldtransfrom_.translation_.y += velocity_.y;

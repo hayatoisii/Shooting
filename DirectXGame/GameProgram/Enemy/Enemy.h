@@ -53,6 +53,7 @@ public:
 	bool isDead_ = false;
 
 	void SetParent(const KamataEngine::WorldTransform* parent);
+	void SetAssistLocked(bool isLocked) { isAssistLocked_ = isLocked; }
 
 private:
 
@@ -92,5 +93,9 @@ private:
 
 	bool isFollowing_ = false;
 	bool isFollowingFast_ = false;
+
+	KamataEngine::Sprite* assistLockSprite_ = nullptr;
+	uint32_t assistLockTextureHandle_ = 0;
+	bool isAssistLocked_ = false; // アシスト円に入っているか
 
 };

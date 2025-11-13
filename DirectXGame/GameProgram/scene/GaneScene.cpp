@@ -40,6 +40,7 @@ GameScene::~GameScene() {
 	delete reticleSprite_;
 	delete transitionSprite_;
 	delete taitoruSprite_;
+	delete aimAssistCircleSprite_;
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
 	}
@@ -78,6 +79,18 @@ void GameScene::Initialize() {
 
 	taitoruTextureHandle_ = KamataEngine::TextureManager::Load("sousa.png");
 	taitoruSprite_ = KamataEngine::Sprite::Create(taitoruTextureHandle_, {0, 0});
+
+	aimAssistCircleTextureHandle_ = KamataEngine::TextureManager::Load("aimCircle.png");
+	aimAssistCircleSprite_ = KamataEngine::Sprite::Create(aimAssistCircleTextureHandle_, {0, 0});
+	aimAssistCircleSprite_->SetSize({0.0f, 0.0f});
+
+	if (aimAssistCircleSprite_) {
+		aimAssistCircleSprite_->SetPosition(screenCenter);    // 画面中央
+		aimAssistCircleSprite_->SetAnchorPoint({0.5f, 0.5f}); // 中央基点
+
+		// (例: スプライトを少し半透明にする)
+		aimAssistCircleSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
 
 	taitoruSprite_->SetPosition(screenCenter); // 画面中央に配置
 	taitoruSprite_->SetAnchorPoint({0.5f, 0.5f});
@@ -185,6 +198,7 @@ void GameScene::Update() {
 		player_->GetWorldTransform().translation_ = Lerp(playerIntroStartPosition_, playerIntroTargetPosition_, t);
 		player_->GetWorldTransform().UpdateMatrix();
 
+		UpdateAimAssist();
 		railCamera_->Update();
 		// アンカー更新
 		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
@@ -255,17 +269,18 @@ void GameScene::Update() {
 		UpdateAimAssist();
 
 		if (isGameIntroFinished_) {
-			const int kSpawnsPerFrame = 1;
+			const int kSpawnsPerFrame = 0;
 			meteoriteSpawnTimer_--;
 			if (meteoriteSpawnTimer_ <= 0) {
 				for (int i = 0; i < kSpawnsPerFrame; ++i) {
 					SpawnMeteorite();
 				}
 				// 隕石の数
-				meteoriteSpawnTimer_ = 1;
+				meteoriteSpawnTimer_ = 0;
 			}
 
-			UpdateMeteorites();
+
+			//UpdateMeteorites();
 
 			for (Enemy* enemy : enemies_) {
 				enemy->Update();
@@ -435,6 +450,9 @@ void GameScene::Draw() {
 	if (sceneState == SceneState::GameIntro || sceneState == SceneState::Game) {
 		if (reticleSprite_) {
 			reticleSprite_->Draw();
+		}
+		if (aimAssistCircleSprite_) {
+			aimAssistCircleSprite_->Draw();
 		}
 
 		if (sceneState == SceneState::Game && isGameIntroFinished_) {
@@ -762,12 +780,35 @@ void GameScene::UpdateAimAssist() {
 	if (!railCamera_)
 		return;
 
-	// この範囲に敵が入ったらアシストされる
-	const float kAimAssistRadius = 0.3f;
-	const float kAimAssistRadiusSq = kAimAssistRadius * kAimAssistRadius;
+	// (リセット処理: user_104.txt で追加済み)
+	for (Enemy* enemy : enemies_) {
+		if (enemy) {
+			enemy->SetAssistLocked(false);
+		}
+	}
 
-	float minNdcDistSq = kAimAssistRadiusSq;         // 範囲内の最短距離
-	Enemy* bestTarget = nullptr;                     // 最も近い敵
+	// 1. スプライトの「見た目」の円の半径
+	const float kVisualRadius = 0.08f;
+	// 2. アシストが反応する「判定」の円の半径
+	const float kDetectionRadius = 0.11f;//0.1f
+
+	// 3. 判定に使うための「2乗した」値
+	const float kVisualRadiusSq = kVisualRadius * kVisualRadius;
+	const float kDetectionRadiusSq = kDetectionRadius * kDetectionRadius;
+
+	// 4. アスペクト比（縦横比）を取得
+	const float kAspect = (float)KamataEngine::WinApp::kWindowWidth / (float)KamataEngine::WinApp::kWindowHeight;
+
+	// 5. スプライトのサイズを「真円」に設定 (kVisualRadius を使用)
+	if (aimAssistCircleSprite_) {
+		float pixelDiameterY = KamataEngine::WinApp::kWindowHeight * kVisualRadius * 2.0f;
+		float pixelDiameterX = pixelDiameterY;
+		aimAssistCircleSprite_->SetSize({pixelDiameterX, pixelDiameterY});
+	}
+
+	// 6. 敵の検索
+	float minNdcDistSq = kDetectionRadiusSq; // 「判定」(広い方) の半径で検索開始
+	Enemy* bestTarget = nullptr;
 	KamataEngine::Vector3 bestTargetNdc = {0, 0, 0};
 
 	for (Enemy* enemy : enemies_) {
@@ -781,16 +822,32 @@ void GameScene::UpdateAimAssist() {
 			continue;
 		}
 
-		float ndcDistSq = ndc.x * ndc.x + ndc.y * ndc.y;
+		// 7. 中心からの距離(2乗)を計算 (アスペクト比で補正)
+		float correctedNdcX = ndc.x / kAspect;
+		float ndcDistSq = (correctedNdcX * correctedNdcX) + (ndc.y * ndc.y);
 
+		// 8. 「判定」円の中で、最も中心に近い敵を探す
 		if (ndcDistSq < minNdcDistSq) {
-			minNdcDistSq = ndcDistSq;
+			minNdcDistSq = ndcDistSq; // ★ 最終的に bestTarget の距離(2乗) が入る
 			bestTarget = enemy;
 			bestTargetNdc = ndc;
 		}
 	}
 
+	// 9. ターゲットが見つかったらアシスト適用
 	if (bestTarget) {
+
+		// (A) アシスト自体は「判定」円(0.15f)で見つかったら実行
 		railCamera_->ApplyAimAssist(bestTargetNdc.x, bestTargetNdc.y);
+
+		// ▼▼▼ この判定を修正 ▼▼▼
+
+		// (B) ロックオン表示は、その敵の距離(minNdcDistSq)が
+		//     「見た目」の円(kVisualRadiusSq)の内側だった場合のみ実行
+		if (minNdcDistSq <= kVisualRadiusSq) {
+			bestTarget->SetAssistLocked(true);
+		}
+
+		// ▲▲▲ 修正完了 ▲▲▲
 	}
 }

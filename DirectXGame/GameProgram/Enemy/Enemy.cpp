@@ -13,6 +13,7 @@ Enemy::~Enemy() {
 	delete modelbullet_;
 	delete targetSprite_;
 	delete directionIndicatorSprite_;
+	delete assistLockSprite_;
 }
 
 void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& pos) {
@@ -32,16 +33,24 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	
 	worldtransfrom_.UpdateMatrix();
 
-	hp_ = 2;
+	hp_ = 30;
 
 	uint32_t indicatorHandle = TextureManager::Load("indicator.png");
 	directionIndicatorSprite_ = Sprite::Create(indicatorHandle, {0, 0});
 	if (directionIndicatorSprite_) {
 		directionIndicatorSprite_->SetSize({40.0f, 40.0f});
-		directionIndicatorSprite_->SetColor({1.0f, 1.0f, 0.0f, 1.0f});
 		directionIndicatorSprite_->SetAnchorPoint({0.5f, 0.5f});
 	}
 	isOffScreen_ = false;
+
+	assistLockTextureHandle_ = TextureManager::Load("greenBox.png");
+	assistLockSprite_ = Sprite::Create(assistLockTextureHandle_, {0, 0});
+	if (assistLockSprite_) {
+		assistLockSprite_->SetSize({20.0f, 20.0f});            // (サイズは調整してください)
+		assistLockSprite_->SetColor({0.0f, 1.0f, 0.0f, 1.0f}); // (例: 緑色)
+		assistLockSprite_->SetAnchorPoint({0.5f, 0.5f});
+	}
+	isAssistLocked_ = false;
 
 	uint32_t texHandle = TextureManager::Load("redbox.png");
 	targetSprite_ = Sprite::Create(texHandle, {0, 0});
@@ -108,7 +117,7 @@ void Enemy::Update() {
 	// Fire();
 
 	assert(player_ && "Enemy::Update() player_ が null です");
-	/*/
+	/*
 	KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 	KamataEngine::Vector3 myCurrentPos = GetWorldPosition();
 
@@ -148,7 +157,7 @@ void Enemy::Update() {
 
 	KamataEngine::Vector3 newPosition = myCurrentPos + velocity;
 	worldtransfrom_.translation_ = newPosition;
-	/*/
+	*/
 
 
 	worldtransfrom_.UpdateMatrix();
@@ -168,9 +177,16 @@ void Enemy::DrawSprite() {
 	if (isOffScreen_ && directionIndicatorSprite_) {
 		directionIndicatorSprite_->Draw();
 	}
+
+	if (isAssistLocked_ && assistLockSprite_) {
+		assistLockSprite_->Draw();
+	}
 }
 
 void Enemy::UpdateScreenPosition() {
+
+	//isAssistLocked_ = false;
+
 	if (!camera_ || !targetSprite_ || !directionIndicatorSprite_) {
 		isOnScreen_ = false;
 		isOffScreen_ = false;
@@ -202,6 +218,9 @@ void Enemy::UpdateScreenPosition() {
 				float screenX = (ndcX + 1.0f) * 0.5f * KamataEngine::WinApp::kWindowWidth;
 				float screenY = (1.0f - ndcY) * 0.5f * KamataEngine::WinApp::kWindowHeight;
 				targetSprite_->SetPosition({screenX, screenY});
+				if (assistLockSprite_) {
+					assistLockSprite_->SetPosition({screenX, screenY});
+				}
 			} else {
 				// 画面外・前方
 				isOnScreen_ = false;

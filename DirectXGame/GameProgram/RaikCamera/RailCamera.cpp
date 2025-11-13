@@ -29,12 +29,12 @@ void RailCamera::Update() {
 
 	// 自動飛行の速度
 	const float kCameraSpeed = 4.0f;          // 0.8f; // 1.5
-	const float kPitchAcceleration = 0.0022f; // 縦の回転 0.002　　//0.0022f
+	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
 	const float kRollAcceleration = 0.0016f;  // 横の回転
 	const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
 	const float kRotFriction = 0.95f;
 	const float kYawFriction = 0.86f;
-	const float kXawFriction = 0.89f; // 89
+	const float kXawFriction = 0.90f; // 89
 
 	Vector3 rotAcceleration = assistAcceleration_;
 	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
@@ -155,7 +155,7 @@ KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
 
 void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
 	// ★ 視点が吸い寄せられる強さ (この値を調整)
-	const float kAimAssistStrength = 0.002f;
+	const float kAimAssistStrength = 0.005f;
 
 	// (※キー操作設定 (A/D=ヨー, W/S=ピッチ) に合わせて加速度を設定)
 

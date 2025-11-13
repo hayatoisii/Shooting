@@ -84,10 +84,14 @@ void Player::Attack() {
 				}
 			}
 
+
+			/*
 			if (nearestOnScreenEnemy) {
 				KamataEngine::Vector3 targetPosition = nearestOnScreenEnemy->GetWorldPosition();
 				velocity = targetPosition - moveBullet;
-			} else {
+			}else 
+			*/
+			{
 				const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
 				KamataEngine::Vector3 cameraPosition = {cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2]};
 				KamataEngine::Vector3 cameraForward = {cameraWorldMatrix.m[2][0], cameraWorldMatrix.m[2][1], cameraWorldMatrix.m[2][2]};
