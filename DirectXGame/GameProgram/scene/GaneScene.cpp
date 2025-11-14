@@ -618,8 +618,9 @@ void GameScene::CheckAllCollisions() {
 
 
 	// 自弾 vs 敵キャラ
-	auto enemiesCopy = enemies_;
-	for (Enemy* enemy : enemiesCopy) {
+	// 変更: enemies_ をコピーすると毎フレームノードが再確保されて重くなるため
+	// コピーを避けて直接列挙する
+	for (Enemy* enemy : enemies_) {
 		if (!enemy || enemy->IsDead())
 			continue;
 		posA[1] = enemy->GetWorldPosition();
