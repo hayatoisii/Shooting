@@ -880,10 +880,10 @@ void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
 	// ★ ParticleEmitter に追加した「EmitBurst」関数を呼ぶ
 	explosionEmitter_->EmitBurst(
 	    position, // 発生座標
-	    50,       // 粒の数
-	    3.0f,     // 速度
-	    30.0f,    // 寿命 (30フレーム)
-	    1.0f,     // 開始スケール
+	    10,       // 粒の数
+	    4.0f,     // 速度
+	    40.0f,    // 寿命 (30フレーム)
+	    10.0f,     // 開始スケール
 	    0.0f      // 終了スケール
 	);
 }
