@@ -54,7 +54,7 @@ void Player::Attack() {
 		if (input_->PushKey(DIK_SPACE) && shotTimer_ <= 0) {
 			assert(railCamera_);
 
-			KamataEngine::Vector3 bulletOffset = {0.0f, -1.0f, 0.0f}; // ★ Z: 0.0f -> -5.0f
+			KamataEngine::Vector3 bulletOffset = {0.0f, -1.0f, 0.0f};
 			KamataEngine::Vector3 moveBullet = KamataEngine::MathUtility::Transform(bulletOffset, worldtransfrom_.matWorld_);
 			const float kBulletSpeed = 40.0f; // 弾速
 			KamataEngine::Vector3 velocity;
@@ -165,7 +165,7 @@ if (railCamera_) {
 		float yawVelocity = railCamera_->GetRotationVelocity().y; // ヨーの速度を取得
 		const float yawTiltFactor = 50.0f;
 
-		targetRoll += yawVelocity * yawTiltFactor;
+		targetRoll -= yawVelocity * yawTiltFactor; // ここプラスマイナス変えても何も変わらない
 
 		const float maxRollAngle = 4.0f;
 		targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
@@ -225,7 +225,7 @@ void Player::ResetParticles() {
 
 void Player::UpdateGameOver(float animationTime) {
 	// 姿勢制御
-	const float pitchDownAngle = 3.14159265f / 4.0f;
+	const float pitchDownAngle = 3.14159265f / 4.0f;// const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;これかわらない、かわらない
 	worldtransfrom_.rotation_.x = pitchDownAngle;
 
 	// 回転

@@ -290,7 +290,7 @@ void GameScene::Update() {
 			meteoriteSpawnTimer_--;
 			if (meteoriteSpawnTimer_ <= 0) {
 				for (int i = 0; i < kSpawnsPerFrame; ++i) {
-					SpawnMeteorite();
+					//SpawnMeteorite();
 				}
 				// 隕石の数
 				meteoriteSpawnTimer_ = 0;
@@ -590,6 +590,7 @@ void GameScene::CheckAllCollisions() {
 		}
 	}
 
+	/*
 	// 自キャラ vs 隕石 の判定
 	posA[0] = player_->GetWorldPosition(); // プレイヤー位置
 	float playerRadius = radiusA[0];       // プレイヤー半径
@@ -613,6 +614,8 @@ void GameScene::CheckAllCollisions() {
 			}
 		}
 	}
+	*/
+
 
 	// 自弾 vs 敵キャラ
 	auto enemiesCopy = enemies_;
