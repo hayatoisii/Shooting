@@ -618,10 +618,12 @@ void GameScene::CheckAllCollisions() {
 
 
 	// 自弾 vs 敵キャラ
-	// 変更: enemies_ をコピーすると毎フレームノードが再確保されて重くなるため
-	// コピーを避けて直接列挙する
+	// 変更: 画面外の敵は多くの処理で不要なのでスキップして負荷を下げる
 	for (Enemy* enemy : enemies_) {
 		if (!enemy || enemy->IsDead())
+			continue;
+		// 画面外の敵は衝突判定やエイムアシスト用の行列演算を行わない
+		if (!enemy->IsOnScreen())
 			continue;
 		posA[1] = enemy->GetWorldPosition();
 		for (PlayerBullet* bullet : playerBullets) {
@@ -837,6 +839,11 @@ void GameScene::UpdateAimAssist() {
 
 	for (Enemy* enemy : enemies_) {
 		if (!enemy || enemy->IsDead()) {
+			continue;
+		}
+
+		// 画面外の敵は早期除外
+		if (!enemy->IsOnScreen()) {
 			continue;
 		}
 
