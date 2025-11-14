@@ -77,6 +77,12 @@ void ParticleEmitter::CreateParticle(const KamataEngine::Vector3& position, cons
 
 			particle.lifeTime_ = 3 + MT::GetRand() % 3;
 			particle.currentTime_ = 0;
+
+			// Reuse safety: ensure this particle is treated as exhaust (not explosion)
+			particle.isExplosion_ = false;
+			particle.startScale_ = 1.0f;
+			particle.endScale_ = 0.0f;
+
 			return;
 		}
 	}
@@ -117,7 +123,7 @@ void ParticleEmitter::CreateExplosionParticle(const KamataEngine::Vector3& posit
 			particle.currentTime_ = 0;
 
 			// (排気用とは違うロジック)
-			particle.lifeTime_ = static_cast<uint32_t>(lifeTime);
+			particle.lifeTime_ = static_cast<uint32_t>(std::fmax(1.0f, lifeTime));
 			particle.startScale_ = startScale;
 			particle.endScale_ = endScale;
 			particle.isExplosion_ = true; // ★ 爆発フラグを立てる
