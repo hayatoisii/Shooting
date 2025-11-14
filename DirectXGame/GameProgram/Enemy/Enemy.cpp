@@ -258,7 +258,7 @@ void Enemy::UpdateScreenPosition() {
 			indicatorY = std::clamp(indicatorY, kScreenMargin, KamataEngine::WinApp::kWindowHeight - kScreenMargin);
 
 			directionIndicatorSprite_->SetPosition({indicatorX, indicatorY});
-			directionIndicatorSprite_->SetRotation(angle + KamataEngine::MathUtility::PI / 2.0f);
+			directionIndicatorSprite_->SetRotation(angle + 3.14159265f / 2.0f);
 		}
 	} else {
 		isOnScreen_ = false;
@@ -281,7 +281,7 @@ void Enemy::UpdateScreenPosition() {
 	bool justAppeared = (isOnScreen_ && !wasOnScreenLastFrame_);
 
 	if (justAppeared) {
-		lockOnAnimRotation_ = KamataEngine::MathUtility::PI * 1.0f;
+		lockOnAnimRotation_ = 3.14159265f * 1.0f;
 		lockOnAnimScale_ = 2.0f;
 	}
 
