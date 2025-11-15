@@ -43,6 +43,12 @@ GameScene::~GameScene() {
 	delete aimAssistCircleSprite_;
 	delete explosionEmitter_;
 	delete modelParticle_;
+	delete minimapSprite_;
+	delete minimapPlayerSprite_;
+	for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
+		delete sprite;
+	}
+	minimapEnemySprites_.clear();
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
 	}
@@ -98,6 +104,29 @@ void GameScene::Initialize() {
 
 		// (例: スプライトを少し半透明にする)
 		aimAssistCircleSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
+
+	minimapTextureHandle_ = KamataEngine::TextureManager::Load("minimap.png");
+	greenBoxTextureHandle_ = KamataEngine::TextureManager::Load("greenBox.png"); // を参考に
+
+	// 1. ミニマップ背景
+	minimapSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0, 0});
+	minimapSprite_->SetPosition(kMinimapPosition_);
+	minimapSprite_->SetAnchorPoint({0.0f, 1.0f}); // 左下をアンカーに
+	minimapSprite_->SetSize(kMinimapSize_);
+
+	// 2. ミニマップ上の自機
+	minimapPlayerSprite_ = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0, 0});
+	minimapPlayerSprite_->SetAnchorPoint({0.5f, 0.5f}); // 中央をアンカーに
+	minimapPlayerSprite_->SetSize({10.0f, 10.0f});      // 仮サイズ
+
+	// 3. ミニマップ上の敵 (あらかじめ最大数作成し、非表示にしておく)
+	minimapEnemySprites_.resize(kMaxMinimapEnemies_);
+	for (size_t i = 0; i < kMaxMinimapEnemies_; ++i) {
+		minimapEnemySprites_[i] = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0, 0});
+		minimapEnemySprites_[i]->SetAnchorPoint({0.5f, 0.5f});
+		minimapEnemySprites_[i]->SetSize({8.0f, 8.0f});           // 敵は少し小さく
+		minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f}); // 初期位置は画面外
 	}
 
 	taitoruSprite_->SetPosition(screenCenter); // 画面中央に配置
@@ -290,7 +319,7 @@ void GameScene::Update() {
 			meteoriteSpawnTimer_--;
 			if (meteoriteSpawnTimer_ <= 0) {
 				for (int i = 0; i < kSpawnsPerFrame; ++i) {
-					//SpawnMeteorite();
+					// SpawnMeteorite();
 				}
 				// 隕石の数
 				meteoriteSpawnTimer_ = 0;
@@ -312,8 +341,35 @@ void GameScene::Update() {
 				return false;
 			});
 			CheckAllCollisions();
-
 			player_->Update();
+
+
+			if (player_ && minimapPlayerSprite_) { // player_ が null でないか確認
+				KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+
+				// 1. 自機アイコンをミニマップ中央に設定
+				KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y - kMinimapSize_.y * 0.5f};
+				minimapPlayerSprite_->SetPosition(minimapCenterPos);
+
+				// 2. 敵アイコンの位置を更新
+				size_t activeEnemyCount = 0;
+				// 敵リスト (enemies_) を走査
+				for (Enemy* enemy : enemies_) {
+					// 生きていて、スプライトの最大数を超えていない場合
+					if (enemy && !enemy->IsDead() && activeEnemyCount < kMaxMinimapEnemies_) {
+						KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition(); //
+						KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(enemyPos, playerPos);
+						minimapEnemySprites_[activeEnemyCount]->SetPosition(minimapPos);
+						activeEnemyCount++;
+					}
+				}
+
+				// 3. 残りのスプライトを非表示（画面外へ）
+				for (size_t i = activeEnemyCount; i < kMaxMinimapEnemies_; ++i) {
+					minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f});
+				}
+			}
+
 
 		} else { // イントロ中
 			if (player_) {
@@ -484,6 +540,20 @@ void GameScene::Draw() {
 		}
 	}
 
+	if (minimapSprite_) {
+		minimapSprite_->Draw(); // 背景
+	}
+	// 敵アイコン (背景より手前、自機より奥)
+	for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
+		if (sprite) {
+			sprite->Draw();
+		}
+	}
+	// 自機アイコン (最前面)
+	if (minimapPlayerSprite_) {
+		minimapPlayerSprite_->Draw();
+	}
+
 	KamataEngine::Sprite::PostDraw();
 }
 
@@ -596,26 +666,25 @@ void GameScene::CheckAllCollisions() {
 	float playerRadius = radiusA[0];       // プレイヤー半径
 
 	for (Meteorite* meteor : meteorites_) {
-		if (!meteor || meteor->IsDead())
-			continue;
+	    if (!meteor || meteor->IsDead())
+	        continue;
 
-		posB[0] = meteor->GetWorldPosition();
-		float meteoriteRadius = meteor->GetRadius();
-		float distanceSquared = DistanceSquared(posA[0], posB[0]);
-		float combinedRadiusSquared = (playerRadius + meteoriteRadius) * (playerRadius + meteoriteRadius);
+	    posB[0] = meteor->GetWorldPosition();
+	    float meteoriteRadius = meteor->GetRadius();
+	    float distanceSquared = DistanceSquared(posA[0], posB[0]);
+	    float combinedRadiusSquared = (playerRadius + meteoriteRadius) * (playerRadius + meteoriteRadius);
 
-		if (distanceSquared <= combinedRadiusSquared) {
-			player_->OnCollision();
-			meteor->OnCollision();
+	    if (distanceSquared <= combinedRadiusSquared) {
+	        player_->OnCollision();
+	        meteor->OnCollision();
 
-			if (player_->IsDead()) {
-				TransitionToClearScene2();
-				return;
-			}
-		}
+	        if (player_->IsDead()) {
+	            TransitionToClearScene2();
+	            return;
+	        }
+	    }
 	}
 	*/
-
 
 	// 自弾 vs 敵キャラ
 	// 変更: 画面外の敵は多くの処理で不要なのでスキップして負荷を下げる
@@ -894,7 +963,38 @@ void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
 	    10,       // 粒の数
 	    4.0f,     // 速度
 	    40.0f,    // 寿命 (30フレーム)
-	    10.0f,     // 開始スケール
+	    10.0f,    // 開始スケール
 	    0.0f      // 終了スケール
 	);
+}
+
+KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos) {
+
+	// 1. 自機からの相対座標 (XZ平面のみ)
+	float relativeX = worldPos.x - playerPos.x;
+	float relativeZ = worldPos.z - playerPos.z;
+
+	// 2. ミニマップのスケールを適用 (ワールドのZ+ を ミニマップのY+ (上) に)
+	float minimapOffsetX = relativeX * kMinimapScale_;
+	float minimapOffsetY = relativeZ * kMinimapScale_ * -1.0f; // Y軸反転
+
+	// 3. ミニマップの中心座標を計算
+	KamataEngine::Vector2 minimapCenterPos = {
+	    kMinimapPosition_.x + kMinimapSize_.x * 0.5f,
+	    kMinimapPosition_.y - kMinimapSize_.y * 0.5f // 左下アンカー基準
+	};
+
+	// 4. 中心の座標にオフセットを加える
+	KamataEngine::Vector2 finalPos = {minimapCenterPos.x + minimapOffsetX, minimapCenterPos.y + minimapOffsetY};
+
+	// 5. ミニマップの範囲内に座標をクランプ (はみ出さないように)
+	float minX = kMinimapPosition_.x;
+	float maxX = kMinimapPosition_.x + kMinimapSize_.x;
+	float minY = kMinimapPosition_.y - kMinimapSize_.y; // Yは上(小)・下(大)
+	float maxY = kMinimapPosition_.y;
+
+	finalPos.x = std::clamp(finalPos.x, minX, maxX);
+	finalPos.y = std::clamp(finalPos.y, minY, maxY);
+
+	return finalPos;
 }

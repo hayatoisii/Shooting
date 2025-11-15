@@ -119,4 +119,21 @@ private:
 
 	KamataEngine::Model* modelParticle_ = nullptr;
 	ParticleEmitter* explosionEmitter_ = nullptr;
+
+	uint32_t minimapTextureHandle_ = 0;
+	uint32_t greenBoxTextureHandle_ = 0;
+	KamataEngine::Sprite* minimapSprite_ = nullptr;       // ミニマップ背景
+	KamataEngine::Sprite* minimapPlayerSprite_ = nullptr; // ミニマップ上の自機アイコン
+
+	// ミニマップ上の敵アイコン (事前に最大数確保する)
+	static const size_t kMaxMinimapEnemies_ = 100; // 例: 最大100体
+	std::vector<KamataEngine::Sprite*> minimapEnemySprites_;
+
+	// ミニマップ設定値
+	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 710.0f}; // 描画基準位置 (左下)
+	const KamataEngine::Vector2 kMinimapSize_ = {200.0f, 200.0f};    // 背景スプライトのサイズ
+	const float kMinimapScale_ = 0.03f;                              // ワールド座標 -> ミニマップ座標の縮尺
+
+	/// <returns>ミニマップ上のスクリーン座標</returns>
+	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);
 };
