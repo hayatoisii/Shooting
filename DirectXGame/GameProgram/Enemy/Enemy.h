@@ -86,6 +86,8 @@ private:
 
 	KamataEngine::Sprite* directionIndicatorSprite_;
 	bool isOffScreen_;
+	// Whether to show the off-screen direction indicator (hidden if too far)
+	bool showDirectionIndicator_ = true;
 
 	KamataEngine::Vector3 initialRelativePos_;
 	KamataEngine::Vector3 initialWorldPos_;
@@ -97,5 +99,8 @@ private:
 	KamataEngine::Sprite* assistLockSprite_ = nullptr;
 	uint32_t assistLockTextureHandle_ = 0;
 	bool isAssistLocked_ = false; // アシスト円に入っているか
+
+	// New: whether to show green lock (far) instead of red rotating lock
+	bool useGreenLock_ = false;
 
 };

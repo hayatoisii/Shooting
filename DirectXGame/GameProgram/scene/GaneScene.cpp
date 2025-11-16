@@ -107,7 +107,8 @@ void GameScene::Initialize() {
 	}
 
 	minimapTextureHandle_ = KamataEngine::TextureManager::Load("minimap.png");
-	greenBoxTextureHandle_ = KamataEngine::TextureManager::Load("greenBox.png"); // を参考に
+	greenBoxTextureHandle_ = KamataEngine::TextureManager::Load("greenBox.png");
+	minimapPlayerTextureHandle_ = KamataEngine::TextureManager::Load("player.png");
 
 	// 1. ミニマップ背景
 	minimapSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0, 0});
@@ -116,7 +117,7 @@ void GameScene::Initialize() {
 	minimapSprite_->SetSize(kMinimapSize_);
 
 	// 2. ミニマップ上の自機
-	minimapPlayerSprite_ = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0, 0});
+	minimapPlayerSprite_ = KamataEngine::Sprite::Create(minimapPlayerTextureHandle_, {0, 0});
 	minimapPlayerSprite_->SetAnchorPoint({0.5f, 0.5f}); // 中央をアンカーに
 	minimapPlayerSprite_->SetSize({10.0f, 10.0f});      // 仮サイズ
 
@@ -139,6 +140,8 @@ void GameScene::Initialize() {
 	playerIntroStartPosition_.z += -50.0f;
 
 	player_->Initialize(modelPlayer_, &camera_, playerIntroStartPosition_);
+	// Initialize last player position for minimap rotation tracking
+	lastPlayerPos_ = player_->GetWorldPosition();
 
 	skydome_->Initialize(modelSkydome_, &camera_);
 	worldTransformTitleObject_.Initialize();
@@ -343,7 +346,6 @@ void GameScene::Update() {
 			CheckAllCollisions();
 			player_->Update();
 
-
 			if (player_ && minimapPlayerSprite_) { // player_ が null でないか確認
 				KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 
@@ -351,6 +353,23 @@ void GameScene::Update() {
 				KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y - kMinimapSize_.y * 0.5f};
 				minimapPlayerSprite_->SetPosition(minimapCenterPos);
 
+				// Rotate the player minimap sprite to match movement direction on XZ plane.
+				// Convert player movement (world X,Z) to minimap axes: mx = dx, my = -dz (minimap Y is -world Z).
+				float dx = playerPos.x - lastPlayerPos_.x;
+				float dz = playerPos.z - lastPlayerPos_.z;
+				const float kMoveThresholdSq = 0.0001f; // squared threshold to ignore tiny jitter
+				float moveDistSq = dx * dx + dz * dz;
+				if (moveDistSq > kMoveThresholdSq) {
+					float mx = dx;
+					float my = -dz;
+					float angle = std::atan2(my, mx);
+					// Sprite's default up direction -> adjust by +90 degrees (pi/2)
+					const float kPI = 3.14159265f;
+					minimapPlayerSprite_->SetRotation(angle + kPI / 2.0f);
+					lastPlayerPos_ = playerPos;
+				}
+
+				//この処理はミニマップにＥｎｅｍｙを移すために絶対に必要だから消しちゃダメ
 				// 2. 敵アイコンの位置を更新
 				size_t activeEnemyCount = 0;
 				// 敵リスト (enemies_) を走査
@@ -369,7 +388,6 @@ void GameScene::Update() {
 					minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f});
 				}
 			}
-
 
 		} else { // イントロ中
 			if (player_) {
@@ -882,14 +900,10 @@ void GameScene::UpdateAimAssist() {
 		}
 	}
 
-	// 1. スプライトの「見た目」の円の半径
+	// 1. スプライトの「見た目」の円の半径 (画面高さに対する比率)
 	const float kVisualRadius = 0.08f;
-	// 2. アシストが反応する「判定」の円の半径
-	const float kDetectionRadius = 0.11f; // 0.1f
-
-	// 3. 判定に使うための「2乗した」値
-	const float kVisualRadiusSq = kVisualRadius * kVisualRadius;
-	const float kDetectionRadiusSq = kDetectionRadius * kDetectionRadius;
+	// 2. アシストが反応する「判定」の円の半径 (画面高さに対する比率)
+	const float kDetectionRadius = 0.1f; // 0.1f
 
 	// 4. アスペクト比（縦横比）を取得
 	const float kAspect = (float)KamataEngine::WinApp::kWindowWidth / (float)KamataEngine::WinApp::kWindowHeight;
@@ -897,17 +911,43 @@ void GameScene::UpdateAimAssist() {
 	// 5. スプライトのサイズを「真円」に設定 (kVisualRadius を使用)
 	if (aimAssistCircleSprite_) {
 		float pixelDiameterY = KamataEngine::WinApp::kWindowHeight * kVisualRadius * 2.0f;
-		float pixelDiameterX = pixelDiameterY;
+		float pixelDiameterX = pixelDiameterY; // ピクセルで真円
 		aimAssistCircleSprite_->SetSize({pixelDiameterX, pixelDiameterY});
 	}
 
 	// 6. 敵の検索
-	float minNdcDistSq = kDetectionRadiusSq; // 「判定」(広い方) の半径で検索開始
+	// NDC空間での半径を計算する (ndc は画面幅方向がアスペクトで伸びているため補正が必要)
+	// kVisualRadius は画面高さに対する比率なので、NDCでの半径は (2 * kVisualRadius)
+	const float ndcVisualRadiusY = kVisualRadius * 2.0f;
+	// X方向のNDC半径はアスペクト比で割る（幅が大きいと NDC 単位での幅は小さくなる）
+	const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;
+
+	const float ndcDetectionRadiusY = kDetectionRadius * 2.0f;
+	const float ndcDetectionRadiusX = ndcDetectionRadiusY / kAspect;
+
+	// 正規化して比較するための初期閾値 (1.0 = 半径内)
+	float minNormalizedDistSq = 1.0f; // (normalized distance squared)
 	Enemy* bestTarget = nullptr;
 	KamataEngine::Vector3 bestTargetNdc = {0, 0, 0};
 
+	// Camera position for distance check
+	KamataEngine::Vector3 cameraPos = railCamera_->GetWorldTransform().translation_;
+
+	const float kMaxAssistDistance = 3000.0f; // アシストが働く最大距離
+	const float kMaxAssistDistanceSq = kMaxAssistDistance * kMaxAssistDistance;
+
 	for (Enemy* enemy : enemies_) {
 		if (!enemy || enemy->IsDead()) {
+			continue;
+		}
+
+		// 距離でフィルタ（遠い敵はアシスト対象外）
+		KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
+		float dx = enemyPos.x - cameraPos.x;
+		float dy = enemyPos.y - cameraPos.y;
+		float dz = enemyPos.z - cameraPos.z;
+		float distSq = dx * dx + dy * dy + dz * dz;
+		if (distSq > kMaxAssistDistanceSq) {
 			continue;
 		}
 
@@ -922,13 +962,14 @@ void GameScene::UpdateAimAssist() {
 			continue;
 		}
 
-		// 7. 中心からの距離(2乗)を計算 (アスペクト比で補正)
-		float correctedNdcX = ndc.x / kAspect;
-		float ndcDistSq = (correctedNdcX * correctedNdcX) + (ndc.y * ndc.y);
+		// 正規化した距離を計算 (各軸で半径で割る)
+		float normX = ndc.x / ndcDetectionRadiusX;
+		float normY = ndc.y / ndcDetectionRadiusY;
+		float normalizedDistSq = (normX * normX) + (normY * normY);
 
-		// 8. 「判定」円の中で、最も中心に近い敵を探す
-		if (ndcDistSq < minNdcDistSq) {
-			minNdcDistSq = ndcDistSq; // ★ 最終的に bestTarget の距離(2乗) が入る
+		// 判定円の中で、最も中心に近い敵を探す (正規化距離で比較)
+		if (normalizedDistSq < minNormalizedDistSq) {
+			minNormalizedDistSq = normalizedDistSq; // 最終的に bestTarget の正規化距離(2乗) が入る
 			bestTarget = enemy;
 			bestTargetNdc = ndc;
 		}
@@ -937,18 +978,16 @@ void GameScene::UpdateAimAssist() {
 	// 9. ターゲットが見つかったらアシスト適用
 	if (bestTarget) {
 
-		// (A) アシスト自体は「判定」円(0.15f)で見つかったら実行
+		// アシスト自体は「判定」円で見つかったら実行
 		railCamera_->ApplyAimAssist(bestTargetNdc.x, bestTargetNdc.y);
 
-		// ▼▼▼ この判定を修正 ▼▼▼
+		float visualNormX = bestTargetNdc.x / ndcVisualRadiusX;
+		float visualNormY = bestTargetNdc.y / ndcVisualRadiusY;
+		float visualNormDistSq = (visualNormX * visualNormX) + (visualNormY * visualNormY);
 
-		// (B) ロックオン表示は、その敵の距離(minNdcDistSq)が
-		//     「見た目」の円(kVisualRadiusSq)の内側だった場合のみ実行
-		if (minNdcDistSq <= kVisualRadiusSq) {
+		if (visualNormDistSq <= 1.0f) {
 			bestTarget->SetAssistLocked(true);
 		}
-
-		// ▲▲▲ 修正完了 ▲▲▲
 	}
 }
 

@@ -48,7 +48,7 @@ private:
 	float homingStrength_ = 0.1f; // 追尾の強さ
 
 	// 寿命<frm>
-	static const int32_t kLifeTime = 60 * 3;
+	static const int32_t kLifeTime = 60 * 2; // 増加して3000まで移動できるようにする (元は60*1)
 	// デスタイマー
 	int32_t deathTimer_ = kLifeTime;
 	// デスフラグ

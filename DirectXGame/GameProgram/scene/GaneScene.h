@@ -64,7 +64,7 @@ private:
 	const int32_t kGameTimeLimit_ = 60 * 30;
 
 	Vector3 railcameraPos = {0, 5, -50};
-	Vector3 railcameraRad = {0, 3.14159f, 0};
+	Vector3 railcameraRad = {0, 0, 0};
 
 	std::list<EnemyBullet*> enemyBullets_;
 	std::stringstream enemyPopCommands;
@@ -125,6 +125,8 @@ private:
 	KamataEngine::Sprite* minimapSprite_ = nullptr;       // ミニマップ背景
 	KamataEngine::Sprite* minimapPlayerSprite_ = nullptr; // ミニマップ上の自機アイコン
 
+	uint32_t minimapPlayerTextureHandle_ = 0;
+
 	// ミニマップ上の敵アイコン (事前に最大数確保する)
 	static const size_t kMaxMinimapEnemies_ = 100; // 例: 最大100体
 	std::vector<KamataEngine::Sprite*> minimapEnemySprites_;
@@ -136,4 +138,7 @@ private:
 
 	/// <returns>ミニマップ上のスクリーン座標</returns>
 	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);
+
+	// 最後に記録したプレイヤー位置（ミニマップ回転の判定用）
+	KamataEngine::Vector3 lastPlayerPos_ = {0.0f, 0.0f, 0.0f};
 };

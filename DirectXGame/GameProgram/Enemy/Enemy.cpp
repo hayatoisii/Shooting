@@ -43,10 +43,10 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	}
 	isOffScreen_ = false;
 
-	assistLockTextureHandle_ = TextureManager::Load("greenBox.png");
+	assistLockTextureHandle_ = TextureManager::Load("lockongreen.png");
 	assistLockSprite_ = Sprite::Create(assistLockTextureHandle_, {0, 0});
 	if (assistLockSprite_) {
-		assistLockSprite_->SetSize({20.0f, 20.0f});            // (サイズは調整してください)
+		assistLockSprite_->SetSize({1.0f, 1.0f});            // (サイズは調整してください)
 		assistLockSprite_->SetColor({0.0f, 1.0f, 0.0f, 1.0f}); // (例: 緑色)
 		assistLockSprite_->SetAnchorPoint({0.5f, 0.5f});
 	}
@@ -172,15 +172,24 @@ void Enemy::Update() {
 void Enemy::Draw(const KamataEngine::Camera& camera) { model_->Draw(worldtransfrom_, camera); }
 
 void Enemy::DrawSprite() {
-	if (isOnScreen_ && targetSprite_) {
-		targetSprite_->Draw();
+	if (isOnScreen_) {
+		if (useGreenLock_) {
+			if (assistLockSprite_) {
+				assistLockSprite_->Draw();
+			}
+		} else {
+			if (targetSprite_)
+				targetSprite_->Draw();
+		}
 	}
 
-	if (isOffScreen_ && directionIndicatorSprite_) {
+	// 画面外 かつ インジケーター表示距離内の場合のみ、方向インジケーターを描画する
+	if (isOffScreen_ && showDirectionIndicator_ && directionIndicatorSprite_) {
 		directionIndicatorSprite_->Draw();
 	}
 
 	if (isAssistLocked_ && assistLockSprite_) {
+		// アシストロックオン中は、(緑の) ロックオンスプライトも描画する
 		assistLockSprite_->Draw();
 	}
 }
@@ -204,6 +213,15 @@ void Enemy::UpdateScreenPosition() {
 	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
 	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
 
+	// 距離に基づいて、緑ロックか赤ロックかを決定する
+	const float kLockDistanceThreshold = 3000.0f;
+	bool farForLock = (viewPos.z > kLockDistanceThreshold);
+
+	// 距離に基づいて、画面外の方向インジケーターを表示するかきめる
+	const float kIndicatorMaxDistance = 3000.0f; // 2500
+	float viewDist = std::sqrt(viewPos.x * viewPos.x + viewPos.y * viewPos.y + viewPos.z * viewPos.z);
+	showDirectionIndicator_ = (viewDist <= kIndicatorMaxDistance);
+
 	if (viewPos.z > 0.0f) {
 		float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
 		float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
@@ -223,6 +241,9 @@ void Enemy::UpdateScreenPosition() {
 				if (assistLockSprite_) {
 					assistLockSprite_->SetPosition({screenX, screenY});
 				}
+
+				// 距離に基づいて useGreenLock_ (緑ロックを使用するか) を設定する
+				useGreenLock_ = farForLock;
 			} else {
 				// 画面外・前方
 				isOnScreen_ = false;
@@ -289,9 +310,12 @@ void Enemy::UpdateScreenPosition() {
 	const float kTargetScale = 1.0f;
 
 	if (lockOnAnimRotation_ > 0.0f) {
-		lockOnAnimRotation_ *= kLockOnAnimFriction;
-		if (lockOnAnimRotation_ < 0.01f) {
-			lockOnAnimRotation_ = 0.0f;
+		/// 赤い回転ロックfalseの場合のみ、回転アニメーションを実行する
+		if (!useGreenLock_) {
+			lockOnAnimRotation_ *= kLockOnAnimFriction;
+			if (lockOnAnimRotation_ < 0.01f) {
+				lockOnAnimRotation_ = 0.0f;
+			}
 		}
 	}
 
@@ -303,9 +327,29 @@ void Enemy::UpdateScreenPosition() {
 	}
 
 	if (targetSprite_) {
-		targetSprite_->SetRotation(lockOnAnimRotation_);
-		const float baseSize = 50.0f;
-		targetSprite_->SetSize({baseSize * lockOnAnimScale_, baseSize * lockOnAnimScale_});
+		/// 赤い回転ロックfalseの場合のみ、回転アニメーションを実行する
+		if (!useGreenLock_) {
+			targetSprite_->SetRotation(lockOnAnimRotation_);
+			const float baseSize = 50.0f;
+			targetSprite_->SetSize({baseSize * lockOnAnimScale_, baseSize * lockOnAnimScale_});
+		} else {
+			targetSprite_->SetRotation(0.0f);
+			const float baseSize = 50.0f;
+			targetSprite_->SetSize({baseSize, baseSize});
+		}
+	}
+
+	// 緑ロックの場合、アシストロックスプライトのサイズを設定する (固定値)
+	if (assistLockSprite_) {
+		if (useGreenLock_) {
+			assistLockSprite_->SetSize({15.0f, 15.0f});
+		} else {
+			assistLockSprite_->SetSize({20.0f, 20.0f});
+		}
+		float rollAngle = std::atan2(viewMatrix.m[0][1], viewMatrix.m[1][1]);
+
+		// スプライトに回転を設定
+		assistLockSprite_->SetRotation(rollAngle);
 	}
 
 	wasOnScreenLastFrame_ = isOnScreen_;

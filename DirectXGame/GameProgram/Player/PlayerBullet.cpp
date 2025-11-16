@@ -12,6 +12,19 @@ void PlayerBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Ve
 	worldtransfrom_.translation_ = position;
 	worldtransfrom_.Initialize();
 	velocity_ = velocity;
+
+	// 5000まで弾が飛ぶようにする
+	const float kDesiredRange = 5000.0f;
+	float speed = sqrtf(velocity_.x * velocity_.x + velocity_.y * velocity_.y + velocity_.z * velocity_.z);
+	if (speed > 0.001f) {
+		int32_t frames = static_cast<int32_t>(ceilf(kDesiredRange / speed));
+		// Add a small margin
+		frames += 2;
+		deathTimer_ = frames;
+	} else {
+		// fallback to default lifetime
+		// ... keep existing deathTimer_
+	}
 }
 
 void PlayerBullet::OnCollision() { isDead_ = true; }

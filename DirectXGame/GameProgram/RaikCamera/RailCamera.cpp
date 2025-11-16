@@ -28,7 +28,7 @@ void RailCamera::Update() {
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
 	// 自動飛行の速度
-	const float kCameraSpeed = 4.0f;          // 0.8f; // 1.5
+	const float kCameraSpeed = 5.0f;          // 0.8f; // 1.5
 	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
 	const float kRollAcceleration = 0.0016f;  // 横の回転
 	const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
