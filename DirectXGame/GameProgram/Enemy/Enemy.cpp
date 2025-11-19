@@ -33,7 +33,7 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 
 	worldtransfrom_.UpdateMatrix();
 
-	hp_ = 20;
+	hp_ = 5;
 
 	uint32_t indicatorHandle = TextureManager::Load("indicator.png");
 	directionIndicatorSprite_ = Sprite::Create(indicatorHandle, {0, 0});

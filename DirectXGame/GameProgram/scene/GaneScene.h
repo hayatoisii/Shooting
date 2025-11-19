@@ -102,7 +102,11 @@ private:
 	Camera camera_ = {};
 
 	float gameOverTimer_ = 0.0f;
-	
+	// Debug: automatically go to Clear scene after N frames
+	bool debugAutoClearEnabled_ = true;
+	int debugAutoClearTimer_ = 0; // frames
+	const int kDebugAutoClearFrames = 60; // ~1 second at 60 FPS
+
 	// カメラ位置アンカー
 	WorldTransform cameraPositionAnchor_;
 	
@@ -119,6 +123,27 @@ private:
 
 	KamataEngine::Model* modelParticle_ = nullptr;
 	ParticleEmitter* explosionEmitter_ = nullptr;
+	// Clear scene assets
+	KamataEngine::Sprite* clearSprite_ = nullptr;
+	uint32_t clearTextureHandle_ = 0;
+	ParticleEmitter* clearEmitter_ = nullptr;
+	int confettiSpawnTimer_ = 0;
+	bool confettiActive_ = false;
+
+	// Confetti (sprite-based) for Clear scene
+	struct ConfettiParticle {
+		KamataEngine::Sprite* sprite = nullptr;
+		bool active = false;
+		KamataEngine::Vector2 pos = {0.0f, 0.0f};
+		KamataEngine::Vector2 vel = {0.0f, 0.0f};
+		float rotation = 0.0f;
+		float rotVel = 0.0f;
+		int life = 0;
+		int age = 0;
+	};
+	std::vector<ConfettiParticle> confettiParticles_;
+	uint32_t confettiTextureHandle_ = 0;
+	const size_t kMaxConfetti_ = 200;
 
 	uint32_t minimapTextureHandle_ = 0;
 	uint32_t greenBoxTextureHandle_ = 0;

@@ -1,6 +1,7 @@
 #include "ParticleEmitter.h"
 #include "MT.h"
 #include <algorithm>
+#include <KamataEngine.h>
 
 void ParticleEmitter::Initialize(KamataEngine::Model* model) {
 	model_ = model;
@@ -43,6 +44,20 @@ void ParticleEmitter::Update() {
 }
 
 void ParticleEmitter::Draw(const KamataEngine::Camera& camera) {
+	// Guard: model_ must be valid and there must be particles
+	if (!model_) {
+		return;
+	}
+
+	// Ensure a valid command list is active (Model::PreDraw must have been called)
+	auto dx = KamataEngine::DirectXCommon::GetInstance();
+	if (!dx) return;
+	ID3D12GraphicsCommandList* cmdList = dx->GetCommandList();
+	if (!cmdList) {
+		// No active command list -> cannot draw models now
+		return;
+	}
+
 	for (Particle& particle : particles_) {
 		if (particle.isActive_) {
 			model_->Draw(particle.worldTransform_, camera);
