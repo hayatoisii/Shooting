@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 
-KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine::Vector3& end, float t) {
+KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine:: Vector3& end, float t) {
 	t = std::clamp(t, 0.0f, 1.0f);
 	return start + (end - start) * t;
 }
@@ -52,6 +52,10 @@ GameScene::~GameScene() {
 		delete sprite;
 	}
 	minimapEnemySprites_.clear();
+	for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
+		delete sprite;
+	}
+	minimapEnemyBulletSprites_.clear();
 	for (EnemyBullet* bullet : enemyBullets_) {
 		delete bullet;
 	}
@@ -141,6 +145,7 @@ void GameScene::Initialize() {
 	minimapTextureHandle_ = KamataEngine::TextureManager::Load("minimap.png");
 	greenBoxTextureHandle_ = KamataEngine::TextureManager::Load("greenBox.png");
 	minimapPlayerTextureHandle_ = KamataEngine::TextureManager::Load("player.png");
+	minimapEnemyBulletTextureHandle_ = KamataEngine::TextureManager::Load("missileRedBox.png");
 
 	// 1. ミニマップ背景
 	minimapSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0, 0});
@@ -160,6 +165,15 @@ void GameScene::Initialize() {
 		minimapEnemySprites_[i]->SetAnchorPoint({0.5f, 0.5f});
 		minimapEnemySprites_[i]->SetSize({8.0f, 8.0f});           // 敵は少し小さく
 		minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f}); // 初期位置は画面外
+	}
+
+	// 4. ミニマップ上の敵弾 (あらかじめ最大数作成し、非表示にしておく)
+	minimapEnemyBulletSprites_.resize(kMaxMinimapEnemyBullets_);
+	for (size_t i = 0; i < kMaxMinimapEnemyBullets_; ++i) {
+		minimapEnemyBulletSprites_[i] = KamataEngine::Sprite::Create(minimapEnemyBulletTextureHandle_, {0, 0});
+		minimapEnemyBulletSprites_[i]->SetAnchorPoint({0.5f, 0.5f});
+		minimapEnemyBulletSprites_[i]->SetSize({6.0f, 6.0f});
+		minimapEnemyBulletSprites_[i]->SetPosition({-100.0f, -100.0f});
 	}
 
 	taitoruSprite_->SetPosition(screenCenter); // 画面中央に配置
@@ -191,6 +205,9 @@ void GameScene::Initialize() {
 
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
+
+	// init homing timer
+	homingSpawnTimer_ = kHomingIntervalFrames_; // start timer so first shot occurs after interval
 }
 
 void GameScene::Update() {
@@ -381,6 +398,57 @@ void GameScene::Update() {
 			for (EnemyBullet* bullet : enemyBullets_) {
 				bullet->Update();
 			}
+
+			// HOMING spawn logic
+			if (homingSpawnTimer_ > 0) {
+				homingSpawnTimer_--;
+			} else {
+				// Find one enemy within max distance but not too close to player
+				Enemy* shooter = nullptr;
+				KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
+				float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
+				const float kMinHomingDistance = 500.0f; // don't fire if closer than this (changed to 500)
+				float minDistSq = kMinHomingDistance * kMinHomingDistance;
+				for (Enemy* enemy : enemies_) {
+					if (!enemy || enemy->IsDead())
+						continue;
+					KamataEngine::Vector3 epos = enemy->GetWorldPosition();
+					float dx = epos.x - playerPosForHoming.x;
+					float dy = epos.y - playerPosForHoming.y;
+					float dz = epos.z - playerPosForHoming.z;
+					float distSq = dx * dx + dy * dy + dz * dz;
+					// only choose enemy if within max distance and further than min distance
+					if (distSq <= maxDistSq && distSq > minDistSq) {
+						shooter = enemy;
+						break; // use first found
+					}
+				}
+
+				if (shooter) {
+					// create homing bullet
+					KamataEngine::Vector3 moveBullet = shooter->GetWorldPosition();
+					KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+					KamataEngine::Vector3 toPlayer = playerPos - moveBullet;
+					float len = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y + toPlayer.z * toPlayer.z);
+					if (len > 0.001f) {
+						toPlayer.x /= len;
+						toPlayer.y /= len;
+						toPlayer.z /= len;
+					}
+					KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
+
+					EnemyBullet* newBullet = new EnemyBullet();
+					newBullet->Initialize(modelEnemy_, moveBullet, vel);
+					newBullet->SetHomingEnabled(true);
+					newBullet->SetHomingTarget(player_);
+					newBullet->SetSpeed(kHomingBulletSpeed_);
+					AddEnemyBullet(newBullet);
+
+					// reset timer
+					homingSpawnTimer_ = kHomingIntervalFrames_;
+				}
+			}
+
 			enemyBullets_.remove_if([](EnemyBullet* bullet) {
 				if (bullet && bullet->IsDead()) {
 					delete bullet;
@@ -428,9 +496,23 @@ void GameScene::Update() {
 					}
 				}
 
-				// 3. 残りのスプライトを非表示（画面外へ）
+				// 3. 敵弾アイコンの更新
+				size_t activeBulletCount = 0;
+				for (EnemyBullet* eb : enemyBullets_) {
+					if (!eb || eb->IsDead()) continue;
+					if (activeBulletCount >= kMaxMinimapEnemyBullets_) break;
+					KamataEngine::Vector3 bpos = eb->GetWorldPosition();
+					KamataEngine::Vector2 bmin = ConvertWorldToMinimap(bpos, playerPos);
+					minimapEnemyBulletSprites_[activeBulletCount]->SetPosition(bmin);
+					activeBulletCount++;
+				}
+
+				// 4. 残りのスプライトを非表示（画面外へ）
 				for (size_t i = activeEnemyCount; i < kMaxMinimapEnemies_; ++i) {
 					minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f});
+				}
+				for (size_t i = activeBulletCount; i < kMaxMinimapEnemyBullets_; ++i) {
+					minimapEnemyBulletSprites_[i]->SetPosition({-100.0f, -100.0f});
 				}
 			}
 
@@ -684,6 +766,12 @@ void GameScene::Draw() {
 			sprite->Draw();
 		}
 	}
+	// 敵弾アイコン (背景より手前、自機より奥)
+	for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
+		if (sprite) {
+			sprite->Draw();
+		}
+	}
 	// 自機アイコン (最前面)
 	if (minimapPlayerSprite_) {
 		minimapPlayerSprite_->Draw();
@@ -796,12 +884,11 @@ void GameScene::CheckAllCollisions() {
 		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
 		if (distanceSquared <= combinedRadiusSquared) {
 
+			// Immediately transition to GameOver scene for easier confirmation
 			player_->OnCollision();
 			bullet->OnCollision();
-			if (player_->IsDead()) {
-				TransitionToClearScene2();
-				return;
-			}
+			TransitionToClearScene2();
+			return;
 		}
 	}
 

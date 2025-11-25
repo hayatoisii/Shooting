@@ -102,7 +102,6 @@ private:
 	Camera camera_ = {};
 
 	float gameOverTimer_ = 0.0f;
-	// Debug: automatically go to Clear scene after N frames
 	bool debugAutoClearEnabled_ = true;
 	int debugAutoClearTimer_ = 0; // frames
 	const int kDebugAutoClearFrames = 60; // ~1 second at 60 FPS
@@ -123,14 +122,13 @@ private:
 
 	KamataEngine::Model* modelParticle_ = nullptr;
 	ParticleEmitter* explosionEmitter_ = nullptr;
-	// Clear scene assets
+
 	KamataEngine::Sprite* clearSprite_ = nullptr;
 	uint32_t clearTextureHandle_ = 0;
 	ParticleEmitter* clearEmitter_ = nullptr;
 	int confettiSpawnTimer_ = 0;
 	bool confettiActive_ = false;
 
-	// Confetti (sprite-based) for Clear scene
 	struct ConfettiParticle {
 		KamataEngine::Sprite* sprite = nullptr;
 		bool active = false;
@@ -156,6 +154,11 @@ private:
 	static const size_t kMaxMinimapEnemies_ = 100; // 例: 最大100体
 	std::vector<KamataEngine::Sprite*> minimapEnemySprites_;
 
+	// ミニマップの敵弾アイコン
+	static const size_t kMaxMinimapEnemyBullets_ = 100;
+	std::vector<KamataEngine::Sprite*> minimapEnemyBulletSprites_;
+	uint32_t minimapEnemyBulletTextureHandle_ = 0;
+
 	// ミニマップ設定値
 	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 710.0f}; // 描画基準位置 (左下)
 	const KamataEngine::Vector2 kMinimapSize_ = {200.0f, 200.0f};    // 背景スプライトのサイズ
@@ -166,4 +169,11 @@ private:
 
 	// 最後に記録したプレイヤー位置（ミニマップ回転の判定用）
 	KamataEngine::Vector3 lastPlayerPos_ = {0.0f, 0.0f, 0.0f};
+
+	// Homing shot timer and settings
+	int homingSpawnTimer_ = 0;
+	// Enemyミサイルの間隔
+	const int kHomingIntervalFrames_ = 60 * 10;
+	const float kHomingMaxDistance_ = 3000.0f;
+	const float kHomingBulletSpeed_ = 8.0f; // requested speed
 };
