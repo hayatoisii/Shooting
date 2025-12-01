@@ -62,6 +62,7 @@ GameScene::~GameScene() {
 	for (Enemy* enemy : enemies_) {
 		delete enemy;
 	}
+	delete supacedSprite_;
 }
 
 void GameScene::Initialize() {
@@ -208,6 +209,21 @@ void GameScene::Initialize() {
 
 	// init homing timer
 	homingSpawnTimer_ = kHomingIntervalFrames_; // start timer so first shot occurs after interval
+
+	// Load "supacedetamahassya" sprite (instruction: press space to shoot)
+	supacedTextureHandle_ = KamataEngine::TextureManager::Load("supacedetamahassya.png");
+	supacedSprite_ = KamataEngine::Sprite::Create(supacedTextureHandle_, {0, 0});
+	if (supacedSprite_) {
+		// place at top-left origin (0,0)
+		// The source image is large (1280x720). Scale it down to fit the screen.
+		supacedSprite_->SetAnchorPoint({0.0f, 0.0f});
+		float targetWidth = 480.0f; // scaled width in pixels
+		float aspect = 1280.0f / 720.0f; // source aspect ratio
+		float targetHeight = targetWidth / aspect; // keep aspect
+		supacedSprite_->SetSize({targetWidth, targetHeight});
+		// Position at top-left corner
+		supacedSprite_->SetPosition({0.0f, 0.0f});
+	}
 }
 
 void GameScene::Update() {
@@ -318,17 +334,15 @@ void GameScene::Update() {
 	}
 	case SceneState::Game: {
 
+		// Increment gameSceneTimer_
+		gameSceneTimer_++;
 
-		// デバッグ
-		//gameSceneTimer_++; // ★まずタイマーをインクリメントします (これが抜けていたようです)
-
-		// --- デバッグ用: 1秒でクリア (60フレーム) ---
-		const int DEBUG_CLEAR_TIME = 60; // 1秒
-		if (gameSceneTimer_ > DEBUG_CLEAR_TIME) {
-			TransitionToClearScene(); // クリア処理を呼び出す
-			break;                    // このフレームの残りのGame処理をスキップ
+		// Auto-clear after 30 seconds
+		const int kAutoClearFrames = 60 * 30; // 30 seconds
+		if (gameSceneTimer_ >= kAutoClearFrames) {
+			TransitionToClearScene();
+			break; // skip rest of frame
 		}
-
 
 		// デモ用自動復帰タイマー
 		if (gameSceneTimer_ > kGameTimeLimit_) {
@@ -399,55 +413,7 @@ void GameScene::Update() {
 				bullet->Update();
 			}
 
-			// HOMING spawn logic
-			if (homingSpawnTimer_ > 0) {
-				homingSpawnTimer_--;
-			} else {
-				// Find one enemy within max distance but not too close to player
-				Enemy* shooter = nullptr;
-				KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
-				float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
-				const float kMinHomingDistance = 500.0f; // don't fire if closer than this (changed to 500)
-				float minDistSq = kMinHomingDistance * kMinHomingDistance;
-				for (Enemy* enemy : enemies_) {
-					if (!enemy || enemy->IsDead())
-						continue;
-					KamataEngine::Vector3 epos = enemy->GetWorldPosition();
-					float dx = epos.x - playerPosForHoming.x;
-					float dy = epos.y - playerPosForHoming.y;
-					float dz = epos.z - playerPosForHoming.z;
-					float distSq = dx * dx + dy * dy + dz * dz;
-					// only choose enemy if within max distance and further than min distance
-					if (distSq <= maxDistSq && distSq > minDistSq) {
-						shooter = enemy;
-						break; // use first found
-					}
-				}
-
-				if (shooter) {
-					// create homing bullet
-					KamataEngine::Vector3 moveBullet = shooter->GetWorldPosition();
-					KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-					KamataEngine::Vector3 toPlayer = playerPos - moveBullet;
-					float len = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y + toPlayer.z * toPlayer.z);
-					if (len > 0.001f) {
-						toPlayer.x /= len;
-						toPlayer.y /= len;
-						toPlayer.z /= len;
-					}
-					KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
-
-					EnemyBullet* newBullet = new EnemyBullet();
-					newBullet->Initialize(modelEnemy_, moveBullet, vel);
-					newBullet->SetHomingEnabled(true);
-					newBullet->SetHomingTarget(player_);
-					newBullet->SetSpeed(kHomingBulletSpeed_);
-					AddEnemyBullet(newBullet);
-
-					// reset timer
-					homingSpawnTimer_ = kHomingIntervalFrames_;
-				}
-			}
+			// Remove homing spawn logic: do not spawn enemy bullets automatically
 
 			enemyBullets_.remove_if([](EnemyBullet* bullet) {
 				if (bullet && bullet->IsDead()) {
@@ -748,6 +714,11 @@ void GameScene::Draw() {
 			aimAssistCircleSprite_->Draw();
 		}
 
+		// Draw the instruction sprite
+		if (supacedSprite_) {
+			supacedSprite_->Draw();
+		}
+
 		if (sceneState == SceneState::Game && isGameIntroFinished_) {
 			for (Enemy* enemy : enemies_) {
 				if (enemy) {
@@ -939,16 +910,18 @@ void GameScene::CheckAllCollisions() {
 
 				if (enemy->IsDead()) {
 					hitCount++;
+					// If player has destroyed 5 enemies, go to Clear scene
+					if (hitCount >= 5) {
+						TransitionToClearScene();
+						return;
+					}
 				}
 
 				if (audio_)
 					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
 
 				// デバッグ
-				if (hitCount >= 1) {
-					//TransitionToClearScene();
-					return;
-				}
+				// removed early clear trigger
 			}
 		}
 	}

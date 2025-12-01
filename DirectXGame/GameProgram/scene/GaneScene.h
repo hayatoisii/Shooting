@@ -57,6 +57,10 @@ private:
 	KamataEngine::Sprite* reticleSprite_ = nullptr;
 	uint32_t reticleTextureHandle_ = 0;
 
+	// Sprite for "supacedetamahassya"
+	KamataEngine::Sprite* supacedSprite_ = nullptr;
+	uint32_t supacedTextureHandle_ = 0;
+
 	Model* modelPlayer_ = nullptr;
 	Model* modelEnemy_ = nullptr;
 
@@ -64,7 +68,7 @@ private:
 	const int32_t kGameTimeLimit_ = 60 * 30;
 
 	Vector3 railcameraPos = {0, 5, -50};
-	Vector3 railcameraRad = {0, 0, 0};
+	Vector3 railcameraRad = {0, 3.141592f, 0};
 
 	std::list<EnemyBullet*> enemyBullets_;
 	std::stringstream enemyPopCommands;
@@ -172,8 +176,8 @@ private:
 
 	// Homing shot timer and settings
 	int homingSpawnTimer_ = 0;
-	// Enemyミサイルの間隔
-	const int kHomingIntervalFrames_ = 60 * 10;
+	// Enemyミサイルの間隔: 15秒（フレーム換算）
+	const int kHomingIntervalFrames_ = 60 * 15;
 	const float kHomingMaxDistance_ = 3000.0f;
 	const float kHomingBulletSpeed_ = 8.0f; // requested speed
 };

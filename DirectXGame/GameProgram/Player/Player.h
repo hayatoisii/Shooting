@@ -53,7 +53,7 @@ private:
 
 	std::list<Enemy*>* enemies_ = nullptr;
 
-	int specialTimer = 20;
+	int specialTimer = 0;
 	bool isParry_ = false;
 
 	// パーティクル
