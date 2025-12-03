@@ -28,7 +28,10 @@ public:
     void SetSpeed(float s) { speed_ = s; }
     bool IsHoming() const { return isHoming_; }
 
-    void StopHoming() { isHoming_ = false; }
+    void StopHoming() {
+		isHoming_ = false;
+		deathTimer_ = 60;
+	}
 
 private:
 

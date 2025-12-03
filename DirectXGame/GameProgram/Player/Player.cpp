@@ -84,12 +84,11 @@ void Player::Attack() {
 				}
 			}
 
-
 			/*
 			if (nearestOnScreenEnemy) {
-				KamataEngine::Vector3 targetPosition = nearestOnScreenEnemy->GetWorldPosition();
-				velocity = targetPosition - moveBullet;
-			}else 
+			    KamataEngine::Vector3 targetPosition = nearestOnScreenEnemy->GetWorldPosition();
+			    velocity = targetPosition - moveBullet;
+			}else
 			*/
 			{
 				const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
@@ -158,46 +157,73 @@ void Player::Update() {
 	} else {
 		if (input_->PushKey(DIK_LSHIFT)) {
 			float dodgeDir = 0.0f;
+			if (input_->PushKey(DIK_A))
+				dodgeDir = -1.0f;
+			else if (input_->PushKey(DIK_D))
+				dodgeDir = 1.0f;
 
-			if (input_->PushKey(DIK_A)) {
-				dodgeDir = -1.0f; // 左へ回避
-			} else if (input_->PushKey(DIK_D)) {
-				dodgeDir = 1.0f; // 右へ回避
-			}
-
-			// AかDが押されていたら回避実行
 			if (dodgeDir != 0.0f && railCamera_) {
 				railCamera_->Dodge(dodgeDir);
-				dodgeTimer_ = 1;
+
+				isRolling_ = true;
+				rollTimer_ = 0.0f;
+				rollDirection_ = dodgeDir;
+
+				dodgeTimer_ = 10; // クールタイム
 			}
 		}
 	}
 
-if (railCamera_) {
-		const float lerpFactor = 0.1f;
+	Vector3 currentRotation = {0, 0, 0};
+	currentRotation.x = 0;
 
-		// ロール
-		float rollVelocity = railCamera_->GetRotationVelocity().z;
-		const float tiltFactor = 5.0f; // 傾き
-		float targetRoll = rollVelocity * tiltFactor;
+	if (isRolling_) {
+		// === 回避アクション中 ===
+		rollTimer_ += 1.0f;
+		float t = rollTimer_ / kRollDuration_;
+		if (t >= 1.0f) {
+			t = 1.0f;
+			isRolling_ = false;
+		}
 
-		// ヨー
-		float yawVelocity = railCamera_->GetRotationVelocity().y; // ヨーの速度を取得
-		const float yawTiltFactor = 50.0f;
+		float easeT = 1.0f - std::pow(1.0f - t, 3.0f);
+		float maxAngle = 2.0f * 3.14159265f; // 360度
 
-		targetRoll -= yawVelocity * yawTiltFactor; // ここプラスマイナス変えても何も変わらない
+		currentRotation.z = maxAngle * easeT * rollDirection_ * -1.0f;
 
-		const float maxRollAngle = 4.0f;
-		targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
-		worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
+		worldtransfrom_.rotation_ = currentRotation;
 
-		// 上下
-		float pitchVelocity = railCamera_->GetRotationVelocity().x;
-		const float pitchFactor = 12.0f;
-		float targetPitch = pitchVelocity * pitchFactor;
-		const float maxPitchAngle = 1.5f;
-		targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
-		worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
+	} else {
+
+		worldtransfrom_.rotation_ = currentRotation;
+
+		if (railCamera_) {
+			const float lerpFactor = 0.1f;
+
+			// --- ロール（横の傾き） ---
+			float rollVelocity = railCamera_->GetRotationVelocity().z;
+			const float tiltFactor = 5.0f;
+			float targetRoll = rollVelocity * tiltFactor;
+
+			// ヨーによるロールへの影響
+			float yawVelocity = railCamera_->GetRotationVelocity().y;
+			const float yawTiltFactor = 50.0f;
+			targetRoll -= yawVelocity * yawTiltFactor;
+
+			const float maxRollAngle = 4.0f;
+			targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
+
+			worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
+
+
+			float pitchVelocity = railCamera_->GetRotationVelocity().x;
+			const float pitchFactor = 12.0f;
+			float targetPitch = pitchVelocity * pitchFactor;
+			const float maxPitchAngle = 1.5f;
+			targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
+
+			worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
+		}
 	}
 
 	worldtransfrom_.UpdateMatrix();
@@ -245,7 +271,7 @@ void Player::ResetParticles() {
 
 void Player::UpdateGameOver(float animationTime) {
 	// 姿勢制御
-	const float pitchDownAngle = 3.14159265f / 4.0f;// const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;これかわらない、かわらない
+	const float pitchDownAngle = 3.14159265f / 4.0f; // const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;これかわらない、かわらない
 	worldtransfrom_.rotation_.x = pitchDownAngle;
 
 	// 回転
@@ -290,7 +316,8 @@ void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 
 	if (dodgeTimer_ >= 1) {
 
-		const float kJustEvasionRange = 200.0f; // 回避有効距離
+		// 回避したときに、この距離に敵の弾があったら回避成功
+		const float kJustEvasionRange = 300.0f; //200.0f
 		KamataEngine::Vector3 playerPos = GetWorldPosition();
 
 		for (EnemyBullet* bullet : bullets) {

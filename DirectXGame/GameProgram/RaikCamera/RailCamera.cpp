@@ -100,6 +100,8 @@ void RailCamera::Update() {
 	rotation_ = deltaQuatRoll * deltaQuatPitch * deltaQuatYaw * rotation_;
 	rotation_ = Quaternion::Normalize(rotation_);
 
+	Quaternion finalRotation = rotation_;
+
 	Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
 
 	// 常に自動で前進
@@ -107,6 +109,22 @@ void RailCamera::Update() {
 
 	if (canMove_) {
 		move.z += kCameraSpeed;
+	}
+
+	if (isDodging_) {
+
+		dodgeTimer_ += 1.0f;
+		float t = dodgeTimer_ / kDodgeDuration_;
+
+		if (t >= 1.0f) {
+			t = 1.0f;
+			isDodging_ = false;
+		}
+
+		//　回避の時に横移動する距離
+		const float kDodgeMoveSpeed = 3.0f; // 2.0f
+
+		move.x += dodgeDirection_ * kDodgeMoveSpeed * (1.0f - t);
 	}
 
 	move = KamataEngine::MathUtility::TransformNormal(move, rotationMatrix);
@@ -154,11 +172,13 @@ KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
 }
 
 void RailCamera::Dodge(float direction) {
-	const float kDodgeRollStrength = 0.2f; // ロール回転の強さ
-	const float kDodgeYawStrength = 0.1f;  // 旋回の強さ
+	if (isDodging_) {
+		return;
+	}
 
-	rotationVelocity_.z -= direction * kDodgeRollStrength;
-	rotationVelocity_.y += direction * kDodgeYawStrength;
+	isDodging_ = true;
+	dodgeTimer_ = 0.0f;
+	dodgeDirection_ = direction;
 }
 
 void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {

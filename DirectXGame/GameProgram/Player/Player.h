@@ -68,4 +68,9 @@ private:
 	int shotTimer_;
 
 	int dodgeTimer_ = 0;
+
+	bool isRolling_ = false;     // 回転中か
+	float rollTimer_ = 0.0f;     // 回転タイマー
+	float rollDirection_ = 0.0f; // 回転方向
+	const float kRollDuration_ = 60.0f;
 };

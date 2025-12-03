@@ -407,7 +407,8 @@ void GameScene::Update() {
 				Enemy* shooter = nullptr;
 				KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
 				float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
-				const float kMinHomingDistance = 500.0f; // don't fire if closer than this (changed to 500)
+				// この距離にPlayerが近づくとEnemyが弾を撃たなくなります
+				const float kMinHomingDistance = 1000.0f;
 				float minDistSq = kMinHomingDistance * kMinHomingDistance;
 				for (Enemy* enemy : enemies_) {
 					if (!enemy || enemy->IsDead())
