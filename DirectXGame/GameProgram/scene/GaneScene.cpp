@@ -320,7 +320,7 @@ void GameScene::Update() {
 
 
 		// デバッグ
-		//gameSceneTimer_++; // ★まずタイマーをインクリメントします (これが抜けていたようです)
+		//gameSceneTimer_++;
 
 		// --- デバッグ用: 1秒でクリア (60フレーム) ---
 		const int DEBUG_CLEAR_TIME = 60; // 1秒
@@ -390,7 +390,7 @@ void GameScene::Update() {
 				meteoriteSpawnTimer_ = 0;
 			}
 
-			// UpdateMeteorites();
+			player_->EvadeBullets(enemyBullets_);
 
 			for (Enemy* enemy : enemies_) {
 				enemy->Update();

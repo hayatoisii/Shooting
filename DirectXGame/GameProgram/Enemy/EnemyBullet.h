@@ -28,6 +28,8 @@ public:
     void SetSpeed(float s) { speed_ = s; }
     bool IsHoming() const { return isHoming_; }
 
+    void StopHoming() { isHoming_ = false; }
+
 private:
 
     KamataEngine::WorldTransform worldtransfrom_;

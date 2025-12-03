@@ -35,6 +35,8 @@ public:
 
 	KamataEngine::Matrix4x4 MakeIdentityMatrix();
 
+	void Dodge(float direction);
+
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
 

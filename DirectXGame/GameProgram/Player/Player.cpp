@@ -153,6 +153,26 @@ void Player::Update() {
 		return false;
 	});
 
+	if (dodgeTimer_ > 0) {
+		dodgeTimer_--;
+	} else {
+		if (input_->PushKey(DIK_LSHIFT)) {
+			float dodgeDir = 0.0f;
+
+			if (input_->PushKey(DIK_A)) {
+				dodgeDir = -1.0f; // 左へ回避
+			} else if (input_->PushKey(DIK_D)) {
+				dodgeDir = 1.0f; // 右へ回避
+			}
+
+			// AかDが押されていたら回避実行
+			if (dodgeDir != 0.0f && railCamera_) {
+				railCamera_->Dodge(dodgeDir);
+				dodgeTimer_ = 1;
+			}
+		}
+	}
+
 if (railCamera_) {
 		const float lerpFactor = 0.1f;
 
@@ -264,4 +284,27 @@ void Player::ResetBullets() {
 		delete bullet;
 	}
 	bullets_.clear();
+}
+
+void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
+
+	if (dodgeTimer_ >= 1) {
+
+		const float kJustEvasionRange = 200.0f; // 回避有効距離
+		KamataEngine::Vector3 playerPos = GetWorldPosition();
+
+		for (EnemyBullet* bullet : bullets) {
+			if (!bullet)
+				continue;
+
+			KamataEngine::Vector3 bulletPos = bullet->GetWorldPosition();
+			float distSq =
+			    (playerPos.x - bulletPos.x) * (playerPos.x - bulletPos.x) + (playerPos.y - bulletPos.y) * (playerPos.y - bulletPos.y) + (playerPos.z - bulletPos.z) * (playerPos.z - bulletPos.z);
+
+			// 距離が200以内
+			if (distSq < kJustEvasionRange * kJustEvasionRange) {
+				bullet->StopHoming();
+			}
+		}
+	}
 }

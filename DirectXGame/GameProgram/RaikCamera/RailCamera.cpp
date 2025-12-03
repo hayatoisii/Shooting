@@ -153,6 +153,14 @@ KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
 	return result;
 }
 
+void RailCamera::Dodge(float direction) {
+	const float kDodgeRollStrength = 0.2f; // ロール回転の強さ
+	const float kDodgeYawStrength = 0.1f;  // 旋回の強さ
+
+	rotationVelocity_.z -= direction * kDodgeRollStrength;
+	rotationVelocity_.y += direction * kDodgeYawStrength;
+}
+
 void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
 	// ★ 視点が吸い寄せられる強さ (この値を調整)
 	const float kAimAssistStrength = 0.005f;

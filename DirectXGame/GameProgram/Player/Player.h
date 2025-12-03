@@ -5,6 +5,7 @@
 #include "ParticleEmitter.h"
 #include "PlayerBullet.h"
 #include <list>
+#include "EnemyBullet.h"
 
 class Enemy;
 class RailCamera;
@@ -41,6 +42,8 @@ public:
 	static inline const float kWidth = 1.0f;
 	static inline const float kHeight = 1.0f;
 
+	void EvadeBullets(std::list<EnemyBullet*>& bullets);
+
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
 	KamataEngine::Model* model_ = nullptr;
@@ -63,4 +66,6 @@ private:
 	int hp_ = 3;
 	bool isDead_ = false;
 	int shotTimer_;
+
+	int dodgeTimer_ = 0;
 };
