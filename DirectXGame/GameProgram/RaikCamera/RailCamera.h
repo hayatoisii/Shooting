@@ -52,5 +52,4 @@ private:
 	Camera camera_;
 
 	bool canMove_;
-
 };
