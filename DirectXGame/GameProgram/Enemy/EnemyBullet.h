@@ -3,38 +3,51 @@
 #include <3d/Model.h>
 #include <3d/WorldTransform.h>
 #include "AABB.h"
+class Player; // forward
 class EnemyBullet {
 public:
-	void Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity);
+    void Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity);
 
-	void Update();
+    void Update();
 
-	void Draw(const KamataEngine::Camera& camera);
+    void Draw(const KamataEngine::Camera& camera);
 
-	~EnemyBullet();
+    ~EnemyBullet();
 
-	bool IsDead() const { return isDead_; }
+    bool IsDead() const { return isDead_; }
 
-	// 衝突を検出したら呼び出されるコールバック関数
-	void OnCollision();
+    void OnCollision();
 
-	KamataEngine::Vector3 GetWorldPosition();
+    KamataEngine::Vector3 GetWorldPosition();
 
-	AABB GetAABB();
+    AABB GetAABB();
+
+    // Homing support
+    void SetHomingTarget(Player* target) { homingTarget_ = target; }
+    void SetHomingEnabled(bool enabled) { isHoming_ = enabled; }
+    void SetSpeed(float s) { speed_ = s; }
+    bool IsHoming() const { return isHoming_; }
+
+    void StopHoming() { isHoming_ = false; }
 
 private:
 
-	KamataEngine::WorldTransform worldtransfrom_;
-	KamataEngine::Model* model_ = nullptr;
-	KamataEngine::Vector3 velocity_;
+    KamataEngine::WorldTransform worldtransfrom_;
+    KamataEngine::Model* model_ = nullptr;
+    KamataEngine::Vector3 velocity_;
 
-	// 寿命<frm>
-	static const int32_t kLifeTime = 60 * 3;
-	// デスタイマー
-	int32_t deathTimer_ = kLifeTime;
-	// デスフラグ
-	bool isDead_ = false;
+    // 寿命　Enemyミサイル
+    static const int32_t kLifeTime = 60 * 10; // default 10 seconds
+    // デスタイマー
+    int32_t deathTimer_ = kLifeTime;
+    // デスフラグ
+    bool isDead_ = false;
 
-	static inline const float kWidth = 1.0f;
-	static inline const float kHeight = 1.0f;
+    static inline const float kWidth = 1.0f;
+    static inline const float kHeight = 1.0f;
+
+    // Homing members
+    Player* homingTarget_ = nullptr;
+    bool isHoming_ = false;
+    float speed_ = 1.0f; // units per frame
 };

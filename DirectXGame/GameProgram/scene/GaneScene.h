@@ -5,8 +5,12 @@
 #include "Player.h"
 #include "RailCamera.h"
 #include "Skydome.h"
+#include "../../Meteorite.h"
 #include <sstream>
 using namespace KamataEngine;
+
+float Distance(const Vector3& v1, const Vector3& v2);
+Vector3 Lerp(const Vector3& start, const Vector3& end, float t);
 
 class GameScene {
 public:
@@ -16,14 +20,13 @@ public:
 	void Initialize();
 	void Update();
 	void Draw();
-	// 衝突判定と応答
+
 	void CheckAllCollisions();
 
 	void TransitionToClearScene();
 
 	void TransitionToClearScene2();
 
-	// 弾を追加
 	void AddEnemyBullet(EnemyBullet* enemyBullet);
 	const std::list<EnemyBullet*>& GetEnemyBullets() const { return enemyBullets_; }
 
@@ -31,8 +34,15 @@ public:
 	void UpdateEnemyPopCommands();
 	void EnemySpawn(const Vector3& position);
 
-	int32_t timer = 0;
-	bool timerflag = true;
+	void UpdateAimAssist();
+	KamataEngine::Vector3 ProjectToNDC(const KamataEngine::Vector3& worldPos);
+
+	void SpawnMeteorite();
+	void UpdateMeteorites();
+
+	void RequestExplosion(const KamataEngine::Vector3& position);
+
+	bool hasSpawnedEnemies_ = false;
 
 private:
 	DirectXCommon* dxCommon_ = nullptr;
@@ -40,32 +50,24 @@ private:
 	Audio* audio_ = nullptr;
 
 	Player* player_ = nullptr;
-	// Enemy* enemy_ = nullptr;
 	Skydome* skydome_ = nullptr;
 	Model* modelSkydome_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
 
-	// Vector3 playerPos = {};
-	// Vector3 enemyPos = {0, 3, 100};
-	Vector3 RailCamerPos = {0, 0, 0};
-	Vector3 RailCamerRad = {0, 0, 0};
+	KamataEngine::Sprite* reticleSprite_ = nullptr;
+	uint32_t reticleTextureHandle_ = 0;
 
 	Model* modelPlayer_ = nullptr;
 	Model* modelEnemy_ = nullptr;
 
-	// std::vector<std::vector<WorldTransform*>> worldTransformBlocks_;
-	WorldTransform worldTransform_;
-	Camera camera_;
+	int32_t gameSceneTimer_ = 0;
+	const int32_t kGameTimeLimit_ = 60 * 30;
 
-	Vector3 railcameraPos = {0, 0, 0};
+	Vector3 railcameraPos = {0, 5, -50};
 	Vector3 railcameraRad = {0, 0, 0};
 
-	// 敵弾リストを追加
 	std::list<EnemyBullet*> enemyBullets_;
-
-	// 敵発生コマンド
 	std::stringstream enemyPopCommands;
-
 	std::list<Enemy*> enemies_;
 
 	int32_t titleAnimationTimer_ = 0;
@@ -78,33 +80,100 @@ private:
 	Model* modelTitleObject_ = nullptr;
 	WorldTransform worldTransformTitleObject_;
 
-	// シーンの状態を管理する列挙型
 	enum class SceneState { Start, TransitionToGame, TransitionFromGame, GameIntro, Game, Clear, over };
-
-	// 現在のシーンの状態を管理する変数
 	SceneState sceneState = SceneState::Start;
 
-	// 遷移用のスプライトとタイマー
-	Sprite* transitionSprite_ = nullptr;
+	float DistanceSquared(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2);
+
+	KamataEngine::Sprite* transitionSprite_ = nullptr;
 	uint32_t transitionTextureHandle_ = 0;
 	float transitionTimer_ = 0.0f;
-	// 遷移にかかる時間（フレーム数）
 	const float kTransitionTime = 30.0f;
 
-	// オーディオ関連のメンバ変数
 	int hitSoundHandle_ = 0;
 	int hitSound_ = -1;
 
-	Vector3 playerPos = {0, 0, 30};
+	Vector3 playerIntroStartPosition_ = {0.0f, -3.0f, -30.0f};
+	Vector3 playerIntroTargetPosition_ = {0.0f, -3.0f, 20.0f};
+	float gameIntroTimer_ = 0.0f;
+	const float kGameIntroDuration_ = 120.0f;
+	bool isGameIntroFinished_ = false;
 
-	bool isGameIntroFinished_ = false;       // イントロが終わったかどうかのフラグ
-	float gameIntroTimer_ = 0.0f;            // イントロ用タイマー
-	const float kGameIntroDuration_ = 90.0f; // イントロの長さ（フレーム数、0.5秒）
-	Vector3 playerIntroStartPosition_;       // イントロ開始時のプレイヤー座標
-	Vector3 playerIntroTargetPosition_;      // イントロ終了時（＝ゲーム開始時）のプレイヤー座標
+	Camera camera_ = {};
 
-	float DistanceSquared(const Vector3& v1, const Vector3& v2);
+	float gameOverTimer_ = 0.0f;
+	bool debugAutoClearEnabled_ = true;
+	int debugAutoClearTimer_ = 0; // frames
+	const int kDebugAutoClearFrames = 60; // ~1 second at 60 FPS
 
-	int32_t gameSceneTimer_ = 0;         
-	const int32_t kGameTimeLimit_ = 660;
+	// カメラ位置アンカー
+	WorldTransform cameraPositionAnchor_;
+	
+	KamataEngine::Model* modelMeteorite_;
+	std::list<Meteorite*> meteorites_;
+	int meteoriteSpawnTimer_;
+	int meteoriteUpdateCounter_;
+
+	KamataEngine::Sprite* taitoruSprite_ = nullptr;
+	uint32_t taitoruTextureHandle_ = 0;
+
+	KamataEngine::Sprite* aimAssistCircleSprite_ = nullptr;
+	uint32_t aimAssistCircleTextureHandle_ = 0;
+
+	KamataEngine::Model* modelParticle_ = nullptr;
+	ParticleEmitter* explosionEmitter_ = nullptr;
+
+	KamataEngine::Sprite* clearSprite_ = nullptr;
+	uint32_t clearTextureHandle_ = 0;
+	ParticleEmitter* clearEmitter_ = nullptr;
+	int confettiSpawnTimer_ = 0;
+	bool confettiActive_ = false;
+
+	struct ConfettiParticle {
+		KamataEngine::Sprite* sprite = nullptr;
+		bool active = false;
+		KamataEngine::Vector2 pos = {0.0f, 0.0f};
+		KamataEngine::Vector2 vel = {0.0f, 0.0f};
+		float rotation = 0.0f;
+		float rotVel = 0.0f;
+		int life = 0;
+		int age = 0;
+	};
+	std::vector<ConfettiParticle> confettiParticles_;
+	uint32_t confettiTextureHandle_ = 0;
+	const size_t kMaxConfetti_ = 200;
+
+	uint32_t minimapTextureHandle_ = 0;
+	uint32_t greenBoxTextureHandle_ = 0;
+	KamataEngine::Sprite* minimapSprite_ = nullptr;       // ミニマップ背景
+	KamataEngine::Sprite* minimapPlayerSprite_ = nullptr; // ミニマップ上の自機アイコン
+
+	uint32_t minimapPlayerTextureHandle_ = 0;
+
+	// ミニマップ上の敵アイコン (事前に最大数確保する)
+	static const size_t kMaxMinimapEnemies_ = 100; // 例: 最大100体
+	std::vector<KamataEngine::Sprite*> minimapEnemySprites_;
+
+	// ミニマップの敵弾アイコン
+	static const size_t kMaxMinimapEnemyBullets_ = 100;
+	std::vector<KamataEngine::Sprite*> minimapEnemyBulletSprites_;
+	uint32_t minimapEnemyBulletTextureHandle_ = 0;
+
+	// ミニマップ設定値
+	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 710.0f}; // 描画基準位置 (左下)
+	const KamataEngine::Vector2 kMinimapSize_ = {200.0f, 200.0f};    // 背景スプライトのサイズ
+	const float kMinimapScale_ = 0.03f;                              // ワールド座標 -> ミニマップ座標の縮尺
+
+	/// <returns>ミニマップ上のスクリーン座標</returns>
+	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);
+
+	// 最後に記録したプレイヤー位置（ミニマップ回転の判定用）
+	KamataEngine::Vector3 lastPlayerPos_ = {0.0f, 0.0f, 0.0f};
+
+	// Homing shot timer and settings
+	int homingSpawnTimer_ = 0;
+	// Enemyミサイルの間隔
+	const int kHomingIntervalFrames_ = 60 * 10;
+	const float kHomingMaxDistance_ = 3000.0f;
+	const float kHomingBulletSpeed_ = 8.0f; // requested speed
 };

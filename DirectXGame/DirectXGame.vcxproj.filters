@@ -40,6 +40,9 @@
     <Filter Include="GameProgram\Skydome">
       <UniqueIdentifier>{1c2510fe-9aee-40f9-b92f-22a45286b407}</UniqueIdentifier>
     </Filter>
+    <Filter Include="GameProgram\MathUtility">
+      <UniqueIdentifier>{f1379ecc-de4e-49ea-abd2-a99503adb3a8}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -80,6 +83,12 @@
     </ClCompile>
     <ClCompile Include="GameProgram\MT\AABB.cpp">
       <Filter>GameProgram\MT</Filter>
+    </ClCompile>
+    <ClCompile Include="Quaternion.cpp">
+      <Filter>GameProgram\MT</Filter>
+    </ClCompile>
+    <ClCompile Include="Meteorite.cpp">
+      <Filter>GameProgram\Enemy</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -167,6 +176,12 @@
     </ClInclude>
     <ClInclude Include="GameProgram\MT\AABB.h">
       <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="Quaternion.h">
+      <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="Meteorite.h">
+      <Filter>GameProgram\Enemy</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -1,14 +1,14 @@
 #pragma once
-#include<3d/WorldTransform.h>
+#include "../../Quaternion.h"
+#include "MT.h"
 #include <3d/Camera.h>
-#include"MT.h"
+#include <3d/WorldTransform.h>
 
 class Player;
 
 class RailCamera {
 
 public:
-
 	struct Rect {
 		float left = 0.0f;
 		float right = 1.0f;
@@ -27,18 +27,30 @@ public:
 
 	const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; }
 
-	void Reset(); 
+	void SetCanMove(bool canMove) { canMove_ = canMove; }
 
-	KamataEngine::Matrix4x4 MakeRotateAxisAngle(const KamataEngine::Vector3& axis, float angle);
+	void Reset();
+
+	void ApplyAimAssist(float ndcX, float ndcY);
+
 	KamataEngine::Matrix4x4 MakeIdentityMatrix();
 
-private:
+	void Dodge(float direction);
 
+private:
 	KamataEngine::WorldTransform worldtransfrom_;
 
-	KamataEngine::Camera camera_;
+	KamataEngine::Vector3 initialPosition_;
+	KamataEngine::Vector3 initialRotationEuler_;
 
-	KamataEngine::Vector3 velocity_ = {1.0f,1.0f,1.0f};
-	KamataEngine::Vector3 rotationVelocity_ = {0.0f, 0.0f, 0.0f};
+	KamataEngine::Quaternion rotation_;
+
+	KamataEngine::Vector3 rotationVelocity_{0.0f, 0.0f, 0.0f};
+
+	KamataEngine::Vector3 assistAcceleration_ = {0.0f, 0.0f, 0.0f}; // アシストによる加速度
+
+	Camera camera_;
+
+	bool canMove_;
 
 };
