@@ -38,11 +38,17 @@ public:
 	void ResetParticles();
 	void ResetBullets();
 
+	// Reset HP to starting value
+	void ResetHP();
+
 	// 当たり判定用のサイズ
 	static inline const float kWidth = 1.0f;
 	static inline const float kHeight = 1.0f;
 
 	void EvadeBullets(std::list<EnemyBullet*>& bullets);
+
+	// Start a strong hit shake on the player ship
+	void StartHitShake(float durationFrames, float magnitude);
 
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
@@ -73,4 +79,14 @@ private:
 	float rollTimer_ = 0.0f;     // 回転タイマー
 	float rollDirection_ = 0.0f; // 回転方向
 	const float kRollDuration_ = 60.0f;
+
+	// Hit shake
+	float hitShakeTimer_ = 0.0f;
+	float hitShakeDuration_ = 0.0f;
+	float hitShakeMagnitude_ = 0.0f;
+
+	// Saved transform to center shake and restore after
+	bool isHitShaking_ = false;
+	KamataEngine::Vector3 savedTranslation_ = {0.0f, 0.0f, 0.0f};
+	KamataEngine::Vector3 savedRotation_ = {0.0f, 0.0f, 0.0f};
 };

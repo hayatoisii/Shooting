@@ -63,6 +63,9 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	wasOnScreenLastFrame_ = false;
 	lockOnAnimRotation_ = 0.0f;
 	lockOnAnimScale_ = 1.0f;
+
+	// Start spawn timer with a small random offset so not all enemies fire simultaneously
+	spawnTimer = MT::GetRand() % kFireInterval;
 }
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() {
@@ -83,40 +86,45 @@ void Enemy::OnCollision() {
 	};
 }
 
+void Enemy::ShootOnce() {
+	// Single-shot logic identical to Fire's bullet creation but without touching spawnTimer
+	if (!player_) return;
+
+	KamataEngine::Vector3 moveBullet = GetWorldPosition();
+	const float kBulletSpeed = 10.0f;
+	KamataEngine::Vector3 velocity(0, 0, 0);
+
+	KamataEngine::Vector3 playerWorldtransform = player_->GetWorldPosition();
+	KamataEngine::Vector3 enemyWorldtransform = GetWorldPosition();
+
+	KamataEngine::Vector3 homingBullet = playerWorldtransform - enemyWorldtransform;
+	homingBullet = KamataEngine::MathUtility::Normalize(homingBullet);
+
+	velocity.x = kBulletSpeed * homingBullet.x;
+	velocity.y = kBulletSpeed * homingBullet.y;
+	velocity.z = kBulletSpeed * homingBullet.z;
+
+	EnemyBullet* newBullet = new EnemyBullet();
+	newBullet->Initialize(modelbullet_, moveBullet, velocity);
+
+	if (gameScene_) {
+		gameScene_->AddEnemyBullet(newBullet);
+	}
+}
+
 void Enemy::Fire() {
 	assert(player_);
 	spawnTimer--;
 
 	if (spawnTimer < 0.0f) {
-
-		KamataEngine::Vector3 moveBullet = GetWorldPosition();
-		const float kBulletSpeed = 10.0f;
-		KamataEngine::Vector3 velocity(0, 0, 0);
-
-		KamataEngine::Vector3 playerWorldtransform = player_->GetWorldPosition();
-		KamataEngine::Vector3 enemyWorldtransform = GetWorldPosition();
-
-		KamataEngine::Vector3 homingBullet = playerWorldtransform - enemyWorldtransform;
-
-		homingBullet = KamataEngine::MathUtility::Normalize(homingBullet);
-
-		velocity.x = kBulletSpeed * homingBullet.x;
-		velocity.y = kBulletSpeed * homingBullet.y;
-		velocity.z = kBulletSpeed * homingBullet.z;
-
-		EnemyBullet* newBullet = new EnemyBullet();
-		newBullet->Initialize(modelbullet_, moveBullet, velocity);
-
-		if (gameScene_) {
-			gameScene_->AddEnemyBullet(newBullet);
-		}
-
+		ShootOnce();
 		spawnTimer = kFireInterval;
 	}
 }
 
 void Enemy::Update() {
 
+	// Autonomous firing disabled — controlled by GameScene
 	// Fire();
 
 	assert(player_ && "Enemy::Update() player_ が null です");
@@ -279,7 +287,7 @@ void Enemy::UpdateScreenPosition() {
 			indicatorY = std::clamp(indicatorY, kScreenMargin, KamataEngine::WinApp::kWindowHeight - kScreenMargin);
 
 			directionIndicatorSprite_->SetPosition({indicatorX, indicatorY});
-			directionIndicatorSprite_->SetRotation(angle + 3.14159265f / 2.0f);// directionIndicatorSprite_->SetRotation(angle + KamataEngine::MathUtility::PI / 2.0f); どっちもかわらない
+			directionIndicatorSprite_->SetRotation(angle + 3.14159265f / 2.0f);// directionIndicatorSprite_->SetRotation(angle + KamataEngine::MathUtility::PI / 2.0f); どっちも変わらない
 		}
 	} else {
 		isOnScreen_ = false;

@@ -29,6 +29,8 @@ public:
 	void DrawSprite(); // スプライトを描画
 	~Enemy();
 	void Fire();
+	// Fire one shot immediately towards the player (used for centralized firing control)
+	void ShootOnce();
 
 	bool IsDead() const { return isDead_; }
 
@@ -48,7 +50,7 @@ public:
 	void UpdateScreenPosition();
 
 	// 発射間隔
-	static const int kFireInterval = 20;
+	static const int kFireInterval = 120; // ~2 seconds at 60 FPS
 
 	bool isDead_ = false;
 

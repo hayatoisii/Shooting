@@ -37,6 +37,12 @@ public:
 
 	void Dodge(float direction);
 
+	// Screen shake
+	void StartShake(float durationFrames, float magnitude);
+
+	// Prevent manual/debug rotation changes
+	void SetRotationLocked(bool locked) { lockRotation_ = locked; }
+
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
 
@@ -59,5 +65,13 @@ private:
 
 	// 回避にかかる時間、小さくすると速く回る
 	const float kDodgeDuration_ = 30.0f;
+
+	// shake members
+	float shakeTimer_ = 0.0f;
+	float shakeDuration_ = 0.0f;
+	float shakeMagnitude_ = 0.0f;
+
+	// lock manual rotation inputs
+	bool lockRotation_ = true; // default to true to prevent debug rotation
 
 };

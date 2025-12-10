@@ -22,16 +22,20 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 	canMove_ = false;
 
 	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
+
+	shakeTimer_ = 0.0f;
+	shakeDuration_ = 0.0f;
+	shakeMagnitude_ = 0.0f;
 }
 
 void RailCamera::Update() {
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
 	// 自動飛行の速度
-	const float kCameraSpeed = 5.0f;          // 0.8f; // 1.5
-	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
-	const float kRollAcceleration = 0.0016f;  // 横の回転
-	const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
+	const float kCameraSpeed = 0.0f;          // 0.8f; // 1.5
+//	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
+	///const float kRollAcceleration = 0.0016f;  // 横の回転
+	//const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
 	const float kRotFriction = 0.95f;
 	const float kYawFriction = 0.86f;
 	const float kXawFriction = 0.90f; // 89
@@ -40,23 +44,23 @@ void RailCamera::Update() {
 	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
 
 	if (input->PushKey(DIK_W)) {
-		rotAcceleration.x = -kPitchAcceleration;
+	///	rotAcceleration.x = -kPitchAcceleration;
 	}
 	if (input->PushKey(DIK_S)) {
-		rotAcceleration.x = kPitchAcceleration;
+	//	rotAcceleration.x = kPitchAcceleration;
 	}
 	if (input->PushKey(DIK_LEFT)) {
-		rotAcceleration.z = kRollAcceleration; // ロール
+	//	rotAcceleration.z = kRollAcceleration; // ロール
 	}
 	if (input->PushKey(DIK_RIGHT)) {
-		rotAcceleration.z = -kRollAcceleration; // ロール
+	//	rotAcceleration.z = -kRollAcceleration; // ロール
 	}
 
 	if (input->PushKey(DIK_A)) {
-		rotAcceleration.y = -kYawAcceleration; // ヨー
+	//	rotAcceleration.y = -kYawAcceleration; // ヨー
 	}
 	if (input->PushKey(DIK_D)) {
-		rotAcceleration.y = kYawAcceleration; // ヨー
+	//	rotAcceleration.y = kYawAcceleration; // ヨー
 	}
 
 	rotationVelocity_ += rotAcceleration;
@@ -136,6 +140,20 @@ void RailCamera::Update() {
 	worldtransfrom_.matWorld_.m[3][2] = newPosition.z;
 	worldtransfrom_.translation_ = newPosition;
 
+	// apply screen shake offset if active
+	if (shakeTimer_ > 0.0f) {
+		// random offset in x/y
+		float rx = (static_cast<float>(MT::GetRand()) / RAND_MAX * 2.0f - 1.0f);
+		float ry = (static_cast<float>(MT::GetRand()) / RAND_MAX * 2.0f - 1.0f);
+		Vector3 shakeOffset = {rx * shakeMagnitude_, ry * shakeMagnitude_, 0.0f};
+		worldtransfrom_.matWorld_.m[3][0] += shakeOffset.x;
+		worldtransfrom_.matWorld_.m[3][1] += shakeOffset.y;
+
+		shakeTimer_ -= 1.0f;
+	} else {
+		shakeTimer_ = 0.0f;
+	}
+
 	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
 	camera_.TransferMatrix();
 }
@@ -192,4 +210,10 @@ void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
 
 	// ターゲットが上(ndcY > 0)なら、上(Wキー)方向の加速度(x-)を加える
 	assistAcceleration_.x -= ndcY * kAimAssistStrength;
+}
+
+void RailCamera::StartShake(float durationFrames, float magnitude) {
+	shakeDuration_ = durationFrames;
+	shakeTimer_ = durationFrames;
+	shakeMagnitude_ = magnitude;
 }

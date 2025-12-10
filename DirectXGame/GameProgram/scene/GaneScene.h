@@ -173,7 +173,7 @@ private:
 	// Homing shot timer and settings
 	int homingSpawnTimer_ = 0;
 	// Enemyミサイルの間隔
-	const int kHomingIntervalFrames_ = 60 * 10;
+	const int kHomingIntervalFrames_ = 60 * 3;
 	const float kHomingMaxDistance_ = 3000.0f;
 	const float kHomingBulletSpeed_ = 8.0f; // requested speed
 };

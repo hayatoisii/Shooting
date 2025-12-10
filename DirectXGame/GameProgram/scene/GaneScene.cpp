@@ -1,5 +1,6 @@
 #include "GaneScene.h"
 #include "3d/AxisIndicator.h"
+#include "MT.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
@@ -197,6 +198,7 @@ void GameScene::Initialize() {
 	KamataEngine::AxisIndicator::GetInstance()->SetVisible(true);
 
 	railCamera_ = new RailCamera();
+	railcameraRad = {0, 3.14159f, 0};
 	railCamera_->Initialize(railcameraPos, railcameraRad);
 	cameraPositionAnchor_.Initialize();
 	player_->SetParent(&railCamera_->GetWorldTransform());
@@ -220,6 +222,8 @@ void GameScene::Update() {
 			sceneState = SceneState::TransitionToGame;
 			transitionTimer_ = 0.0f;
 			gameSceneTimer_ = 0;
+			// reset player HP when entering game
+			if (player_) player_->ResetHP();
 		}
 		titleAnimationTimer_++;
 		const int32_t cycleFrames = kTitleRotateFrames + kTitlePauseFrames;
@@ -344,6 +348,7 @@ void GameScene::Update() {
 				player_->GetWorldTransform().UpdateMatrix();
 				player_->ResetParticles();
 				player_->ResetBullets();
+				player_->ResetHP();
 			}
 			for (Enemy* enemy : enemies_) {
 				delete enemy;
@@ -399,7 +404,27 @@ void GameScene::Update() {
 				bullet->Update();
 			}
 
-			// HOMING spawn logic
+			// Centralized enemy firing: every 4 seconds (4*60 frames), make one enemy shoot once
+			static int enemyFireTimer = 0;
+			const int kEnemyFireInterval = 4 * 60; // 4 seconds at 60 FPS
+			if (enemyFireTimer > 0) {
+				enemyFireTimer--;
+			} else {
+				// Pick one random alive enemy to shoot
+				std::vector<Enemy*> aliveEnemies;
+				for (Enemy* enemy : enemies_) {
+					if (enemy && !enemy->IsDead()) {
+						aliveEnemies.push_back(enemy);
+					}
+				}
+				if (!aliveEnemies.empty()) {
+					int idx = MT::GetRand() % static_cast<int>(aliveEnemies.size());
+					aliveEnemies[idx]->ShootOnce();
+				}
+				enemyFireTimer = kEnemyFireInterval;
+			}
+
+			// HOMING spawn logic (unchanged)
 			if (homingSpawnTimer_ > 0) {
 				homingSpawnTimer_--;
 			} else {
@@ -623,6 +648,7 @@ void GameScene::Update() {
 			confettiActive_ = false;
 			sceneState = SceneState::Start;
 			// reset as before...
+			if (player_) player_->ResetHP();
 			// ...existing reset code omitted for brevity...
 		}
 		break;
@@ -661,6 +687,7 @@ void GameScene::Update() {
 				player_->GetWorldTransform().UpdateMatrix();
 				player_->ResetParticles();
 				player_->ResetBullets();
+				player_->ResetHP();
 			}
 
 			for (Enemy* enemy : enemies_) {
@@ -784,7 +811,7 @@ void GameScene::Draw() {
 		// draw sprite confetti on top of clear sprite
 		for (auto& c : confettiParticles_) {
 			if (c.active && c.sprite)
-				c.sprite->Draw();
+			 c.sprite->Draw();
 		}
 	}
 
@@ -871,7 +898,8 @@ void GameScene::CheckAllCollisions() {
 	}
 
 	KamataEngine::Vector3 posA[3]{}, posB[3]{};
-	float radiusA[3] = {0.8f, 2.0f, 0.8f};
+	// Player collision radius (3x) to make hits easier but not instant/transparent
+	float radiusA[3] = {2.4f, 2.0f, 0.8f};
 	float radiusB[3] = {0.8f, 2.0f, 10.8f};
 	const std::list<PlayerBullet*>& playerBullets = player_->GetBullets();
 
@@ -885,11 +913,17 @@ void GameScene::CheckAllCollisions() {
 		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
 		if (distanceSquared <= combinedRadiusSquared) {
 
-			// Immediately transition to GameOver scene for easier confirmation
+			// Player takes damage
 			player_->OnCollision();
 			bullet->OnCollision();
-			TransitionToClearScene2();
-			return;
+
+			// Only transition to game over if player died
+			if (player_->IsDead()) {
+				TransitionToClearScene2();
+				return;
+			}
+
+			// otherwise continue checking (do not return immediately)
 		}
 	}
 
@@ -986,6 +1020,8 @@ void GameScene::TransitionToClearScene() {
 		player_->ResetParticles();
 		player_->ResetBullets(); // (弾のリセットも行う)
 	}
+	// Reset player HP when transitioning to clear scene
+	if (player_) player_->ResetHP();
 
 	for (Enemy* enemy : enemies_) {
 		delete enemy;

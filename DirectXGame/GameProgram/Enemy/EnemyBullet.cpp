@@ -8,6 +8,8 @@ EnemyBullet::~EnemyBullet() { model_ = nullptr; }
 void EnemyBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity) {
     assert(model);
     model_ = model;
+    // Ensure model materials are fully opaque
+    model_->SetAlpha(1.0f);
     worldtransfrom_.translation_ = position;
     worldtransfrom_.Initialize();
     velocity_ = velocity;
@@ -73,7 +75,11 @@ void EnemyBullet::Update() {
 
 }
 
-void EnemyBullet::OnCollision() { isDead_ = true; }
+void EnemyBullet::OnCollision() { 
+    // do not immediately set isDead_ = true; keep bullet visible for a short time
+    // so player can see the hit animation. Use deathTimer_ to schedule removal.
+    deathTimer_ = 2; // survive 2 more frames, then be removed by Update
+}
 
 
 void EnemyBullet::Draw(const KamataEngine::Camera& camera) {
