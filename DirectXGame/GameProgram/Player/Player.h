@@ -73,4 +73,13 @@ private:
 	float rollTimer_ = 0.0f;     // 回転タイマー
 	float rollDirection_ = 0.0f; // 回転方向
 	const float kRollDuration_ = 60.0f;
+
+	float hitShakeTime_ = 0.0f;       // 経過フレーム数
+	float hitShakeAmplitude_ = 0.0f;  // 初期振幅
+	float hitShakeDecay_ = 0.08f;    // 減衰係数
+	float hitShakeFrequency_ = 0.3f;
+
+	// 垂直方向（上下）揺れ用
+	float hitShakeVerticalAmplitude_ = 0.0f;
+	float hitShakePrevVerticalOffset_ = 0.0f;
 };

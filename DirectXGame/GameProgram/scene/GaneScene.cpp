@@ -885,11 +885,15 @@ void GameScene::CheckAllCollisions() {
 		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
 		if (distanceSquared <= combinedRadiusSquared) {
 
-			// Immediately transition to GameOver scene for easier confirmation
+			// Decrease HP and mark bullet dead. Only transition to game-over if player actually died.
 			player_->OnCollision();
 			bullet->OnCollision();
-			TransitionToClearScene2();
-			return;
+
+			if (player_->IsDead()) {
+				TransitionToClearScene2();
+				return;
+			}
+			// Otherwise, continue checking other collisions (player lost a HP but still alive)
 		}
 	}
 

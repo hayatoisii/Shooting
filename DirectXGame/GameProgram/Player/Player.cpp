@@ -32,6 +32,8 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	hp_ = 3;
 	isDead_ = false;
 	shotTimer_ = 0;
+
+	hitShakePrevVerticalOffset_ = 0.0f;
 }
 
 void Player::OnCollision() {
@@ -40,6 +42,11 @@ void Player::OnCollision() {
 	if (hp_ <= 0) {
 		isDead_ = true;
 	}
+
+	// 被弾時に左右に揺れる
+	hitShakeTime_ = 0.0f;
+	hitShakeAmplitude_ = 0.6f; // 最大振幅
+	hitShakeVerticalAmplitude_ = 1.0f; // 垂直
 }
 
 void Player::Attack() {
@@ -84,12 +91,6 @@ void Player::Attack() {
 				}
 			}
 
-			/*
-			if (nearestOnScreenEnemy) {
-			    KamataEngine::Vector3 targetPosition = nearestOnScreenEnemy->GetWorldPosition();
-			    velocity = targetPosition - moveBullet;
-			}else
-			*/
 			{
 				const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
 				KamataEngine::Vector3 cameraPosition = {cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2]};
@@ -223,6 +224,31 @@ void Player::Update() {
 			targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
 
 			worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
+		}
+	}
+
+	// -- 被弾時の揺れ適用 --
+	worldtransfrom_.translation_.y -= hitShakePrevVerticalOffset_;
+	hitShakePrevVerticalOffset_ = 0.0f;
+
+	if (hitShakeAmplitude_ > 0.001f || hitShakeVerticalAmplitude_ > 0.0001f) {
+		hitShakeTime_ += 1.0f;
+
+		float damping = std::exp(-hitShakeDecay_ * hitShakeTime_);
+		float angle = hitShakeAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
+
+		worldtransfrom_.rotation_.y += angle;
+		worldtransfrom_.rotation_.z += angle * 0.25f;
+
+		float verticalOffset = hitShakeVerticalAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
+		worldtransfrom_.translation_.y += verticalOffset;
+		hitShakePrevVerticalOffset_ = verticalOffset;
+
+		if (damping < 0.01f) {
+			hitShakeAmplitude_ = 0.0f;
+			hitShakeVerticalAmplitude_ = 0.0f;
+			hitShakeTime_ = 0.0f;
+			hitShakePrevVerticalOffset_ = 0.0f;
 		}
 	}
 
