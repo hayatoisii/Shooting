@@ -12,6 +12,8 @@ public:
 
     void Draw(const KamataEngine::Camera& camera);
 
+    void OnEvaded();
+
     ~EnemyBullet();
 
     bool IsDead() const { return isDead_; }
@@ -33,6 +35,9 @@ public:
 		deathTimer_ = 60;
 	}
 
+    // prevent immediate evasion effect on newly spawned bullets
+    void SetInvulnerableFrames(int frames) { invulnerableFrames_ = frames; }
+
 private:
 
     KamataEngine::WorldTransform worldtransfrom_;
@@ -53,4 +58,7 @@ private:
     Player* homingTarget_ = nullptr;
     bool isHoming_ = false;
     float speed_ = 1.0f; // units per frame
+
+    // Frames during which EvadeBullets won't mark this bullet as evaded
+    int invulnerableFrames_ = 0;
 };

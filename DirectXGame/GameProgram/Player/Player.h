@@ -74,12 +74,17 @@ private:
 	float rollDirection_ = 0.0f; // 回転方向
 	const float kRollDuration_ = 60.0f;
 
+	// --- 被弾時の揺れ ---
 	float hitShakeTime_ = 0.0f;       // 経過フレーム数
-	float hitShakeAmplitude_ = 0.0f;  // 初期振幅
+	float hitShakeAmplitude_ = 0.0f;
 	float hitShakeDecay_ = 0.08f;    // 減衰係数
 	float hitShakeFrequency_ = 0.3f;
 
 	// 垂直方向（上下）揺れ用
-	float hitShakeVerticalAmplitude_ = 0.0f;
+	float hitShakeVerticalAmplitude_ = 0.0f; // 垂直振幅
 	float hitShakePrevVerticalOffset_ = 0.0f;
+
+	// 水平方向（左右）揺れ用
+	float hitShakeHorizontalAmplitude_ = 0.0f; // 水平
+	float hitShakePrevHorizontalOffset_ = 0.0f;
 };

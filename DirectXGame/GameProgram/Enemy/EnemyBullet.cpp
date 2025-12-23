@@ -17,6 +17,13 @@ void EnemyBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Vec
     if (sp > 0.001f) {
         speed_ = sp;
     }
+
+    // short invulnerability to avoid immediate evasion marking right after spawn
+    invulnerableFrames_ = 8; // increased to 8 frames
+}
+
+void EnemyBullet::OnEvaded() {
+
 }
 
 // ワールド座標を取得
@@ -49,19 +56,44 @@ void EnemyBullet::Update() {
         isDead_ = true;
     }
 
+    if (invulnerableFrames_ > 0) {
+        invulnerableFrames_--;
+    }
+
     // Homing behavior: adjust velocity towards homingTarget_ while maintaining speed_
     if (isHoming_ && homingTarget_ && !homingTarget_->IsDead()) {
         KamataEngine::Vector3 targetPos = homingTarget_->GetWorldPosition();
         KamataEngine::Vector3 bulletPos = GetWorldPosition();
         KamataEngine::Vector3 toTarget = {targetPos.x - bulletPos.x, targetPos.y - bulletPos.y, targetPos.z - bulletPos.z};
         float dist = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y + toTarget.z * toTarget.z);
+
+        const float kForceHitRange = 20.0f; // within this distance, force hit
+
+        if (dist <= kForceHitRange) {
+            // Force a hit to keep homing bullets lethal at close range
+            homingTarget_->OnCollision();
+            isDead_ = true;
+            return;
+        }
+
         if (dist > 0.001f) {
+            // normalize
             toTarget.x /= dist;
             toTarget.y /= dist;
             toTarget.z /= dist;
+
+            // Set velocity directly to point at the target and maintain constant speed_
             velocity_.x = toTarget.x * speed_;
             velocity_.y = toTarget.y * speed_;
             velocity_.z = toTarget.z * speed_;
+
+            // Prevent overshoot when very close: clamp movement to distance
+            if (dist < speed_) {
+                // move only the remaining distance this frame and then hit next frame's check
+                velocity_.x = toTarget.x * dist;
+                velocity_.y = toTarget.y * dist;
+                velocity_.z = toTarget.z * dist;
+            }
         }
     }
 

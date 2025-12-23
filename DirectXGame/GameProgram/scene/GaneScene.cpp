@@ -45,7 +45,7 @@ GameScene::~GameScene() {
 	delete modelParticle_;
 	delete minimapSprite_;
 	delete minimapPlayerSprite_;
-	// clear scene
+	// シーンのクリア
 	delete clearEmitter_;
 	delete clearSprite_;
 	for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
@@ -105,11 +105,11 @@ void GameScene::Initialize() {
 		explosionEmitter_->Initialize(modelParticle_);
 	}
 
-	// Clear scene assets
+	// シーンクリア用アセット
 	clearTextureHandle_ = KamataEngine::TextureManager::Load("kuria.png");
 	clearSprite_ = KamataEngine::Sprite::Create(clearTextureHandle_, {0, 0});
 	if (clearSprite_) {
-		// Make kuria.png cover the whole screen
+		// kuria.png を画面全体にかぶせる
 		clearSprite_->SetAnchorPoint({0.0f, 0.0f});
 		clearSprite_->SetPosition({0.0f, 0.0f});
 		clearSprite_->SetSize({(float)WinApp::kWindowWidth, (float)WinApp::kWindowHeight});
@@ -120,7 +120,7 @@ void GameScene::Initialize() {
 		clearEmitter_->Initialize(modelParticle_);
 	}
 
-	// Confetti sprite texture
+	// コンフェッティ用スプライトテクスチャ
 	confettiTextureHandle_ = KamataEngine::TextureManager::Load("confetti.png");
 	confettiParticles_.resize(kMaxConfetti_);
 	for (size_t i = 0; i < kMaxConfetti_; ++i) {
@@ -129,7 +129,7 @@ void GameScene::Initialize() {
 			confettiParticles_[i].sprite->SetSize({8.0f, 8.0f});
 			confettiParticles_[i].sprite->SetAnchorPoint({0.5f, 0.5f});
 			confettiParticles_[i].active = false;
-			// default color white
+			// デフォルト色: 白
 			confettiParticles_[i].sprite->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
 		}
 	}
@@ -206,8 +206,8 @@ void GameScene::Initialize() {
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
 
-	// init homing timer
-	homingSpawnTimer_ = kHomingIntervalFrames_; // start timer so first shot occurs after interval
+	// ホーミング弾生成タイマー初期化
+	homingSpawnTimer_ = kHomingIntervalFrames_; // 最初のショットが間隔後に発生するようタイマー初期化
 }
 
 void GameScene::Update() {

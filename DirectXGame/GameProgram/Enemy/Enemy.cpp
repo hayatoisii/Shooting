@@ -107,6 +107,11 @@ void Enemy::Fire() {
 		EnemyBullet* newBullet = new EnemyBullet();
 		newBullet->Initialize(modelbullet_, moveBullet, velocity);
 
+		// Ensure enemy-fired bullets home to the player continuously
+		newBullet->SetHomingEnabled(true);
+		newBullet->SetHomingTarget(player_);
+		newBullet->SetSpeed(kBulletSpeed);
+
 		if (gameScene_) {
 			gameScene_->AddEnemyBullet(newBullet);
 		}

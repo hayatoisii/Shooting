@@ -34,6 +34,7 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	shotTimer_ = 0;
 
 	hitShakePrevVerticalOffset_ = 0.0f;
+	hitShakePrevHorizontalOffset_ = 0.0f;
 }
 
 void Player::OnCollision() {
@@ -45,8 +46,9 @@ void Player::OnCollision() {
 
 	// 被弾時に左右に揺れる
 	hitShakeTime_ = 0.0f;
-	hitShakeAmplitude_ = 0.6f; // 最大振幅
-	hitShakeVerticalAmplitude_ = 1.0f; // 垂直
+	hitShakeAmplitude_ = 0.6f; // 最大振幅 (rotation influence)
+	hitShakeVerticalAmplitude_ = 1.5f; // 垂直（world units）
+	hitShakeHorizontalAmplitude_ = 1.0f; // 水平（world units）
 }
 
 void Player::Attack() {
@@ -228,27 +230,42 @@ void Player::Update() {
 	}
 
 	// -- 被弾時の揺れ適用 --
+	// Remove previous frame's offsets
+	worldtransfrom_.translation_.x -= hitShakePrevHorizontalOffset_;
 	worldtransfrom_.translation_.y -= hitShakePrevVerticalOffset_;
+	hitShakePrevHorizontalOffset_ = 0.0f;
 	hitShakePrevVerticalOffset_ = 0.0f;
 
-	if (hitShakeAmplitude_ > 0.001f || hitShakeVerticalAmplitude_ > 0.0001f) {
+	if (hitShakeAmplitude_ > 0.001f || hitShakeVerticalAmplitude_ > 0.0001f || hitShakeHorizontalAmplitude_ > 0.0001f) {
+		// time progression
 		hitShakeTime_ += 1.0f;
 
+		// damped sinusoidal oscillation
 		float damping = std::exp(-hitShakeDecay_ * hitShakeTime_);
+
+		// angle for rotation-based sway
 		float angle = hitShakeAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
+		worldtransfrom_.rotation_.y += angle; // yaw
+		worldtransfrom_.rotation_.z += angle * 0.25f; // mild roll
 
-		worldtransfrom_.rotation_.y += angle;
-		worldtransfrom_.rotation_.z += angle * 0.25f;
-
+		// vertical offset
 		float verticalOffset = hitShakeVerticalAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
 		worldtransfrom_.translation_.y += verticalOffset;
 		hitShakePrevVerticalOffset_ = verticalOffset;
 
+		// horizontal offset (centered)
+		float horizontalOffset = hitShakeHorizontalAmplitude_ * damping * std::cos(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
+		worldtransfrom_.translation_.x += horizontalOffset;
+		hitShakePrevHorizontalOffset_ = horizontalOffset;
+
+		// if damping small enough, stop
 		if (damping < 0.01f) {
 			hitShakeAmplitude_ = 0.0f;
 			hitShakeVerticalAmplitude_ = 0.0f;
+			hitShakeHorizontalAmplitude_ = 0.0f;
 			hitShakeTime_ = 0.0f;
 			hitShakePrevVerticalOffset_ = 0.0f;
+			hitShakePrevHorizontalOffset_ = 0.0f;
 		}
 	}
 
@@ -340,23 +357,28 @@ void Player::ResetBullets() {
 
 void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 
-	if (dodgeTimer_ >= 1) {
+	// Only perform the evasion effect while actively rolling
+	if (isRolling_) {
 
-		// 回避したときに、この距離に敵の弾があったら回避成功
-		const float kJustEvasionRange = 300.0f; //200.0f
+		const float kJustEvasionRange = 50.0f; // すれ違い判定の距離
 		KamataEngine::Vector3 playerPos = GetWorldPosition();
 
 		for (EnemyBullet* bullet : bullets) {
-			if (!bullet)
-				continue;
+			if (!bullet) continue;
+			// Only affect bullets that are currently homing
+			if (!bullet->IsHoming()) continue;
 
 			KamataEngine::Vector3 bulletPos = bullet->GetWorldPosition();
-			float distSq =
-			    (playerPos.x - bulletPos.x) * (playerPos.x - bulletPos.x) + (playerPos.y - bulletPos.y) * (playerPos.y - bulletPos.y) + (playerPos.z - bulletPos.z) * (playerPos.z - bulletPos.z);
 
-			// 距離が200以内
-			if (distSq < kJustEvasionRange * kJustEvasionRange) {
-				bullet->StopHoming();
+			// 距離を計算
+			float dx = playerPos.x - bulletPos.x;
+			float dy = playerPos.y - bulletPos.y;
+			float dz = playerPos.z - bulletPos.z;
+			float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+
+			// 近くにある弾に対して「回避成功」とみなす
+			if (dist < kJustEvasionRange) {
+				bullet->OnEvaded();
 			}
 		}
 	}
