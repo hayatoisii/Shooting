@@ -390,11 +390,16 @@ void GameScene::Update() {
 				meteoriteSpawnTimer_ = 0;
 			}
 
+			// Playerを先に更新して、最新の位置を取得できるようにする
+			player_->Update();
+
+			// 回避処理（Player更新後に実行）
 			player_->EvadeBullets(enemyBullets_);
 
 			for (Enemy* enemy : enemies_) {
 				enemy->Update();
 			}
+			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）
 			for (EnemyBullet* bullet : enemyBullets_) {
 				bullet->Update();
 			}
@@ -458,7 +463,6 @@ void GameScene::Update() {
 				return false;
 			});
 			CheckAllCollisions();
-			player_->Update();
 
 			if (player_ && minimapPlayerSprite_) { // player_ が null でないか確認
 				KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
@@ -877,9 +881,24 @@ void GameScene::CheckAllCollisions() {
 
 	// --- 自キャラ vs 敵弾 (HP制に) ---
 	posA[0] = player_->GetWorldPosition();
+	
+	// 回避中は無敵時間として、当たり判定を無効にする
+	bool isPlayerRolling = player_->IsRolling();
+	
 	for (EnemyBullet* bullet : enemyBullets_) {
 		if (!bullet || bullet->IsDead())
 			continue;
+		
+		// 回避中は当たり判定を無効にする
+		if (isPlayerRolling) {
+			continue;
+		}
+		
+		// ホーミングを失った弾（回避された弾）は当たり判定を無効にする
+		if (!bullet->IsHoming() && bullet->GetEvadedDeathTimer() >= 0) {
+			continue; // 回避された弾は当たり判定を無効
+		}
+		
 		posB[0] = bullet->GetWorldPosition();
 		float distanceSquared = DistanceSquared(posA[0], posB[0]);
 		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
@@ -1197,9 +1216,12 @@ void GameScene::UpdateAimAssist() {
 	}
 
 	// 9. ターゲットが見つかったらアシスト適用
-	if (bestTarget) {
-
-		// アシスト自体は「判定」円で見つかったら実行
+	// WASDで視点移動中は吸い寄せを無効化
+	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
+	bool isViewMoving = input->PushKey(DIK_W) || input->PushKey(DIK_S) || input->PushKey(DIK_A) || input->PushKey(DIK_D);
+	
+	if (bestTarget && !isViewMoving) {
+		// アシスト自体は「判定」円で見つかったら実行（WASDが押されていない時のみ）
 		railCamera_->ApplyAimAssist(bestTargetNdc.x, bestTargetNdc.y);
 
 		float visualNormX = bestTargetNdc.x / ndcVisualRadiusX;

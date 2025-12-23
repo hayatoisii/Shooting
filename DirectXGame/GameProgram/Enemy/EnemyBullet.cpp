@@ -23,7 +23,10 @@ void EnemyBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Vec
 }
 
 void EnemyBullet::OnEvaded() {
-
+    // ホーミングを停止
+    isHoming_ = false;
+    // 1秒（60フレーム）後に消えるようにタイマーを設定
+    evadedDeathTimer_ = 60;
 }
 
 // ワールド座標を取得
@@ -51,6 +54,15 @@ AABB EnemyBullet::GetAABB() {
 }
 
 void EnemyBullet::Update() {
+
+    // 回避後のタイマー処理
+    if (evadedDeathTimer_ > 0) {
+        evadedDeathTimer_--;
+        if (evadedDeathTimer_ <= 0) {
+            isDead_ = true;
+            return;
+        }
+    }
 
     if (--deathTimer_ <= 0) {
         isDead_ = true;

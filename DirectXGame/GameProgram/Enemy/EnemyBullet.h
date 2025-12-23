@@ -29,6 +29,9 @@ public:
     void SetHomingEnabled(bool enabled) { isHoming_ = enabled; }
     void SetSpeed(float s) { speed_ = s; }
     bool IsHoming() const { return isHoming_; }
+    
+    // 回避後のタイマーを取得（-1は未回避、0以上は残りフレーム数）
+    int32_t GetEvadedDeathTimer() const { return evadedDeathTimer_; }
 
     void StopHoming() {
 		isHoming_ = false;
@@ -61,4 +64,7 @@ private:
 
     // Frames during which EvadeBullets won't mark this bullet as evaded
     int invulnerableFrames_ = 0;
+
+    // 回避後のタイマー（1秒 = 60フレーム）
+    int32_t evadedDeathTimer_ = -1; // -1は未回避状態
 };

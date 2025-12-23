@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 
 Enemy::~Enemy() {
 	delete modelbullet_;
@@ -63,6 +64,21 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	wasOnScreenLastFrame_ = false;
 	lockOnAnimRotation_ = 0.0f;
 	lockOnAnimScale_ = 1.0f;
+
+	// 大航海のような広範囲移動の初期化（X軸とZ軸に散らばる）
+	baseX_ = pos.x;
+	baseZ_ = pos.z;
+	currentOffsetX_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * 5000.0f; // 初期位置をランダムに散らす
+	currentOffsetZ_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * 3000.0f; // 初期位置をランダムに散らす
+	// 敵の航海移動速度はここで変更
+	moveSpeedX_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f; // X軸方向の速度（基本2.0 + ランダム0-1.0）
+	moveSpeedZ_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f; // Z軸方向の速度（基本1.5 + ランダム0-0.8）
+	directionX_ = (rand() % 2 == 0) ? 1.0f : -1.0f; // ランダムな初期X方向
+	directionZ_ = (rand() % 2 == 0) ? 1.0f : -1.0f; // ランダムな初期Z方向
+	directionChangeIntervalX_ = static_cast<float>(rand() % 180 + 90); // 90-270フレームのランダムな間隔
+	directionChangeIntervalZ_ = static_cast<float>(rand() % 200 + 100); // 100-300フレームのランダムな間隔
+	directionChangeTimerX_ = 0.0f;
+	directionChangeTimerZ_ = 0.0f;
 }
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() {
@@ -125,47 +141,60 @@ void Enemy::Update() {
 	// Fire();
 
 	assert(player_ && "Enemy::Update() player_ が null です");
-	/*
-	KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-	KamataEngine::Vector3 myCurrentPos = GetWorldPosition();
 
-	KamataEngine::Vector3 vecToPlayer = playerPos - myCurrentPos;
-	float distance = KamataEngine::MathUtility::Length(vecToPlayer);
-
-	// この数値よりPlayerから離れたらEnemyが追尾する
-	const float kFarDistance = 2500.0f;
-	// これより近づいたら追尾やめる
-	const float kNearDistance = 2490.0f;
-	// 追尾速度
-	const float kFastSpeed = 5.0f;
-	// 常に進み続ける速度
-	const float kSlowSpeed = 0.1f;
-
-	float currentSpeed = 0.0f;
-
-	if (distance > kFarDistance) {
-	    isFollowingFast_ = true;
-	    currentSpeed = kFastSpeed;
-	} else if (distance < kNearDistance) {
-	    isFollowingFast_ = false;
-	    currentSpeed = kSlowSpeed;
-	} else {
-	    currentSpeed = (isFollowingFast_) ? kFastSpeed : kSlowSpeed;
+	// 大航海のような広範囲移動処理（X軸とZ軸に散らばって移動し続ける）
+	directionChangeTimerX_++;
+	directionChangeTimerZ_++;
+	
+	// X軸方向の変更処理
+	if (directionChangeTimerX_ >= directionChangeIntervalX_) {
+		// ランダムに方向を変更（-1.0f または 1.0f）
+		directionX_ = (rand() % 2 == 0) ? 1.0f : -1.0f;
+		// 次の方向変更までの時間をランダムに設定（90-270フレーム）
+		directionChangeTimerX_ = 0.0f;
+		directionChangeIntervalX_ = static_cast<float>(rand() % 180 + 90);
 	}
 
-	if (distance < 0.01f) {
-	    currentSpeed = 0.0f;
+	// Z軸方向の変更処理
+	if (directionChangeTimerZ_ >= directionChangeIntervalZ_) {
+		// ランダムに方向を変更（-1.0f または 1.0f）
+		directionZ_ = (rand() % 2 == 0) ? 1.0f : -1.0f;
+		// 次の方向変更までの時間をランダムに設定（100-300フレーム）
+		directionChangeTimerZ_ = 0.0f;
+		directionChangeIntervalZ_ = static_cast<float>(rand() % 200 + 100);
 	}
 
-	KamataEngine::Vector3 velocity = {0.0f, 0.0f, 0.0f};
-	if (currentSpeed > 0.0f) {
-	    KamataEngine::Vector3 dirToPlayer = KamataEngine::MathUtility::Normalize(vecToPlayer);
-	    velocity = dirToPlayer * currentSpeed;
+	// 常に移動し続ける（大航海のように）
+	currentOffsetX_ += directionX_ * moveSpeedX_;
+	currentOffsetZ_ += directionZ_ * moveSpeedZ_;
+	
+	// X軸範囲を超えたら方向を反転（境界で跳ね返る）
+	if (currentOffsetX_ > kMaxOffsetX_) {
+		currentOffsetX_ = kMaxOffsetX_;
+		directionX_ = -1.0f; // 左に方向転換
+		directionChangeTimerX_ = 0.0f; // タイマーリセット
+	} else if (currentOffsetX_ < -kMaxOffsetX_) {
+		currentOffsetX_ = -kMaxOffsetX_;
+		directionX_ = 1.0f; // 右に方向転換
+		directionChangeTimerX_ = 0.0f; // タイマーリセット
 	}
 
-	KamataEngine::Vector3 newPosition = myCurrentPos + velocity;
-	worldtransfrom_.translation_ = newPosition;
-	*/
+	// Z軸範囲を超えたら方向を反転（境界で跳ね返る）
+	if (currentOffsetZ_ > kMaxOffsetZ_) {
+		currentOffsetZ_ = kMaxOffsetZ_;
+		directionZ_ = -1.0f; // 後ろに方向転換
+		directionChangeTimerZ_ = 0.0f; // タイマーリセット
+	} else if (currentOffsetZ_ < -kMaxOffsetZ_) {
+		currentOffsetZ_ = -kMaxOffsetZ_;
+		directionZ_ = 1.0f; // 前に方向転換
+		directionChangeTimerZ_ = 0.0f; // タイマーリセット
+	}
+
+	// 基準位置 + オフセットで最終的な座標を計算
+	worldtransfrom_.translation_.x = baseX_ + currentOffsetX_;
+	worldtransfrom_.translation_.z = baseZ_ + currentOffsetZ_;
+
+	// Y座標は固定（変更しない）
 
 	worldtransfrom_.UpdateMatrix();
 

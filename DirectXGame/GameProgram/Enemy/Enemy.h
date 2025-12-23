@@ -103,4 +103,19 @@ private:
 	// New: whether to show green lock (far) instead of red rotating lock
 	bool useGreenLock_ = false;
 
+	// 大航海のような広範囲移動用の変数（X軸とZ軸に散らばる）
+	float baseX_ = 0.0f; // 基準X座標
+	float baseZ_ = 0.0f; // 基準Z座標
+	float currentOffsetX_ = 0.0f; // 現在のXオフセット
+	float currentOffsetZ_ = 0.0f; // 現在のZオフセット
+	float moveSpeedX_ = 2.0f; // X軸方向の移動速度
+	float moveSpeedZ_ = 1.5f; // Z軸方向の移動速度
+	float directionX_ = 1.0f; // X軸移動方向（1.0f = 右、-1.0f = 左）
+	float directionZ_ = 1.0f; // Z軸移動方向（1.0f = 前、-1.0f = 後）
+	float directionChangeTimerX_ = 0.0f; // X軸方向変更タイマー
+	float directionChangeTimerZ_ = 0.0f; // Z軸方向変更タイマー
+	float directionChangeIntervalX_ = 120.0f; // X軸方向を変更する間隔（フレーム、ランダムに変動）
+	float directionChangeIntervalZ_ = 150.0f; // Z軸方向を変更する間隔（フレーム、ランダムに変動）
+	const float kMaxOffsetX_ = 15000.0f; // X軸方向の最大オフセット（大航海範囲）
+	const float kMaxOffsetZ_ = 10000.0f; // Z軸方向の最大オフセット（大航海範囲）
 };

@@ -360,7 +360,7 @@ void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 	// Only perform the evasion effect while actively rolling
 	if (isRolling_) {
 
-		const float kJustEvasionRange = 50.0f; // すれ違い判定の距離
+	//	const float kJustEvasionRange = 50.0f; // すれ違い判定の距離
 		KamataEngine::Vector3 playerPos = GetWorldPosition();
 
 		for (EnemyBullet* bullet : bullets) {
@@ -376,10 +376,11 @@ void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 			float dz = playerPos.z - bulletPos.z;
 			float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-			// 近くにある弾に対して「回避成功」とみなす
-			if (dist < kJustEvasionRange) {
-				bullet->OnEvaded();
-			}
+		// 200以内の時に回避行動をしたらホーミングを失う
+		const float kEvasionRange = 200.0f;
+		if (dist < kEvasionRange) {
+			bullet->OnEvaded();
+		}
 		}
 	}
 }

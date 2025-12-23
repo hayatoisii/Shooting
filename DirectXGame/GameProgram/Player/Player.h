@@ -43,6 +43,9 @@ public:
 	static inline const float kHeight = 1.0f;
 
 	void EvadeBullets(std::list<EnemyBullet*>& bullets);
+	
+	// 回避中かどうかを取得
+	bool IsRolling() const { return isRolling_; }
 
 private:
 	KamataEngine::WorldTransform worldtransfrom_;

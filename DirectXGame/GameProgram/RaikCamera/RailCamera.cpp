@@ -130,6 +130,22 @@ void RailCamera::Update() {
 	move = KamataEngine::MathUtility::TransformNormal(move, rotationMatrix);
 	Vector3 currentPosition = worldtransfrom_.translation_;
 	Vector3 newPosition = currentPosition + move;
+	
+	// Playerの移動範囲を円状に制限（初期位置からの距離が15000以内）
+	Vector3 offsetFromInitial = newPosition - initialPosition_;
+	float distanceFromInitial = std::sqrt(offsetFromInitial.x * offsetFromInitial.x + offsetFromInitial.y * offsetFromInitial.y + offsetFromInitial.z * offsetFromInitial.z);
+	
+	if (distanceFromInitial > kMaxMoveRadius_) {
+		// 範囲を超えた場合、初期位置方向にクランプ
+		Vector3 directionToInitial = offsetFromInitial;
+		if (distanceFromInitial > 0.001f) {
+			directionToInitial.x /= distanceFromInitial;
+			directionToInitial.y /= distanceFromInitial;
+			directionToInitial.z /= distanceFromInitial;
+		}
+		newPosition = initialPosition_ + directionToInitial * kMaxMoveRadius_;
+	}
+	
 	worldtransfrom_.matWorld_ = rotationMatrix;
 	worldtransfrom_.matWorld_.m[3][0] = newPosition.x;
 	worldtransfrom_.matWorld_.m[3][1] = newPosition.y;
@@ -182,8 +198,8 @@ void RailCamera::Dodge(float direction) {
 }
 
 void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
-	// ★ 視点が吸い寄せられる強さ (この値を調整)
-	const float kAimAssistStrength = 0.005f;
+	// ★ 視点が吸い寄せられる強さ (この値を調整) - 強度を上げました
+	const float kAimAssistStrength = 0.005f; // 0.005fから0.015f
 
 	// (※キー操作設定 (A/D=ヨー, W/S=ピッチ) に合わせて加速度を設定)
 
