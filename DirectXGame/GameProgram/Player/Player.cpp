@@ -5,6 +5,8 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+// For window size constants
+#include "base/WinApp.h"
 
 Player::~Player() {
 	delete modelbullet_;
@@ -46,9 +48,9 @@ void Player::OnCollision() {
 
 	// 被弾時に左右に揺れる
 	hitShakeTime_ = 0.0f;
-	hitShakeAmplitude_ = 0.6f; // 最大振幅 (rotation influence)
-	hitShakeVerticalAmplitude_ = 1.5f; // 垂直（world units）
-	hitShakeHorizontalAmplitude_ = 1.0f; // 水平（world units）
+	hitShakeAmplitude_ = 0.6f; // 最大振幅
+	hitShakeVerticalAmplitude_ = 1.5f; // 垂直
+	hitShakeHorizontalAmplitude_ = 1.0f; // 水平
 }
 
 void Player::Attack() {
@@ -65,7 +67,7 @@ void Player::Attack() {
 
 			KamataEngine::Vector3 bulletOffset = {0.0f, -1.0f, 0.0f};
 			KamataEngine::Vector3 moveBullet = KamataEngine::MathUtility::Transform(bulletOffset, worldtransfrom_.matWorld_);
-			const float kBulletSpeed = 40.0f; // 弾速
+			const float kBulletSpeed = 80.0f; // 弾速
 			KamataEngine::Vector3 velocity;
 
 			float minDistanceSq = FLT_MAX;
@@ -111,14 +113,66 @@ void Player::Attack() {
 			// ホーミング強度
 			newBullet->SetHomingStrength(1.0f);
 
-			if (nearestOnScreenEnemy) {
-				newBullet->SetHomingTarget(nearestOnScreenEnemy);
-				newBullet->SetHomingEnabled(true);
+			// まず、アシストロック中の敵を優先して探す
+			Enemy* assistLockedEnemy = nullptr;
+			if (railCamera_ && enemies_) {
+				const float kVisualRadius = 0.08f;
+				const float kDetectionRadius = 0.1f;
+				const float kAspect = (float)KamataEngine::WinApp::kWindowWidth / (float)KamataEngine::WinApp::kWindowHeight;
+				const float ndcVisualRadiusY = kVisualRadius * 2.0f;
+				const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;
+				const float ndcDetectionRadiusY = kDetectionRadius * 2.0f;
+				const float ndcDetectionRadiusX = ndcDetectionRadiusY / kAspect;
+
+				const KamataEngine::Matrix4x4& viewMatrix = railCamera_->GetViewProjection().matView;
+				const KamataEngine::Matrix4x4& projMatrix = railCamera_->GetViewProjection().matProjection;
+
+				float bestNormSq = 1.0f;
+				for (Enemy* e : *enemies_) {
+					if (!e || e->IsDead()) continue;
+					if (!e->IsOnScreen()) continue;
+					// world -> view
+					KamataEngine::Vector3 worldPos = e->GetWorldPosition();
+					KamataEngine::Vector3 viewPos;
+					viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
+					viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
+					viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
+					if (viewPos.z <= 0.0f) continue;
+					float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
+					float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
+					float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
+					if (w_clip <= 0.0f) continue;
+					float ndcX = clipX / w_clip;
+					float ndcY = clipY / w_clip;
+					float visualNormX = ndcX / ndcVisualRadiusX;
+					float visualNormY = ndcY / ndcVisualRadiusY;
+					float visualNormDistSq = (visualNormX * visualNormX) + (visualNormY * visualNormY);
+					if (visualNormDistSq <= 1.0f) {
+						assistLockedEnemy = e;
+						break;
+					} else {
+						float normX = ndcX / ndcDetectionRadiusX;
+						float normY = ndcY / ndcDetectionRadiusY;
+						float normalizedDistSq = (normX * normX) + (normY * normY);
+						if (normalizedDistSq < bestNormSq) {
+							bestNormSq = normalizedDistSq;
+							assistLockedEnemy = e;
+						}
+					}
+				}
+			}
+
+			// ホーミング消したいときはここをコメントアウト
+			if (assistLockedEnemy) {
+				const float kPendingLockDistance = 400.0f;
+				newBullet->SetPendingHomingTarget(assistLockedEnemy, kPendingLockDistance);
+				newBullet->SetAimAssistHoming(true);
+				newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
 			}
 
 			bullets_.push_back(newBullet);
 			// 連射の速度
-			shotTimer_ = 5;
+			shotTimer_ = 10;
 			isParry_ = false;
 		}
 	}
@@ -230,35 +284,28 @@ void Player::Update() {
 	}
 
 	// -- 被弾時の揺れ適用 --
-	// Remove previous frame's offsets
 	worldtransfrom_.translation_.x -= hitShakePrevHorizontalOffset_;
 	worldtransfrom_.translation_.y -= hitShakePrevVerticalOffset_;
 	hitShakePrevHorizontalOffset_ = 0.0f;
 	hitShakePrevVerticalOffset_ = 0.0f;
 
 	if (hitShakeAmplitude_ > 0.001f || hitShakeVerticalAmplitude_ > 0.0001f || hitShakeHorizontalAmplitude_ > 0.0001f) {
-		// time progression
 		hitShakeTime_ += 1.0f;
 
-		// damped sinusoidal oscillation
 		float damping = std::exp(-hitShakeDecay_ * hitShakeTime_);
 
-		// angle for rotation-based sway
 		float angle = hitShakeAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
-		worldtransfrom_.rotation_.y += angle; // yaw
-		worldtransfrom_.rotation_.z += angle * 0.25f; // mild roll
+		worldtransfrom_.rotation_.y += angle;
+		worldtransfrom_.rotation_.z += angle * 0.25f;
 
-		// vertical offset
 		float verticalOffset = hitShakeVerticalAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
 		worldtransfrom_.translation_.y += verticalOffset;
 		hitShakePrevVerticalOffset_ = verticalOffset;
 
-		// horizontal offset (centered)
 		float horizontalOffset = hitShakeHorizontalAmplitude_ * damping * std::cos(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
 		worldtransfrom_.translation_.x += horizontalOffset;
 		hitShakePrevHorizontalOffset_ = horizontalOffset;
 
-		// if damping small enough, stop
 		if (damping < 0.01f) {
 			hitShakeAmplitude_ = 0.0f;
 			hitShakeVerticalAmplitude_ = 0.0f;
@@ -357,7 +404,6 @@ void Player::ResetBullets() {
 
 void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 
-	// Only perform the evasion effect while actively rolling
 	if (isRolling_) {
 
 	//	const float kJustEvasionRange = 50.0f; // すれ違い判定の距離
@@ -365,7 +411,6 @@ void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 
 		for (EnemyBullet* bullet : bullets) {
 			if (!bullet) continue;
-			// Only affect bullets that are currently homing
 			if (!bullet->IsHoming()) continue;
 
 			KamataEngine::Vector3 bulletPos = bullet->GetWorldPosition();

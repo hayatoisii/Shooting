@@ -170,7 +170,6 @@ private:
 	// 最後に記録したプレイヤー位置（ミニマップ回転の判定用）
 	KamataEngine::Vector3 lastPlayerPos_ = {0.0f, 0.0f, 0.0f};
 
-	// Homing shot timer and settings
 	int homingSpawnTimer_ = 0;
 	// Enemyミサイルの間隔
 	const int kHomingIntervalFrames_ = 60 * 10;

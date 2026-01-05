@@ -198,7 +198,7 @@ void RailCamera::Dodge(float direction) {
 }
 
 void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
-	// ★ 視点が吸い寄せられる強さ (この値を調整) - 強度を上げました
+	// 視点が吸い寄せられる強さ (この値を調整)
 	const float kAimAssistStrength = 0.005f; // 0.005fから0.015f
 
 	// (※キー操作設定 (A/D=ヨー, W/S=ピッチ) に合わせて加速度を設定)

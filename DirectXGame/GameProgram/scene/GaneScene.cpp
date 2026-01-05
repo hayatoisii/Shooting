@@ -73,7 +73,7 @@ void GameScene::Initialize() {
 	skydome_ = new Skydome();
 
 	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly2", true);
-	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("cube", true);
+	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
 
@@ -1239,7 +1239,6 @@ void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
 		return;
 	}
 
-	// ★ ParticleEmitter に追加した「EmitBurst」関数を呼ぶ
 	explosionEmitter_->EmitBurst(
 	    position, // 発生座標
 	    10,       // 粒の数

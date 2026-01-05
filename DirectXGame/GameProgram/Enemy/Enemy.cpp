@@ -47,8 +47,8 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	assistLockTextureHandle_ = TextureManager::Load("lockongreen.png");
 	assistLockSprite_ = Sprite::Create(assistLockTextureHandle_, {0, 0});
 	if (assistLockSprite_) {
-		assistLockSprite_->SetSize({1.0f, 1.0f});            // (サイズは調整してください)
-		assistLockSprite_->SetColor({0.0f, 1.0f, 0.0f, 1.0f}); // (例: 緑色)
+		assistLockSprite_->SetSize({1.0f, 1.0f});            // サイズは調整
+		assistLockSprite_->SetColor({0.0f, 1.0f, 0.0f, 1.0f}); // 緑色
 		assistLockSprite_->SetAnchorPoint({0.5f, 0.5f});
 	}
 	isAssistLocked_ = false;
@@ -68,17 +68,33 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	// 大航海のような広範囲移動の初期化（X軸とZ軸に散らばる）
 	baseX_ = pos.x;
 	baseZ_ = pos.z;
-	currentOffsetX_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * 5000.0f; // 初期位置をランダムに散らす
-	currentOffsetZ_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * 3000.0f; // 初期位置をランダムに散らす
-	// 敵の航海移動速度はここで変更
-	moveSpeedX_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f; // X軸方向の速度（基本2.0 + ランダム0-1.0）
-	moveSpeedZ_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f; // Z軸方向の速度（基本1.5 + ランダム0-0.8）
+	// 初期にランダムにスポーンする処理
+	const float kInitMaxOffset = 4000.0f;
+	currentOffsetX_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
+	currentOffsetZ_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
+	moveSpeedX_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f; // X軸方向の速度
+	moveSpeedZ_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f; // Z軸方向の速度
 	directionX_ = (rand() % 2 == 0) ? 1.0f : -1.0f; // ランダムな初期X方向
 	directionZ_ = (rand() % 2 == 0) ? 1.0f : -1.0f; // ランダムな初期Z方向
 	directionChangeIntervalX_ = static_cast<float>(rand() % 180 + 90); // 90-270フレームのランダムな間隔
 	directionChangeIntervalZ_ = static_cast<float>(rand() % 200 + 100); // 100-300フレームのランダムな間隔
 	directionChangeTimerX_ = 0.0f;
 	directionChangeTimerZ_ = 0.0f;
+
+	prevRenderedX_ = baseX_ + currentOffsetX_;
+	prevRenderedZ_ = baseZ_ + currentOffsetZ_;
+	smoothedForward_ = {0.0f, 0.0f, 1.0f};
+
+	// ゆっくり大きく曲がる
+	wanderAngle_ = (static_cast<float>(rand()) / RAND_MAX) * (2.0f * 3.14159265f);
+	wanderJitter_ = 0.02f + (static_cast<float>(rand()) / RAND_MAX) * 0.03f;
+	wanderRadius_ = 1200.0f + (static_cast<float>(rand()) / RAND_MAX) * 800.0f;
+	wanderDistance_ = 900.0f + (static_cast<float>(rand()) / RAND_MAX) * 600.0f;
+	desiredSpeed_ = (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f) * 3.0f;
+
+	posSmoothFactor_ = 0.06f;    //  小さくすると遅れて滑らか
+	facingSmoothFactor_ = 0.04f; // 小さくするとゆっくり回る
+	turnSmoothFactor_ = 0.04f;   // 方向変化の滑らかさ
 }
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() {
@@ -123,7 +139,6 @@ void Enemy::Fire() {
 		EnemyBullet* newBullet = new EnemyBullet();
 		newBullet->Initialize(modelbullet_, moveBullet, velocity);
 
-		// Ensure enemy-fired bullets home to the player continuously
 		newBullet->SetHomingEnabled(true);
 		newBullet->SetHomingTarget(player_);
 		newBullet->SetSpeed(kBulletSpeed);
@@ -139,8 +154,6 @@ void Enemy::Fire() {
 void Enemy::Update() {
 
 	// Fire();
-
-	assert(player_ && "Enemy::Update() player_ が null です");
 
 	// 大航海のような広範囲移動処理（X軸とZ軸に散らばって移動し続ける）
 	directionChangeTimerX_++;
@@ -164,42 +177,99 @@ void Enemy::Update() {
 		directionChangeIntervalZ_ = static_cast<float>(rand() % 200 + 100);
 	}
 
-	// 常に移動し続ける（大航海のように）
-	currentOffsetX_ += directionX_ * moveSpeedX_;
-	currentOffsetZ_ += directionZ_ * moveSpeedZ_;
-	
-	// X軸範囲を超えたら方向を反転（境界で跳ね返る）
-	if (currentOffsetX_ > kMaxOffsetX_) {
-		currentOffsetX_ = kMaxOffsetX_;
-		directionX_ = -1.0f; // 左に方向転換
-		directionChangeTimerX_ = 0.0f; // タイマーリセット
-	} else if (currentOffsetX_ < -kMaxOffsetX_) {
-		currentOffsetX_ = -kMaxOffsetX_;
-		directionX_ = 1.0f; // 右に方向転換
-		directionChangeTimerX_ = 0.0f; // タイマーリセット
+	// 滑らかに補間
+	float targetX = baseX_ + currentOffsetX_;
+	float targetZ = baseZ_ + currentOffsetZ_;
+
+	// 位置を滑らかに補間
+	float renderX = prevRenderedX_ + (targetX - prevRenderedX_) * posSmoothFactor_;
+	float renderZ = prevRenderedZ_ + (targetZ - prevRenderedZ_) * posSmoothFactor_;
+
+	worldtransfrom_.translation_.x = renderX;
+	worldtransfrom_.translation_.z = renderZ;
+
+	// 現在のレンダリング位置の移動ベクトル
+	KamataEngine::Vector3 moveDir = { renderX - prevRenderedX_, 0.0f, renderZ - prevRenderedZ_ };
+	float lenMove = std::sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z);
+	if (lenMove > 0.0001f) {
+		moveDir.x /= lenMove;
+		moveDir.z /= lenMove;
+
+		smoothedForward_.x += (moveDir.x - smoothedForward_.x) * facingSmoothFactor_;
+		smoothedForward_.z += (moveDir.z - smoothedForward_.z) * facingSmoothFactor_;
+
+		// 計算した前方ベクトルからヨー角を求めてモデルに適用（モデル前方が Z+ の場合）
+		float yaw = std::atan2(smoothedForward_.x, smoothedForward_.z);
+		worldtransfrom_.rotation_.y = yaw;
 	}
 
-	// Z軸範囲を超えたら方向を反転（境界で跳ね返る）
-	if (currentOffsetZ_ > kMaxOffsetZ_) {
-		currentOffsetZ_ = kMaxOffsetZ_;
-		directionZ_ = -1.0f; // 後ろに方向転換
-		directionChangeTimerZ_ = 0.0f; // タイマーリセット
-	} else if (currentOffsetZ_ < -kMaxOffsetZ_) {
-		currentOffsetZ_ = -kMaxOffsetZ_;
-		directionZ_ = 1.0f; // 前に方向転換
-		directionChangeTimerZ_ = 0.0f; // タイマーリセット
-	}
+	prevRenderedX_ = renderX;
+	prevRenderedZ_ = renderZ;
 
-	// 基準位置 + オフセットで最終的な座標を計算
-	worldtransfrom_.translation_.x = baseX_ + currentOffsetX_;
-	worldtransfrom_.translation_.z = baseZ_ + currentOffsetZ_;
-
-	// Y座標は固定（変更しない）
+	// Y座標は固定
 
 	worldtransfrom_.UpdateMatrix();
 
 	if (camera_ && targetSprite_) {
 		UpdateScreenPosition();
+	}
+
+	// ウォーカーステアリングによる大きな滑らかな曲線移動の実現
+	KamataEngine::Vector3 currentVelocity = { smoothedVelocity_.x, 0.0f, smoothedVelocity_.z };
+
+	KamataEngine::Vector3 forward = { smoothedForward_.x, 0.0f, smoothedForward_.z };
+	KamataEngine::Vector3 wanderCenter = forward;
+	{
+		float lv = wanderCenter.x * wanderCenter.x + wanderCenter.z * wanderCenter.z;
+		if (lv > 0.0001f) {
+			float inv = 1.0f / std::sqrt(lv);
+			wanderCenter.x *= inv;
+			wanderCenter.z *= inv;
+		}
+	}
+	wanderCenter.x *= wanderDistance_;
+	wanderCenter.z *= wanderDistance_;
+	wanderAngle_ += ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * wanderJitter_;
+
+	KamataEngine::Vector3 wanderPoint = { std::sin(wanderAngle_) * wanderRadius_, 0.0f, std::cos(wanderAngle_) * wanderRadius_ };
+
+	KamataEngine::Vector3 targetVelocity = { wanderCenter.x + wanderPoint.x, 0.0f, wanderCenter.z + wanderPoint.z };
+	{
+		float lv = targetVelocity.x * targetVelocity.x + targetVelocity.z * targetVelocity.z;
+		if (lv > 0.0001f) {
+			float inv = 1.0f / std::sqrt(lv);
+			targetVelocity.x *= inv * desiredSpeed_;
+			targetVelocity.z *= inv * desiredSpeed_;
+		}
+	}
+
+	smoothedVelocity_.x += (targetVelocity.x - smoothedVelocity_.x) * turnSmoothFactor_;
+	smoothedVelocity_.z += (targetVelocity.z - smoothedVelocity_.z) * turnSmoothFactor_;
+
+	{
+		float lv = smoothedVelocity_.x * smoothedVelocity_.x + smoothedVelocity_.z * smoothedVelocity_.z;
+		if (lv > 0.0001f) {
+			float inv = 1.0f / std::sqrt(lv);
+			float vx = smoothedVelocity_.x * inv;
+			float vz = smoothedVelocity_.z * inv;
+			currentOffsetX_ += vx * desiredSpeed_;
+			currentOffsetZ_ += vz * desiredSpeed_;
+			smoothedForward_.x += (vx - smoothedForward_.x) * facingSmoothFactor_;
+			smoothedForward_.z += (vz - smoothedForward_.z) * facingSmoothFactor_;
+			float yaw = std::atan2(smoothedForward_.x, smoothedForward_.z);
+			worldtransfrom_.rotation_.y = yaw;
+		}
+	}
+
+	// オフセットの値が大きくなりすぎないように制限
+	const float kMaxOffsetRadius = 4000.0f;
+	float distSq = currentOffsetX_ * currentOffsetX_ + currentOffsetZ_ * currentOffsetZ_;
+	if (distSq > kMaxOffsetRadius * kMaxOffsetRadius) {
+		float r = std::sqrt(distSq);
+		if (r > 0.0001f) {
+			currentOffsetX_ = (currentOffsetX_ / r) * kMaxOffsetRadius;
+			currentOffsetZ_ = (currentOffsetZ_ / r) * kMaxOffsetRadius;
+		}
 	}
 }
 
@@ -223,14 +293,12 @@ void Enemy::DrawSprite() {
 	}
 
 	if (isAssistLocked_ && assistLockSprite_) {
-		// アシストロックオン中は、(緑の) ロックオンスプライトも描画する
+		// アシストロックオン中はロックオンスプライトも描画する
 		assistLockSprite_->Draw();
 	}
 }
 
 void Enemy::UpdateScreenPosition() {
-
-	// isAssistLocked_ = false;
 
 	if (!camera_ || !targetSprite_ || !directionIndicatorSprite_) {
 		isOnScreen_ = false;
@@ -373,7 +441,7 @@ void Enemy::UpdateScreenPosition() {
 		}
 	}
 
-	// 緑ロックの場合、アシストロックスプライトのサイズを設定する (固定値)
+	// 緑ロックの場合、アシストロックスプライトのサイズを設定する
 	if (assistLockSprite_) {
 		if (useGreenLock_) {
 			assistLockSprite_->SetSize({15.0f, 15.0f});

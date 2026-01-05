@@ -44,7 +44,7 @@ private:
 	KamataEngine::Vector3 initialRotationEuler_;
 	
 	// Playerの移動範囲制限（円状、半径15000）
-	const float kMaxMoveRadius_ = 15000.0f;
+	const float kMaxMoveRadius_ = 10000.0f;
 
 	KamataEngine::Quaternion rotation_;
 
