@@ -320,11 +320,51 @@ void GameScene::Update() {
 
 
 		// デバッグ
-		//gameSceneTimer_++;
+		gameSceneTimer_++; // デバッグ用: ゲーム進行タイマーをカウント
+
+		// --- デバッグ用: 15秒経過で自動的にタイトルへ戻す (デバッグ) ---
+		const int kDebugAutoReturnSeconds = 15;
+		const int kDebugAutoReturnFrames = kDebugAutoReturnSeconds * 60; // 60fps 前提
+		if (gameSceneTimer_ >= kDebugAutoReturnFrames) {
+			// タイトルへ戻す処理（kGameTimeLimit_ のブロックと同様）
+			sceneState = SceneState::Start;
+			camera_.Initialize();
+			camera_.TransferMatrix();
+			if (railCamera_) {
+				railCamera_->Reset();
+			}
+			if (player_) {
+				player_->ResetRotation();
+				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+				player_->GetWorldTransform().UpdateMatrix();
+				player_->ResetParticles();
+				player_->ResetBullets();
+			}
+			for (Enemy* enemy : enemies_) {
+				delete enemy;
+			}
+			enemies_.clear();
+			for (EnemyBullet* bullet : enemyBullets_) {
+				delete bullet;
+			}
+			enemyBullets_.clear();
+
+			for (Meteorite* meteor : meteorites_) {
+				delete meteor;
+			}
+			meteorites_.clear();
+			meteoriteSpawnTimer_ = 0;
+
+			LoadEnemyPopData();
+			hasSpawnedEnemies_ = false;
+			break;
+		}
 
 		// --- デバッグ用: 1秒でクリア (60フレーム) ---
-		const int DEBUG_CLEAR_TIME = 60; // 1秒
-		if (gameSceneTimer_ > DEBUG_CLEAR_TIME) {
+		// この短いクリアはデバッグ用で無効化しています。必要ならフラグを true にしてください。
+		bool kEnableShortClearDebug = false; // 非constに変更
+		const int DEBUG_CLEAR_TIME = 60; // 1秒分のフレーム数
+		if (kEnableShortClearDebug && gameSceneTimer_ > DEBUG_CLEAR_TIME) {
 			TransitionToClearScene(); // クリア処理を呼び出す
 			break;                    // このフレームの残りのGame処理をスキップ
 		}
@@ -393,7 +433,7 @@ void GameScene::Update() {
 			// Playerを先に更新して、最新の位置を取得できるようにする
 			player_->Update();
 
-			// 回避処理（Player更新後に実行）
+			// 回避処理（Player更新後に実行）                                                                                                                                                                                                                                                                    Playerの衝突判定がEnemyBulletの後になるように更新順序を変更
 			player_->EvadeBullets(enemyBullets_);
 
 			for (Enemy* enemy : enemies_) {
@@ -804,12 +844,9 @@ void GameScene::EnemySpawn(const Vector3& position) {
 	Enemy* newEnemy = new Enemy();
 
 	assert(railCamera_ && "EnemySpawn: railCamera_ が null です");
-	KamataEngine::Vector3 playerPos = railCamera_->GetWorldTransform().translation_;
-
-	KamataEngine::Vector3 spawnPosWorld;
-	spawnPosWorld.x = playerPos.x + position.x;
-	spawnPosWorld.y = playerPos.y + position.y;
-	spawnPosWorld.z = playerPos.z + position.z;
+	// カメラのワールド行列を使って、ローカル座標(position) をワールド空間に変換してからスポーン位置にする
+	const KamataEngine::Matrix4x4& camMat = railCamera_->GetWorldTransform().matWorld_;
+	KamataEngine::Vector3 spawnPosWorld = KamataEngine::MathUtility::Transform(position, camMat);
 
 	newEnemy->SetPlayer(player_);
 	newEnemy->SetGameScene(this);

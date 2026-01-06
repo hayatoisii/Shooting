@@ -69,7 +69,7 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	baseX_ = pos.x;
 	baseZ_ = pos.z;
 	// 初期にランダムにスポーンする処理
-	const float kInitMaxOffset = 4000.0f;
+	const float kInitMaxOffset = 1000.0f; // spawn range -> 1000 per request
 	currentOffsetX_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
 	currentOffsetZ_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
 	moveSpeedX_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f; // X軸方向の速度
@@ -219,6 +219,7 @@ void Enemy::Update() {
 
 	KamataEngine::Vector3 forward = { smoothedForward_.x, 0.0f, smoothedForward_.z };
 	KamataEngine::Vector3 wanderCenter = forward;
+	// normalize
 	{
 		float lv = wanderCenter.x * wanderCenter.x + wanderCenter.z * wanderCenter.z;
 		if (lv > 0.0001f) {
@@ -229,11 +230,16 @@ void Enemy::Update() {
 	}
 	wanderCenter.x *= wanderDistance_;
 	wanderCenter.z *= wanderDistance_;
+	
+	// ジッターで角度を少しずつ動かす
 	wanderAngle_ += ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * wanderJitter_;
 
+	// wander 円上の点
 	KamataEngine::Vector3 wanderPoint = { std::sin(wanderAngle_) * wanderRadius_, 0.0f, std::cos(wanderAngle_) * wanderRadius_ };
 
+	// 目標ベロシティは wanderCenter + wanderPoint
 	KamataEngine::Vector3 targetVelocity = { wanderCenter.x + wanderPoint.x, 0.0f, wanderCenter.z + wanderPoint.z };
+	// 正規化して speed を与える
 	{
 		float lv = targetVelocity.x * targetVelocity.x + targetVelocity.z * targetVelocity.z;
 		if (lv > 0.0001f) {
@@ -243,17 +249,21 @@ void Enemy::Update() {
 		}
 	}
 
+	// smoothedVelocity_ をゆっくり目に追従させる（turnSmoothFactor_ が小さいほどゆっくり曲がる）
 	smoothedVelocity_.x += (targetVelocity.x - smoothedVelocity_.x) * turnSmoothFactor_;
 	smoothedVelocity_.z += (targetVelocity.z - smoothedVelocity_.z) * turnSmoothFactor_;
 
+	// 新しい方向を計算してオフセットに反映
 	{
 		float lv = smoothedVelocity_.x * smoothedVelocity_.x + smoothedVelocity_.z * smoothedVelocity_.z;
 		if (lv > 0.0001f) {
 			float inv = 1.0f / std::sqrt(lv);
 			float vx = smoothedVelocity_.x * inv;
 			float vz = smoothedVelocity_.z * inv;
+			// オフセットを速度に合わせて更新
 			currentOffsetX_ += vx * desiredSpeed_;
 			currentOffsetZ_ += vz * desiredSpeed_;
+			// 回転補間にも反映
 			smoothedForward_.x += (vx - smoothedForward_.x) * facingSmoothFactor_;
 			smoothedForward_.z += (vz - smoothedForward_.z) * facingSmoothFactor_;
 			float yaw = std::atan2(smoothedForward_.x, smoothedForward_.z);
@@ -262,7 +272,8 @@ void Enemy::Update() {
 	}
 
 	// オフセットの値が大きくなりすぎないように制限
-	const float kMaxOffsetRadius = 4000.0f;
+	// clamp by radius to enforce circular limit
+	const float kMaxOffsetRadius = 1500.0f; // movement upper bound -> 1500 per request
 	float distSq = currentOffsetX_ * currentOffsetX_ + currentOffsetZ_ * currentOffsetZ_;
 	if (distSq > kMaxOffsetRadius * kMaxOffsetRadius) {
 		float r = std::sqrt(distSq);

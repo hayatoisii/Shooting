@@ -120,8 +120,8 @@ private:
 	float directionChangeTimerZ_ = 0.0f; // Z軸方向変更タイマー
 	float directionChangeIntervalX_ = 120.0f; // X軸方向を変更する間隔（フレーム、ランダムに変動）
 	float directionChangeIntervalZ_ = 150.0f; // Z軸方向を変更する間隔（フレーム、ランダムに変動）
-	const float kMaxOffsetX_ = 4500.0f; // X軸方向の最大オフセット（大航海範囲）
-	const float kMaxOffsetZ_ = 4500.0f; // Z軸方向の最大オフセット（大航海範囲）
+	const float kMaxOffsetX_ = 1500.0f; // X軸方向の最大オフセット（大航海範囲）
+	const float kMaxOffsetZ_ = 1500.0f; // Z軸方向の最大オフセット（大航海範囲）
 
 	// スムーズな向き制御用
 	KamataEngine::Vector3 smoothedForward_ = {0.0f, 0.0f, 1.0f};
