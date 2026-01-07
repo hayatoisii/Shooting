@@ -7,6 +7,8 @@
 #include <limits>
 // For window size constants
 #include "base/WinApp.h"
+#include <cstdio>
+#include <Windows.h>
 
 Player::~Player() {
 	delete modelbullet_;
@@ -65,8 +67,65 @@ void Player::Attack() {
 		if (input_->PushKey(DIK_SPACE) && shotTimer_ <= 0) {
 			assert(railCamera_);
 
-			KamataEngine::Vector3 bulletOffset = {0.0f, -1.0f, 0.0f};
-			KamataEngine::Vector3 moveBullet = KamataEngine::MathUtility::Transform(bulletOffset, worldtransfrom_.matWorld_);
+			// --- 弾発生位置の計算 ---
+			// ワールド行列が最新であることを保証
+			worldtransfrom_.UpdateMatrix();
+
+			// プレイヤーのワールド位置とローカル軸を取得してスポーン位置を計算する
+			KamataEngine::Vector3 playerWorldPos = GetWorldPosition();
+			const KamataEngine::Matrix4x4& wm = worldtransfrom_.matWorld_;
+			KamataEngine::Vector3 localForward = {wm.m[2][0], wm.m[2][1], wm.m[2][2]};
+			KamataEngine::Vector3 localRight = {wm.m[0][0], wm.m[0][1], wm.m[0][2]};
+			KamataEngine::Vector3 localUp = {wm.m[1][0], wm.m[1][1], wm.m[1][2]};
+			localForward = KamataEngine::MathUtility::Normalize(localForward);
+			localRight = KamataEngine::MathUtility::Normalize(localRight);
+			localUp = KamataEngine::MathUtility::Normalize(localUp);
+
+			// 揺れの影響を除いたクリーンな基準位置を使う（縦揺れで発射位置がズレるのを防ぐ）
+			KamataEngine::Vector3 cleanPlayerPos = playerWorldPos;
+			cleanPlayerPos.x -= hitShakePrevHorizontalOffset_; // 横揺れ分を除去
+			cleanPlayerPos.y -= hitShakePrevVerticalOffset_;   // 縦揺れ分を除去
+
+			// 逆方向（プレイヤーの後ろ／手前の反対）に大きくずらす
+			float forwardOffset = 50.0f; // 大きめに移動させる（プレイヤーの向きの反対方向へ）
+			float upOffset = -1.0f;
+			float rightOffset = 0.0f;
+
+			// もし localForward が不正（ゼロベクトル）ならカメラ前方向を使う
+			KamataEngine::Vector3 cameraForward = {0.0f, 0.0f, 0.0f};
+			KamataEngine::Vector3 cameraPosition = {0.0f, 0.0f, 0.0f};
+			if (std::abs(localForward.x) < 1e-6f && std::abs(localForward.y) < 1e-6f && std::abs(localForward.z) < 1e-6f) {
+				const KamataEngine::Matrix4x4& camMat = railCamera_->GetWorldTransform().matWorld_;
+				cameraForward = {camMat.m[2][0], camMat.m[2][1], camMat.m[2][2]};
+				cameraForward = KamataEngine::MathUtility::Normalize(cameraForward);
+				cameraPosition = {camMat.m[3][0], camMat.m[3][1], camMat.m[3][2]};
+			} else {
+				// それでも念のためカメラ前方向も取得
+				const KamataEngine::Matrix4x4& camMat = railCamera_->GetWorldTransform().matWorld_;
+				cameraForward = {camMat.m[2][0], camMat.m[2][1], camMat.m[2][2]};
+				cameraForward = KamataEngine::MathUtility::Normalize(cameraForward);
+				cameraPosition = {camMat.m[3][0], camMat.m[3][1], camMat.m[3][2]};
+			}
+
+			// 優先: プレイヤーの向きの反対方向（後方）へ大きくずらす
+			KamataEngine::Vector3 preferredMoveBullet = cleanPlayerPos - localForward * forwardOffset + localUp * upOffset + localRight * rightOffset;
+			KamataEngine::Vector3 cameraBasedMoveBullet = cleanPlayerPos + cameraForward * forwardOffset + localUp * upOffset + localRight * rightOffset;
+
+			// デバッグ出力: 座標を確認
+			char dbgBuf[256];
+			sprintf_s(dbgBuf, "playerPos=(%.2f,%.2f,%.2f) localF=(%.2f,%.2f,%.2f) camF=(%.2f,%.2f,%.2f) prefBullet=(%.2f,%.2f,%.2f) camBullet=(%.2f,%.2f,%.2f)\\n",
+			          playerWorldPos.x, playerWorldPos.y, playerWorldPos.z,
+			          localForward.x, localForward.y, localForward.z,
+			          cameraForward.x, cameraForward.y, cameraForward.z,
+			          preferredMoveBullet.x, preferredMoveBullet.y, preferredMoveBullet.z,
+			          cameraBasedMoveBullet.x, cameraBasedMoveBullet.y, cameraBasedMoveBullet.z);
+			OutputDebugStringA(dbgBuf);
+
+			// プレイヤー基準（今回は後方へ大きくずらした位置）を優先して使う
+			KamataEngine::Vector3 moveBullet = preferredMoveBullet;
+
+			// --- ここまで弾発生位置の計算 ---
+
 			const float kBulletSpeed = 80.0f; // 弾速
 			KamataEngine::Vector3 velocity;
 
@@ -97,8 +156,9 @@ void Player::Attack() {
 
 			{
 				const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
-				KamataEngine::Vector3 cameraPosition = {cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2]};
-				KamataEngine::Vector3 cameraForward = {cameraWorldMatrix.m[2][0], cameraWorldMatrix.m[2][1], cameraWorldMatrix.m[2][2]};
+				// reuse previously declared cameraPosition and cameraForward instead of redeclaring
+				cameraPosition = {cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2]};
+				cameraForward = {cameraWorldMatrix.m[2][0], cameraWorldMatrix.m[2][1], cameraWorldMatrix.m[2][2]};
 				cameraForward = KamataEngine::MathUtility::Normalize(cameraForward);
 				KamataEngine::Vector3 targetPosition = cameraPosition + cameraForward * 1000.0f;
 				velocity = targetPosition - moveBullet;
@@ -172,7 +232,7 @@ void Player::Attack() {
 
 			bullets_.push_back(newBullet);
 			// 連射の速度
-			shotTimer_ = 10;
+			shotTimer_ = 5;
 			isParry_ = false;
 		}
 	}

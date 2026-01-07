@@ -90,4 +90,7 @@ private:
 	// 水平方向（左右）揺れ用
 	float hitShakeHorizontalAmplitude_ = 0.0f; // 水平
 	float hitShakePrevHorizontalOffset_ = 0.0f;
+
+	// 弾発射時に固定するY座標（上下移動で発射位置がずれないようにする）
+	float spawnBaseY_ = 0.0f;
 };
