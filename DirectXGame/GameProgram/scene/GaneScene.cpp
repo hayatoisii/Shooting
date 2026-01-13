@@ -31,6 +31,7 @@ GameScene::~GameScene() {
 	delete modelSkydome_;
 	delete modelTitleObject_;
 	delete modelMeteorite_;
+	delete modelEnemyBullet_; // 敵弾モデルを解放（追加）
 	for (Meteorite* meteor : meteorites_) {
 		delete meteor;
 	}
@@ -76,6 +77,9 @@ void GameScene::Initialize() {
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
+
+	// 敵弾用のOBJモデルを読み込む（ファイル名: Resources/bulletEnemy.obj を想定）
+	modelEnemyBullet_ = KamataEngine::Model::CreateFromOBJ("bulletEnemy", true);
 
 	modelMeteorite_ = KamataEngine::Model::CreateFromOBJ("meteorite", true);
 	meteoriteSpawnTimer_ = 0;
@@ -145,6 +149,7 @@ void GameScene::Initialize() {
 	minimapTextureHandle_ = KamataEngine::TextureManager::Load("minimap.png");
 	greenBoxTextureHandle_ = KamataEngine::TextureManager::Load("greenBox.png");
 	minimapPlayerTextureHandle_ = KamataEngine::TextureManager::Load("player.png");
+	// ミニマップ上の敵弾アイコンは元の赤いテクスチャを使用（変更を取り消し）
 	minimapEnemyBulletTextureHandle_ = KamataEngine::TextureManager::Load("missileRedBox.png");
 
 	// 1. ミニマップ背景
@@ -322,6 +327,7 @@ void GameScene::Update() {
 		// デバッグ
 		//gameSceneTimer_++;
 
+
 		// --- デバッグ用: 1秒でクリア (60フレーム) ---
 		const int DEBUG_CLEAR_TIME = 60; // 1秒
 		if (gameSceneTimer_ > DEBUG_CLEAR_TIME) {
@@ -444,7 +450,8 @@ void GameScene::Update() {
 					KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
 
 					EnemyBullet* newBullet = new EnemyBullet();
-					newBullet->Initialize(modelEnemy_, moveBullet, vel);
+					//newBullet->Initialize(modelEnemy_, moveBullet, vel); // 生成時に enemy 弾モデルを渡す
+					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel); // 敵弾用モデルで初期化（修正）
 					newBullet->SetHomingEnabled(true);
 					newBullet->SetHomingTarget(player_);
 					newBullet->SetSpeed(kHomingBulletSpeed_);
@@ -1157,7 +1164,7 @@ void GameScene::UpdateAimAssist() {
 
 	// 6. 敵の検索
 	// NDC空間での半径を計算する (ndc は画面幅方向がアスペクトで伸びているため補正が必要)
-	// kVisualRadius は画面高さに対する比率なので、NDCでの半径は (2 * kVisualRadius)
+	// kVisualRadius は画面HEIGHTに対する比率なので、NDCでの半径は (2 * kVisualRadius)
 	const float ndcVisualRadiusY = kVisualRadius * 2.0f;
 	// X方向のNDC半径はアスペクト比で割る（幅が大きいと NDC 単位での幅は小さくなる）
 	const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;

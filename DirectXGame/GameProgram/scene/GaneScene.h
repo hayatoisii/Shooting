@@ -59,6 +59,8 @@ private:
 
 	Model* modelPlayer_ = nullptr;
 	Model* modelEnemy_ = nullptr;
+	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
+	Model* modelEnemyBullet_ = nullptr;
 
 	int32_t gameSceneTimer_ = 0;
 	const int32_t kGameTimeLimit_ = 60 * 30;
