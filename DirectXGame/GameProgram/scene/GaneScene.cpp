@@ -42,6 +42,10 @@ GameScene::~GameScene() {
 	delete transitionSprite_;
 	delete taitoruSprite_;
 	delete aimAssistCircleSprite_;
+	// 追加: 右/左キー表示用スプライトを解放
+	delete lightSprite_;
+	delete leftSprite_;
+	delete shiftSprite_; // Shiftスプライトを解放
 	delete explosionEmitter_;
 	delete modelParticle_;
 	delete minimapSprite_;
@@ -213,11 +217,147 @@ void GameScene::Initialize() {
 
 	// ホーミング弾生成タイマー初期化
 	homingSpawnTimer_ = kHomingIntervalFrames_; // 最初のショットが間隔後に発生するようタイマー初期化
+
+	// ミニマップ用テクスチャ等の初期化を行った後に、右/左キー表示用スプライトを初期化
+	// テクスチャ名は Resources に配置した "light.png" と "left.png" を想定
+	lightTextureHandle_ = KamataEngine::TextureManager::Load("light.png");
+	leftTextureHandle_ = KamataEngine::TextureManager::Load("left.png");
+	shiftTextureHandle_ = KamataEngine::TextureManager::Load("shift.png"); // Shift画像
+
+	// スプライト生成
+	lightSprite_ = KamataEngine::Sprite::Create(lightTextureHandle_, {0, 0});
+	leftSprite_ = KamataEngine::Sprite::Create(leftTextureHandle_, {0, 0});
+	shiftSprite_ = KamataEngine::Sprite::Create(shiftTextureHandle_, {0, 0});
+
+	if (lightSprite_) {
+		// グループオフセットを適用して右にずらす
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * 80.0f + controlGroupOffset_;
+		lightSprite_->SetAnchorPoint({1.0f, 1.0f});
+		lightSprite_->SetSize({80.0f, 80.0f});
+		lightSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+		lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
+	if (leftSprite_) {
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * 80.0f - 16.0f + controlGroupOffset_;
+		leftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		leftSprite_->SetSize({80.0f, 80.0f});
+		leftSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+		leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
+	if (shiftSprite_) {
+		shiftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		// 横長: 幅1.5倍, 高さは矢印基準サイズ
+		shiftSprite_->SetSize({80.0f * 1.5f, 80.0f});
+		// 初期配置: light の右側に少しずらして上に置く（グループオフセット適用）
+		float controlSizeInit = 80.0f;
+		float verticalGapInit = 8.0f;
+		float lightRightXInit = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSizeInit + controlGroupOffset_;
+		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
+		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
+		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
+		shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
+
+	// スプライトの初期位置を右下に設定（毎フレームの更新時に再計算されるため、ここではウィンドウサイズ依存の初期位置のみ設定）
+	if (lightSprite_) {
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * 80.0f + controlGroupOffset_;
+		lightSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+	}
+	if (leftSprite_) {
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * 80.0f - 16.0f + controlGroupOffset_;
+		leftSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+	}
+	if (shiftSprite_) {
+		float controlSizeInit = 80.0f;
+		float verticalGapInit = 8.0f;
+		float lightRightXInit = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSizeInit + controlGroupOffset_;
+		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
+		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
+		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
+	}
 }
 
 void GameScene::Update() {
 
 	skydome_->Update();
+
+	// 右／左キーの押下状態に応じてスプライトの明るさを切替
+	if (input_) {
+		bool rightPressed = input_->PushKey(DIK_RIGHT);
+		bool leftPressed = input_->PushKey(DIK_LEFT);
+
+		if (lightSprite_) {
+			if (rightPressed) {
+				// 明るく表示
+				lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+			} else {
+				// 非押下はやや半透明
+				lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+			}
+		}
+		if (leftSprite_) {
+			if (leftPressed) {
+				leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+			} else {
+				leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+			}
+		}
+	}
+
+	// 常に右下に表示するため、毎フレーム位置を再設定する（ウィンドウリサイズ対応）
+	float margin = 20.0f;
+	float gap = 16.0f; // スプライト間のギャップ
+
+	// 実際のサイズを取得（スプライトが無ければ基準値を使う）
+	float controlSize = 80.0f;
+	//float shiftW = shiftSprite_ ? shiftSprite_->GetSize().x : controlSize * 1.5f;
+	//float lightW = lightSprite_ ? lightSprite_->GetSize().x : controlSize;
+	//float leftW = leftSprite_ ? leftSprite_->GetSize().x : controlSize;
+
+	float bottomY = static_cast<float>(WinApp::kWindowHeight) - margin; // 下辺の位置
+
+	// 矢印（light/left）は下端に横並びで配置
+	float lightRightX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSize + controlGroupOffset_; // グループオフセット適用
+	float leftRightX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * controlSize - gap + controlGroupOffset_;  // グループオフセット適用
+
+	if (lightSprite_) {
+		lightSprite_->SetAnchorPoint({1.0f, 1.0f});
+		lightSprite_->SetSize({controlSize, controlSize});
+		lightSprite_->SetPosition({lightRightX, bottomY});
+	}
+	if (leftSprite_) {
+		leftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		leftSprite_->SetSize({controlSize, controlSize});
+		leftSprite_->SetPosition({leftRightX, bottomY});
+	}
+
+	// Shift は light の上に表示する
+	float verticalGap = 8.0f; // 縦方向の隙間
+	if (shiftSprite_) {
+		shiftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		shiftSprite_->SetSize({controlSize * 1.5f, controlSize});
+		// 矢印スプライト一個分右にずらす + クラスメンバで追加オフセット
+		float shiftRightX = lightRightX + controlSize + shiftExtraRight_;
+		float shiftBottomY = bottomY - controlSize - verticalGap - shiftExtraUp_; // light の上に配置
+		shiftSprite_->SetPosition({shiftRightX, shiftBottomY});
+	}
+
+	// Shift の表示（Shift 押下時は点滅）
+	if (shiftSprite_ && input_) {
+		bool shiftPressed = input_->PushKey(DIK_RSHIFT) || input_->PushKey(DIK_LSHIFT);
+		bool aPressed = input_->PushKey(DIK_A);
+		bool dPressed = input_->PushKey(DIK_D);
+		if (shiftPressed && (aPressed || dPressed)) {
+			shiftBlinkTimer_++;
+			const int blinkPeriod = 8;
+			bool visible = ((shiftBlinkTimer_ / blinkPeriod) % 2) == 0;
+			float alpha = visible ? 1.0f : 0.3f;
+			shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, alpha});
+		} else {
+			shiftBlinkTimer_ = 0;
+			shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+		}
+	}
 
 	switch (sceneState) {
 	case SceneState::Start: {
@@ -318,16 +458,64 @@ void GameScene::Update() {
 			if (railCamera_) {
 				railCamera_->SetCanMove(true);
 			}
+
+			// デバッグ10秒タイマーをリセット（ゲーム開始時にカウント開始）
+			// これにより、ゲーム開始から kDebug10Seconds 秒後に自動でタイトルへ戻る
+			debug10ElapsedSec_ = 0.0f;
 		}
 		break;
 	}
 	case SceneState::Game: {
 
+		// デバッグ: ゲーム開始から10秒でタイトルへ戻す処理
+		// 有効な場合、毎フレーム（60FPS 想定で）経過秒数を加算し、指定秒数経過後にタイトルへ遷移する
+		if (debug10 && isGameIntroFinished_) {
+			const float kDeltaSec = 1.0f / 60.0f; // フレーム毎の秒換算（概算）
+			debug10ElapsedSec_ += kDeltaSec;
+			if (debug10ElapsedSec_ >= kDebug10Seconds) {
+				// 10秒経過したのでタイトルへ戻す（リセット処理）
+				sceneState = SceneState::Start;
+				debug10ElapsedSec_ = 0.0f;
+
+				camera_.Initialize();
+				camera_.TransferMatrix();
+				if (railCamera_) {
+					railCamera_->Reset();
+				}
+				if (player_) {
+					player_->ResetRotation();
+					player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+					player_->GetWorldTransform().UpdateMatrix();
+					player_->ResetParticles();
+					player_->ResetBullets();
+				}
+
+				for (Enemy* enemy : enemies_) {
+					delete enemy;
+				}
+				enemies_.clear();
+				for (EnemyBullet* bullet : enemyBullets_) {
+					delete bullet;
+				}
+				enemyBullets_.clear();
+
+				for (Meteorite* meteor : meteorites_) {
+					delete meteor;
+				}
+				meteorites_.clear();
+				meteoriteSpawnTimer_ = 0;
+
+				LoadEnemyPopData();
+				hasSpawnedEnemies_ = false;
+
+				// 処理を終えてこのフレームの残りの Game 処理をスキップ
+				break;
+			}
+		}
+
 
 		// デバッグ
 		//gameSceneTimer_++;
-
-
 		// --- デバッグ用: 1秒でクリア (60フレーム) ---
 		const int DEBUG_CLEAR_TIME = 60; // 1秒
 		if (gameSceneTimer_ > DEBUG_CLEAR_TIME) {
@@ -410,11 +598,9 @@ void GameScene::Update() {
 				bullet->Update();
 			}
 
-			// HOMING spawn logic
 			if (homingSpawnTimer_ > 0) {
 				homingSpawnTimer_--;
 			} else {
-				// Find one enemy within max distance but not too close to player
 				Enemy* shooter = nullptr;
 				KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
 				float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
@@ -429,15 +615,14 @@ void GameScene::Update() {
 					float dy = epos.y - playerPosForHoming.y;
 					float dz = epos.z - playerPosForHoming.z;
 					float distSq = dx * dx + dy * dy + dz * dz;
-					// only choose enemy if within max distance and further than min distance
 					if (distSq <= maxDistSq && distSq > minDistSq) {
 						shooter = enemy;
-						break; // use first found
+						break;
 					}
 				}
 
 				if (shooter) {
-					// create homing bullet
+
 					KamataEngine::Vector3 moveBullet = shooter->GetWorldPosition();
 					KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 					KamataEngine::Vector3 toPlayer = playerPos - moveBullet;
@@ -451,7 +636,7 @@ void GameScene::Update() {
 
 					EnemyBullet* newBullet = new EnemyBullet();
 					//newBullet->Initialize(modelEnemy_, moveBullet, vel); // 生成時に enemy 弾モデルを渡す
-					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel); // 敵弾用モデルで初期化（修正）
+					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel); // 敵弾用モデルで初期化
 					newBullet->SetHomingEnabled(true);
 					newBullet->SetHomingTarget(player_);
 					newBullet->SetSpeed(kHomingBulletSpeed_);
@@ -787,6 +972,18 @@ void GameScene::Draw() {
 	// 自機アイコン (最前面)
 	if (minimapPlayerSprite_) {
 		minimapPlayerSprite_->Draw();
+	}
+
+	// 追加: 右/左キー表示を最前面に描画（常に右下に表示）
+	if (leftSprite_) {
+		leftSprite_->Draw();
+	}
+	if (lightSprite_) {
+		lightSprite_->Draw();
+	}
+	// Shift を最前面に描画
+	if (shiftSprite_) {
+		shiftSprite_->Draw();
 	}
 
 	if (sceneState == SceneState::Clear) {
