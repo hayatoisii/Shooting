@@ -594,14 +594,14 @@ void GameScene::Update() {
 				enemy->Update();
 			}
 
-			/*
+			
 			for (Meteorite* meteor : meteorites_) {
 				if (meteor) {
 					// Playerの位置を渡して更新（近づくと大きくなる処理のため）
 					meteor->Update(player_->GetWorldPosition());
 				}
 			}
-			*/
+			
 
 			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）
 			for (EnemyBullet* bullet : enemyBullets_) {
@@ -1267,15 +1267,15 @@ void GameScene::SpawnMeteorite() {
 	randomDir = KamataEngine::MathUtility::Normalize(randomDir);
 
 	// この距離に隕石が発生する
-	const float kSpawnDistance = 0.0f;
+	const float kSpawnDistance = 800.0f;
 
 	KamataEngine::Vector3 offset = randomDir * kSpawnDistance;
 	KamataEngine::Vector3 spawnPos = cameraPos + offset;
 
 	// スケールと半径をランダム
-	const float kBaseRadius = 0.0f;
-	const float kMinScale = 0.0f;
-	const float kMaxScale = 0.0f;
+	const float kBaseRadius = 2.0f;
+	const float kMinScale = 1.0f;
+	const float kMaxScale = 5.0f;
 
 	float randFactor = static_cast<float>(std::rand()) / RAND_MAX;
 	float randomBaseScale = kMinScale + (randFactor * (kMaxScale - kMinScale));
@@ -1284,6 +1284,7 @@ void GameScene::SpawnMeteorite() {
 	newMeteor->Initialize(modelMeteorite_, spawnPos, randomBaseScale, randomRadius);
 	meteorites_.push_back(newMeteor);
 }
+
 
 void GameScene::UpdateMeteorites() {
 	// 　この数値より離れたら隕石を消去
