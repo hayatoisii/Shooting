@@ -574,14 +574,14 @@ void GameScene::Update() {
 		}
 
 		if (isGameIntroFinished_) {
-			const int kSpawnsPerFrame = 0;
+			const int kSpawnsPerFrame = 1;
 			meteoriteSpawnTimer_--;
 			if (meteoriteSpawnTimer_ <= 0) {
 				for (int i = 0; i < kSpawnsPerFrame; ++i) {
-					// SpawnMeteorite();
+					 SpawnMeteorite();
 				}
 				// 隕石の数
-				meteoriteSpawnTimer_ = 0;
+				meteoriteSpawnTimer_ = 1;
 			}
 
 			// Playerを先に更新して、最新の位置を取得できるようにする
@@ -593,6 +593,16 @@ void GameScene::Update() {
 			for (Enemy* enemy : enemies_) {
 				enemy->Update();
 			}
+
+			/*
+			for (Meteorite* meteor : meteorites_) {
+				if (meteor) {
+					// Playerの位置を渡して更新（近づくと大きくなる処理のため）
+					meteor->Update(player_->GetWorldPosition());
+				}
+			}
+			*/
+
 			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）
 			for (EnemyBullet* bullet : enemyBullets_) {
 				bullet->Update();
