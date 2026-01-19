@@ -200,5 +200,5 @@ private:
 	// デバッグ: ゲーム開始から指定秒数でタイトルに戻す
 	bool debug10 = true;            // 有効化フラグ
 	float debug10ElapsedSec_ = 0.0f; // 経過秒数
-	const float kDebug10Seconds = 10.0f; // タイトルへ戻すまでの秒数（10秒）
+	const float kDebug10Seconds = 100.0f; // タイトルへ戻すまでの秒数（10秒）
 };

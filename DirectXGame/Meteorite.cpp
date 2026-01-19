@@ -39,6 +39,7 @@ void Meteorite::Update(const KamataEngine::Vector3& playerPos) {
 	} else {
 		// kMaxDistanceより遠い場合は見えない
 		scaleFactor = 0.0f;
+		isDead_ = true;
 	}
 
 	float finalScale = baseScale_ * scaleFactor;
