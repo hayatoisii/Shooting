@@ -1,4 +1,5 @@
 #pragma once
+#include <cmath>
 
 namespace KamataEngine {
 
@@ -6,7 +7,7 @@ namespace KamataEngine {
 /// 3次元ベクトル
 /// </summary>
 
-	struct Vector3 final {
+struct Vector3 final {
 	float x, y, z;
 
 	// 内積を計算するメンバー関数
@@ -35,6 +36,21 @@ namespace KamataEngine {
 	}
 
 	Vector3 operator*(float scalar) const { return {x * scalar, y * scalar, z * scalar}; }
+
+	Vector3 Normalize() const {
+		float lenSq = x * x + y * y + z * z;
+		if (lenSq == 0.0f)
+			return {0.0f, 0.0f, 0.0f};
+		float invLen = 1.0f / std::sqrt(lenSq);
+		return {x * invLen, y * invLen, z * invLen};
+	}
+	// *= 演算子のオーバーロードを追加
+	Vector3& operator*=(float scalar) {
+		this->x *= scalar;
+		this->y *= scalar;
+		this->z *= scalar;
+		return *this;
+	}
 };
 
 } // namespace KamataEngine
