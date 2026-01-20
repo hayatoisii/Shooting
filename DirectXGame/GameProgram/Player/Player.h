@@ -47,6 +47,8 @@ public:
 	// 回避中かどうかを取得
 	bool IsRolling() const { return isRolling_; }
 
+	void SetControlsEnabled(bool enabled) { controlsEnabled_ = enabled; }
+
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
 	KamataEngine::Model* model_ = nullptr;
@@ -90,4 +92,6 @@ private:
 	// 水平方向（左右）揺れ用
 	float hitShakeHorizontalAmplitude_ = 0.0f; // 水平
 	float hitShakePrevHorizontalOffset_ = 0.0f;
+
+	bool controlsEnabled_ = true; // when false, ignore dodge/shift input for debugging
 };

@@ -212,12 +212,12 @@ void Player::Update() {
 	if (dodgeTimer_ > 0) {
 		dodgeTimer_--;
 	} else {
-		if (input_->PushKey(DIK_LSHIFT)) {
+		if (controlsEnabled_ && input_->PushKey(DIK_LSHIFT)) {
 			float dodgeDir = 0.0f;
 			if (input_->PushKey(DIK_A))
-				dodgeDir = -1.0f;
+				dodgeDir = -0.0f;
 			else if (input_->PushKey(DIK_D))
-				dodgeDir = 1.0f;
+				dodgeDir = 0.0f;
 
 			if (dodgeDir != 0.0f && railCamera_) {
 				railCamera_->Dodge(dodgeDir);

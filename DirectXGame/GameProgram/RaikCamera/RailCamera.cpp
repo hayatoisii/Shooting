@@ -27,11 +27,59 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 void RailCamera::Update() {
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
+	if (!inputEnabled_) {
+		// If input disabled, only apply assist acceleration and update physics without direct key input
+		Vector3 rotAcceleration = assistAcceleration_;
+		assistAcceleration_ = {0.0f, 0.0f, 0.0f};
+
+		rotationVelocity_ += rotAcceleration;
+		rotationVelocity_.x *= 0.90f;
+		rotationVelocity_.z *= 0.95f;
+		rotationVelocity_.y *= 0.86f;
+
+		// Apply quaternion rotation and transform without reading keys
+		Matrix4x4 currentRotationMatrix = Quaternion::MakeMatrix(rotation_);
+		Vector3 localXAxis = {currentRotationMatrix.m[0][0], currentRotationMatrix.m[0][1], currentRotationMatrix.m[0][2]};
+		Vector3 localYAxis = {currentRotationMatrix.m[1][0], currentRotationMatrix.m[1][1], currentRotationMatrix.m[1][2]};
+		Vector3 localZAxis = {currentRotationMatrix.m[2][0], currentRotationMatrix.m[2][1], currentRotationMatrix.m[2][2]};
+
+		localXAxis = localXAxis.Normalize();
+		localYAxis = localYAxis.Normalize();
+		localZAxis = localZAxis.Normalize();
+
+		float deltaPitch = rotationVelocity_.x;
+		float deltaYaw = rotationVelocity_.y;
+		float deltaRoll = rotationVelocity_.z;
+
+		Quaternion deltaQuatYaw = Quaternion::MakeRotateAxisAngle(localYAxis, deltaYaw);
+		Quaternion deltaQuatPitch = Quaternion::MakeRotateAxisAngle(localXAxis, deltaPitch);
+		Quaternion deltaQuatRoll = Quaternion::MakeRotateAxisAngle(localZAxis, deltaRoll);
+
+		rotation_ = deltaQuatRoll * deltaQuatPitch * deltaQuatYaw * rotation_;
+		rotation_ = Quaternion::Normalize(rotation_);
+
+		Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
+		Vector3 move = {0.0f, 0.0f, 0.0f};
+		move = KamataEngine::MathUtility::TransformNormal(move, rotationMatrix);
+		Vector3 currentPosition = worldtransfrom_.translation_;
+		Vector3 newPosition = currentPosition + move;
+
+		worldtransfrom_.matWorld_ = rotationMatrix;
+		worldtransfrom_.matWorld_.m[3][0] = newPosition.x;
+		worldtransfrom_.matWorld_.m[3][1] = newPosition.y;
+		worldtransfrom_.matWorld_.m[3][2] = newPosition.z;
+		worldtransfrom_.translation_ = newPosition;
+
+		camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
+		camera_.TransferMatrix();
+		return;
+	}
+
 	// 自動飛行の速度
 	const float kCameraSpeed = 0.0f;          // 0.8f; // 1.5
-	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
-	const float kRollAcceleration = 0.0016f;  // 横の回転
-	const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
+	//const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
+	//const float kRollAcceleration = 0.0016f;  // 横の回転
+	//const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
 	const float kRotFriction = 0.95f;
 	const float kYawFriction = 0.86f;
 	const float kXawFriction = 0.90f; // 89
@@ -40,23 +88,23 @@ void RailCamera::Update() {
 	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
 
 	if (input->PushKey(DIK_W)) {
-		rotAcceleration.x = -kPitchAcceleration;
+		//rotAcceleration.x = -kPitchAcceleration;
 	}
 	if (input->PushKey(DIK_S)) {
-		rotAcceleration.x = kPitchAcceleration;
+		//rotAcceleration.x = kPitchAcceleration;
 	}
 	if (input->PushKey(DIK_LEFT)) {
-		rotAcceleration.z = kRollAcceleration; // ロール
+		//rotAcceleration.z = kRollAcceleration; // ロール
 	}
 	if (input->PushKey(DIK_RIGHT)) {
-		rotAcceleration.z = -kRollAcceleration; // ロール
+		//rotAcceleration.z = -kRollAcceleration; // ロール
 	}
 
 	if (input->PushKey(DIK_A)) {
-		rotAcceleration.y = -kYawAcceleration; // ヨー
+		//rotAcceleration.y = -kYawAcceleration; // ヨー
 	}
 	if (input->PushKey(DIK_D)) {
-		rotAcceleration.y = kYawAcceleration; // ヨー
+		//rotAcceleration.y = kYawAcceleration; // ヨー
 	}
 
 	rotationVelocity_ += rotAcceleration;

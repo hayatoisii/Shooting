@@ -61,7 +61,7 @@ private:
 	Model* modelEnemy_ = nullptr;
 
 	int32_t gameSceneTimer_ = 0;
-	const int32_t kGameTimeLimit_ = 60 * 30;
+	const int32_t kGameTimeLimit_ = 60 * 2;
 
 	Vector3 railcameraPos = {0, 5, -50};
 	Vector3 railcameraRad = {0, 0, 0};
@@ -80,7 +80,7 @@ private:
 	Model* modelTitleObject_ = nullptr;
 	WorldTransform worldTransformTitleObject_;
 
-	enum class SceneState { Start, TransitionToGame, TransitionFromGame, GameIntro, Game, Clear, over };
+	enum class SceneState { Start, TransitionToGame, TransitionFromGame, GameIntro, Game, PlayerDepart, Clear, over };
 	SceneState sceneState = SceneState::Start;
 
 	float DistanceSquared(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2);
@@ -175,4 +175,21 @@ private:
 	const int kHomingIntervalFrames_ = 60 * 10;
 	const float kHomingMaxDistance_ = 3000.0f;
 	const float kHomingBulletSpeed_ = 8.0f; // requested speed
+
+	// --- Player depart (fly off) animation when returning to title ---
+	int playerDepartTimer_ = 0;
+	bool playerDepartActive_ = false;
+	const int kPlayerDepartDuration_ = 180; // frames (increased for slower, smoother depart)
+	const float kPlayerDepartHeight_ = 60.0f; // world units to move up (reduced)
+	const float kCameraFollowUp_ = 40.0f; // how much camera moves up to follow (increased)
+
+    // additional upward look bias for depart (makes camera look slightly more up)
+    const float kCameraLookUpBias_ = 10.0f;
+
+	// store initial depart start pos so Lerp is stable
+	KamataEngine::Vector3 playerDepartStartPosition_ = {0.0f, 0.0f, 0.0f};
+
+	// Called when depart finishes to finalize return to Start
+	void FinishReturnToStart();
+	void StartPlayerDepart();
 };

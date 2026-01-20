@@ -28,6 +28,8 @@ public:
 	const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; }
 
 	void SetCanMove(bool canMove) { canMove_ = canMove; }
+	void SetInputEnabled(bool enabled) { inputEnabled_ = enabled; }
+	bool IsInputEnabled() const { return inputEnabled_; }
 
 	void Reset();
 
@@ -39,6 +41,7 @@ public:
 
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
+	bool inputEnabled_ = true;
 
 	KamataEngine::Vector3 initialPosition_;
 	KamataEngine::Vector3 initialRotationEuler_;

@@ -64,6 +64,64 @@ GameScene::~GameScene() {
 	}
 }
 
+void GameScene::StartPlayerDepart() {
+	playerDepartActive_ = true;
+	playerDepartTimer_ = 0;
+	// store start position
+	if (player_) {
+		playerDepartStartPosition_ = player_->GetWorldTransform().translation_;
+		player_->ResetParticles();
+		player_->ResetBullets();
+		// disable player controls
+		player_->SetControlsEnabled(false);
+	}
+	// Disable direct camera input for a clean depart animation
+	if (railCamera_) {
+		railCamera_->SetInputEnabled(false);
+	}
+}
+
+void GameScene::FinishReturnToStart() {
+	// Finalize reset and return to Start
+	sceneState = SceneState::Start;
+	gameOverTimer_ = 0;
+	camera_.Initialize();
+	camera_.TransferMatrix();
+
+	if (railCamera_) {
+		railCamera_->Reset();
+		// Re-enable input after reset
+		railCamera_->SetInputEnabled(true);
+	}
+
+	if (player_) {
+		player_->ResetRotation();
+		player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+		player_->GetWorldTransform().UpdateMatrix();
+		player_->ResetParticles();
+		player_->ResetBullets();
+		// re-enable player controls
+		player_->SetControlsEnabled(true);
+	}
+
+	for (Enemy* enemy : enemies_) {
+		delete enemy;
+	}
+	enemies_.clear();
+	for (EnemyBullet* bullet : enemyBullets_) {
+		delete bullet;
+	}
+	enemyBullets_.clear();
+	for (Meteorite* meteor : meteorites_) {
+		delete meteor;
+	}
+	meteorites_.clear();
+	meteoriteSpawnTimer_ = 0;
+
+	LoadEnemyPopData();
+	hasSpawnedEnemies_ = false;
+}
+
 void GameScene::Initialize() {
 	dxCommon_ = DirectXCommon::GetInstance();
 	input_ = Input::GetInstance();
@@ -318,7 +376,6 @@ void GameScene::Update() {
 	}
 	case SceneState::Game: {
 
-
 		// デバッグ
 		gameSceneTimer_++; // デバッグ用: ゲーム進行タイマーをカウント
 
@@ -326,37 +383,9 @@ void GameScene::Update() {
 		const int kDebugAutoReturnSeconds = 15;
 		const int kDebugAutoReturnFrames = kDebugAutoReturnSeconds * 60; // 60fps 前提
 		if (gameSceneTimer_ >= kDebugAutoReturnFrames) {
-			// タイトルへ戻す処理（kGameTimeLimit_ のブロックと同様）
-			sceneState = SceneState::Start;
-			camera_.Initialize();
-			camera_.TransferMatrix();
-			if (railCamera_) {
-				railCamera_->Reset();
-			}
-			if (player_) {
-				player_->ResetRotation();
-				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-				player_->GetWorldTransform().UpdateMatrix();
-				player_->ResetParticles();
-				player_->ResetBullets();
-			}
-			for (Enemy* enemy : enemies_) {
-				delete enemy;
-			}
-			enemies_.clear();
-			for (EnemyBullet* bullet : enemyBullets_) {
-				delete bullet;
-			}
-			enemyBullets_.clear();
-
-			for (Meteorite* meteor : meteorites_) {
-				delete meteor;
-			}
-			meteorites_.clear();
-			meteoriteSpawnTimer_ = 0;
-
-			LoadEnemyPopData();
-			hasSpawnedEnemies_ = false;
+			// Initiate player depart animation instead of immediate title switch
+			StartPlayerDepart();
+			sceneState = SceneState::PlayerDepart;
 			break;
 		}
 
@@ -372,36 +401,9 @@ void GameScene::Update() {
 
 		// デモ用自動復帰タイマー
 		if (gameSceneTimer_ > kGameTimeLimit_) {
-			sceneState = SceneState::Start;
-			camera_.Initialize();
-			camera_.TransferMatrix();
-			if (railCamera_) {
-				railCamera_->Reset();
-			}
-			if (player_) {
-				player_->ResetRotation();
-				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-				player_->GetWorldTransform().UpdateMatrix();
-				player_->ResetParticles();
-				player_->ResetBullets();
-			}
-			for (Enemy* enemy : enemies_) {
-				delete enemy;
-			}
-			enemies_.clear();
-			for (EnemyBullet* bullet : enemyBullets_) {
-				delete bullet;
-			}
-			enemyBullets_.clear();
-
-			for (Meteorite* meteor : meteorites_) {
-				delete meteor;
-			}
-			meteorites_.clear();
-			meteoriteSpawnTimer_ = 0;
-
-			LoadEnemyPopData();
-			hasSpawnedEnemies_ = false;
+			// Initiate player depart animation instead of immediate title switch
+			StartPlayerDepart();
+			sceneState = SceneState::PlayerDepart;
 			break;
 		}
 
@@ -569,6 +571,70 @@ void GameScene::Update() {
 
 		break;
 	}
+	case SceneState::PlayerDepart: {
+		// Animate player flying upwards while pitching up and slightly move camera to follow
+		if (!playerDepartActive_) {
+			// safety fallback
+			FinishReturnToStart();
+			break;
+		}
+
+		playerDepartTimer_++;
+		float t = (float)playerDepartTimer_ / (float)kPlayerDepartDuration_;
+		t = std::clamp(t, 0.0f, 1.0f);
+		// ease out
+		float eased = 1.0f - std::pow(1.0f - t, 3.0f);
+
+		// move player up from stored start pos to target
+		KamataEngine::Vector3 startPos = playerDepartStartPosition_;
+		KamataEngine::Vector3 targetPos = startPos;
+		targetPos.y += kPlayerDepartHeight_;
+		player_->GetWorldTransform().translation_ = Lerp(startPos, targetPos, eased);
+
+		// smoothly pitch the model up so nose points upward during depart
+		float targetPitch = -1.2f; // ~ -69 degrees
+		player_->GetWorldTransform().rotation_.x = targetPitch * eased;
+		player_->GetWorldTransform().UpdateMatrix();
+
+		// Camera: smoothly move camera world position up and orient to look at player
+		if (railCamera_) {
+			// take camera world matrix and move up
+			KamataEngine::Matrix4x4 camWorld = railCamera_->GetWorldTransform().matWorld_;
+			// compute desired camera position (raise and back a bit)
+			KamataEngine::Vector3 camPos = {camWorld.m[3][0], camWorld.m[3][1], camWorld.m[3][2]};
+			KamataEngine::Vector3 desiredCamPos = camPos;
+			desiredCamPos.y += kCameraFollowUp_ * eased;
+
+			// compute look-at matrix to face player
+			KamataEngine::Vector3 eye = desiredCamPos;
+			KamataEngine::Vector3 at = player_->GetWorldTransform().translation_;
+			KamataEngine::Vector3 up = {0.0f, 1.0f, 0.0f};
+
+			// Build lookAt (view) matrix
+			KamataEngine::Vector3 zaxis = at - eye;
+			zaxis = KamataEngine::MathUtility::Normalize(zaxis);
+			KamataEngine::Vector3 xaxis = KamataEngine::MathUtility::Cross(up, zaxis);
+			xaxis = KamataEngine::MathUtility::Normalize(xaxis);
+			KamataEngine::Vector3 yaxis = KamataEngine::MathUtility::Cross(zaxis, xaxis);
+
+			KamataEngine::Matrix4x4 view;
+			view.m[0][0] = xaxis.x; view.m[1][0] = xaxis.y; view.m[2][0] = xaxis.z; view.m[3][0] = - (xaxis.x*eye.x + xaxis.y*eye.y + xaxis.z*eye.z);
+			view.m[0][1] = yaxis.x; view.m[1][1] = yaxis.y; view.m[2][1] = yaxis.z; view.m[3][1] = - (yaxis.x*eye.x + yaxis.y*eye.y + yaxis.z*eye.z);
+			view.m[0][2] = zaxis.x; view.m[1][2] = zaxis.y; view.m[2][2] = zaxis.z; view.m[3][2] = - (zaxis.x*eye.x + zaxis.y*eye.y + zaxis.z*eye.z);
+			view.m[0][3] = 0.0f; view.m[1][3] = 0.0f; view.m[2][3] = 0.0f; view.m[3][3] = 1.0f;
+
+			camera_.matView = view;
+			camera_.matProjection = railCamera_->GetViewProjection().matProjection;
+			camera_.TransferMatrix();
+		}
+
+		if (playerDepartTimer_ >= kPlayerDepartDuration_) {
+			playerDepartActive_ = false;
+			// finalize reset
+			FinishReturnToStart();
+		}
+		break;
+	}
 	case SceneState::Clear:
 		// ensure skydome drawn etc handled in Draw
 		// Start confetti when entering Clear
@@ -665,7 +731,9 @@ void GameScene::Update() {
 		// allow return to title
 		if (input_->TriggerKey(DIK_SPACE)) {
 			confettiActive_ = false;
-			sceneState = SceneState::Start;
+			// Start depart animation rather than immediate switch
+			StartPlayerDepart();
+			sceneState = SceneState::PlayerDepart;
 			// reset as before...
 			// ...existing reset code omitted for brevity...
 		}
@@ -689,40 +757,9 @@ void GameScene::Update() {
 
 		// --- リセット処理 ---
 		if (input_->TriggerKey(DIK_SPACE) || gameOverTimer_ >= 90) {
-			sceneState = SceneState::Start;
-			gameOverTimer_ = 0;
-
-			camera_.Initialize();
-			camera_.TransferMatrix();
-
-			if (railCamera_) {
-				railCamera_->Reset();
-			}
-
-			if (player_) {
-				player_->ResetRotation();
-				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-				player_->GetWorldTransform().UpdateMatrix();
-				player_->ResetParticles();
-				player_->ResetBullets();
-			}
-
-			for (Enemy* enemy : enemies_) {
-				delete enemy;
-			}
-			enemies_.clear();
-			for (EnemyBullet* bullet : enemyBullets_) {
-				delete bullet;
-			}
-			enemyBullets_.clear();
-			for (Meteorite* meteor : meteorites_) {
-				delete meteor;
-			}
-			meteorites_.clear();
-			meteoriteSpawnTimer_ = 0;
-
-			LoadEnemyPopData();
-			hasSpawnedEnemies_ = false;
+			// Start depart animation instead of immediate switch
+			StartPlayerDepart();
+			sceneState = SceneState::PlayerDepart;
 		}
 		break;
 	}
@@ -737,7 +774,7 @@ void GameScene::Draw() {
 
 	if (sceneState == SceneState::Start || sceneState == SceneState::TransitionToGame) {
 		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
-	} else if (sceneState == SceneState::GameIntro || sceneState == SceneState::Game || sceneState == SceneState::TransitionFromGame || sceneState == SceneState::over) {
+	} else if (sceneState == SceneState::GameIntro || sceneState == SceneState::Game || sceneState == SceneState::TransitionFromGame || sceneState == SceneState::over || sceneState == SceneState::PlayerDepart) {
 
 		player_->Draw();
 		skydome_->Draw();
@@ -1288,31 +1325,31 @@ void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
 
 KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos) {
 
-	// 1. 自機からの相対座標 (XZ平面のみ)
-	float relativeX = worldPos.x - playerPos.x;
-	float relativeZ = worldPos.z - playerPos.z;
+    // 1. 自機からの相対座標 (XZ平面のみ)
+    float relativeX = worldPos.x - playerPos.x;
+    float relativeZ = worldPos.z - playerPos.z;
 
-	// 2. ミニマップのスケールを適用 (ワールドのZ+ を ミニマップのY+ (上) に)
-	float minimapOffsetX = relativeX * kMinimapScale_;
-	float minimapOffsetY = relativeZ * kMinimapScale_ * -1.0f; // Y軸反転
+    // 2. ミニマップのスケールを適用 (ワールドのZ+ を ミニマップのY+ (上) に)
+    float minimapOffsetX = relativeX * kMinimapScale_;
+    float minimapOffsetY = relativeZ * kMinimapScale_ * -1.0f; // Y軸反転
 
-	// 3. ミニマップの中心座標を計算
-	KamataEngine::Vector2 minimapCenterPos = {
-	    kMinimapPosition_.x + kMinimapSize_.x * 0.5f,
-	    kMinimapPosition_.y - kMinimapSize_.y * 0.5f // 左下アンカー基準
-	};
+    // 3. ミニマップの中心座標を計算
+    KamataEngine::Vector2 minimapCenterPos = {
+        kMinimapPosition_.x + kMinimapSize_.x * 0.5f,
+        kMinimapPosition_.y - kMinimapSize_.y * 0.5f // 左下アンカー基準
+    };
 
-	// 4. 中心の座標にオフセットを加える
-	KamataEngine::Vector2 finalPos = {minimapCenterPos.x + minimapOffsetX, minimapCenterPos.y + minimapOffsetY};
+    // 4. 中心の座標にオフセットを加える
+    KamataEngine::Vector2 finalPos = {minimapCenterPos.x + minimapOffsetX, minimapCenterPos.y + minimapOffsetY};
 
-	// 5. ミニマップの範囲内に座標をクランプ (はみ出さないように)
-	float minX = kMinimapPosition_.x;
-	float maxX = kMinimapPosition_.x + kMinimapSize_.x;
-	float minY = kMinimapPosition_.y - kMinimapSize_.y; // Yは上(小)・下(大)
-	float maxY = kMinimapPosition_.y;
+    // 5. ミニマップの範囲内に座標をクランプ (はみ出さないように)
+    float minX = kMinimapPosition_.x;
+    float maxX = kMinimapPosition_.x + kMinimapSize_.x;
+    float minY = kMinimapPosition_.y - kMinimapSize_.y; // Yは上(小)・下(大)
+    float maxY = kMinimapPosition_.y;
 
-	finalPos.x = std::clamp(finalPos.x, minX, maxX);
-	finalPos.y = std::clamp(finalPos.y, minY, maxY);
+    finalPos.x = std::clamp(finalPos.x, minX, maxX);
+    finalPos.y = std::clamp(finalPos.y, minY, maxY);
 
-	return finalPos;
+    return finalPos;
 }
