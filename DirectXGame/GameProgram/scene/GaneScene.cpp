@@ -157,6 +157,31 @@ void GameScene::Initialize() {
 	aimAssistCircleSprite_ = KamataEngine::Sprite::Create(aimAssistCircleTextureHandle_, {0, 0});
 	aimAssistCircleSprite_->SetSize({0.0f, 0.0f});
 
+	// Pause sprite (overlay)
+	pauseTextureHandle_ = KamataEngine::TextureManager::Load("pause.png");
+	if (pauseTextureHandle_ != 0) {
+		pauseSprite_ = KamataEngine::Sprite::Create(pauseTextureHandle_, {0, 0});
+		if (pauseSprite_) {
+			pauseSprite_->SetAnchorPoint({0.5f, 0.5f});
+			pauseSprite_->SetPosition(screenCenter);
+			// Use original image size 1280x720
+			pauseSprite_->SetSize({1280.0f, 720.0f});
+		}
+	}
+
+	// Setumei sprite: always visible on game screen
+	pauseTextureHandle_ = pauseTextureHandle_; // ensure previous remains
+	setumeiTextureHandle_ = KamataEngine::TextureManager::Load("setumei.png");
+	if (setumeiTextureHandle_ != 0) {
+		setumeiSprite_ = KamataEngine::Sprite::Create(setumeiTextureHandle_, {0, 0});
+		if (setumeiSprite_) {
+			// top-left, small margin
+			setumeiSprite_->SetAnchorPoint({0.0f, 0.0f});
+			setumeiSprite_->SetPosition({10.0f, 10.0f});
+			// keep original texture size (do not set size)
+		}
+	}
+
 	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true);
 	explosionEmitter_ = new ParticleEmitter();
 	if (explosionEmitter_) {
@@ -379,10 +404,20 @@ void GameScene::Update() {
 		// デバッグ
 		gameSceneTimer_++; // デバッグ用: ゲーム進行タイマーをカウント
 
+		// Toggle pause with P
+		if (input_->TriggerKey(DIK_P)) {
+			isPaused_ = !isPaused_;
+		}
+
+		// If paused, skip game updates
+		if (isPaused_) {
+			break;
+		}
+
 		// --- デバッグ用: 15秒経過で自動的にタイトルへ戻す (デバッグ) ---
 		const int kDebugAutoReturnSeconds = 15;
 		const int kDebugAutoReturnFrames = kDebugAutoReturnSeconds * 60; // 60fps 前提
-		if (gameSceneTimer_ >= kDebugAutoReturnFrames) {
+		if (autoDepartEnabled_ && gameSceneTimer_ >= kDebugAutoReturnFrames) {
 			// Initiate player depart animation instead of immediate title switch
 			StartPlayerDepart();
 			sceneState = SceneState::PlayerDepart;
@@ -400,7 +435,7 @@ void GameScene::Update() {
 
 
 		// デモ用自動復帰タイマー
-		if (gameSceneTimer_ > kGameTimeLimit_) {
+		if (autoDepartEnabled_ && gameSceneTimer_ > kGameTimeLimit_) {
 			// Initiate player depart animation instead of immediate title switch
 			StartPlayerDepart();
 			sceneState = SceneState::PlayerDepart;
@@ -756,7 +791,7 @@ void GameScene::Update() {
 		}
 
 		// --- リセット処理 ---
-		if (input_->TriggerKey(DIK_SPACE) || gameOverTimer_ >= 90) {
+		if (input_->TriggerKey(DIK_SPACE) || (autoDepartEnabled_ && gameOverTimer_ >= 90)) {
 			// Start depart animation instead of immediate switch
 			StartPlayerDepart();
 			sceneState = SceneState::PlayerDepart;
@@ -830,6 +865,12 @@ void GameScene::Draw() {
 			aimAssistCircleSprite_->Draw();
 		}
 
+		// Draw pause overlay on top if paused
+		if (sceneState == SceneState::Game && isPaused_) {
+			if (pauseSprite_)
+				pauseSprite_->Draw();
+		}
+
 		if (sceneState == SceneState::Game && isGameIntroFinished_) {
 			for (Enemy* enemy : enemies_) {
 				if (enemy) {
@@ -859,14 +900,16 @@ void GameScene::Draw() {
 		minimapPlayerSprite_->Draw();
 	}
 
-	if (sceneState == SceneState::Clear) {
-		if (clearSprite_)
-			clearSprite_->Draw();
-		// draw sprite confetti on top of clear sprite
-		for (auto& c : confettiParticles_) {
-			if (c.active && c.sprite)
-				c.sprite->Draw();
-		}
+	// draw setumei sprite on Game screen (always visible)
+	if (sceneState == SceneState::Game) {
+		if (setumeiSprite_)
+			setumeiSprite_->Draw();
+	}
+
+	// draw pause overlay last so it's on top of other sprites
+	if (sceneState == SceneState::Game && isPaused_) {
+		if (pauseSprite_)
+			pauseSprite_->Draw();
 	}
 
 	KamataEngine::Sprite::PostDraw();

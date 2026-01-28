@@ -129,7 +129,16 @@ private:
 	int confettiSpawnTimer_ = 0;
 	bool confettiActive_ = false;
 
-	struct ConfettiParticle {
+    // Pause sprite
+    KamataEngine::Sprite* pauseSprite_ = nullptr;
+    uint32_t pauseTextureHandle_ = 0;
+    bool isPaused_ = false;
+
+    // Setumei sprite (always visible label)
+    KamataEngine::Sprite* setumeiSprite_ = nullptr;
+    uint32_t setumeiTextureHandle_ = 0;
+
+    struct ConfettiParticle {
 		KamataEngine::Sprite* sprite = nullptr;
 		bool active = false;
 		KamataEngine::Vector2 pos = {0.0f, 0.0f};
@@ -188,6 +197,9 @@ private:
 
 	// store initial depart start pos so Lerp is stable
 	KamataEngine::Vector3 playerDepartStartPosition_ = {0.0f, 0.0f, 0.0f};
+
+    // When false, automatic depart triggered by timers is disabled (keeps game scene running)
+    bool autoDepartEnabled_ = false;
 
 	// Called when depart finishes to finalize return to Start
 	void FinishReturnToStart();
