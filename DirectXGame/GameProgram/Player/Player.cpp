@@ -88,7 +88,7 @@ void Player::Attack() {
 			cleanPlayerPos.y -= hitShakePrevVerticalOffset_;   // 縦揺れ分を除去
 
 			// 逆方向（プレイヤーの後ろ／手前の反対）に大きくずらす
-			float forwardOffset = 50.0f; // 大きめに移動させる（プレイヤーの向きの反対方向へ）
+			float forwardOffset = -10.0f; // 大きめに移動させる（プレイヤーの向きの反対方向へ）
 			float upOffset = -1.0f;
 			float rightOffset = 0.0f;
 
@@ -127,7 +127,7 @@ void Player::Attack() {
 
 			// --- ここまで弾発生位置の計算 ---
 
-			const float kBulletSpeed = 80.0f; // 弾速
+			const float kBulletSpeed = 60.0f; // 弾速
 			KamataEngine::Vector3 velocity;
 
 			float minDistanceSq = FLT_MAX;

@@ -1528,7 +1528,7 @@ void GameScene::AddScore(int points) {
 	UpdateScoreSprites();
 
 	// If score reaches or exceeds 200, request clear the scene at a safe point
-	if (sceneState == SceneState::Game && score_ >= 200) {
+	if (sceneState == SceneState::Game && score_ >= 600) {
 		requestSceneClear_ = true;
 	}
 }
