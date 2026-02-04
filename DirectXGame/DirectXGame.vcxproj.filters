@@ -84,10 +84,10 @@
     <ClCompile Include="GameProgram\MT\AABB.cpp">
       <Filter>GameProgram\MT</Filter>
     </ClCompile>
-    <ClCompile Include="Quaternion.cpp">
+    <ClCompile Include="GameProgram\MT\Quaternion.cpp">
       <Filter>GameProgram\MT</Filter>
     </ClCompile>
-    <ClCompile Include="Meteorite.cpp">
+    <ClCompile Include="GameProgram\Particle\Meteorite.cpp">
       <Filter>GameProgram\Enemy</Filter>
     </ClCompile>
   </ItemGroup>
@@ -177,10 +177,10 @@
     <ClInclude Include="GameProgram\MT\AABB.h">
       <Filter>GameProgram\MT</Filter>
     </ClInclude>
-    <ClInclude Include="Quaternion.h">
+    <ClInclude Include="GameProgram\MT\Quaternion.h">
       <Filter>GameProgram\MT</Filter>
     </ClInclude>
-    <ClInclude Include="Meteorite.h">
+    <ClInclude Include="GameProgram\Particle\Meteorite.h">
       <Filter>GameProgram\Enemy</Filter>
     </ClInclude>
   </ItemGroup>

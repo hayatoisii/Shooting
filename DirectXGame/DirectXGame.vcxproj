@@ -63,7 +63,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;_DEBUG;USE_IMGUI;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Meteorite;$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -86,7 +86,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Meteorite;$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\skydome;$(ProjectDir)GameProgram\Meteorite;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>MinSpace</Optimization>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -119,8 +119,8 @@
     <ClCompile Include="GameProgram\RaikCamera\RailCamera.cpp" />
     <ClCompile Include="GameProgram\skydome\Skydome.cpp" />
     <ClCompile Include="GameProgram\MT\worldTransformEx.cpp" />
-    <ClCompile Include="Meteorite.cpp" />
-    <ClCompile Include="Quaternion.cpp" />
+    <ClCompile Include="GameProgram\Particle\Meteorite.cpp" />
+    <ClCompile Include="GameProgram\MT\Quaternion.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\TerrainPS.hlsl">
@@ -210,8 +210,8 @@
     <ClInclude Include="GameProgram\RaikCamera\RailCamera.h" />
     <ClInclude Include="GameProgram\skydome\Skydome.h" />
     <ClInclude Include="GameProgram\MT\worldTransformEx.h" />
-    <ClInclude Include="Meteorite.h" />
-    <ClInclude Include="Quaternion.h" />
+    <ClInclude Include="GameProgram\Particle\Meteorite.h" />
+    <ClInclude Include="GameProgram\MT\Quaternion.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
