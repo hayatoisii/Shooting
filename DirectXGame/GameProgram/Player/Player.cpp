@@ -7,8 +7,8 @@
 #include <limits>
 // For window size constants
 #include "base/WinApp.h"
-#include <cstdio>
 #include <Windows.h>
+#include <cstdio>
 #include <vector>
 
 Player::~Player() {
@@ -27,6 +27,10 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("Bullet", true);
 	worldtransfrom_.translation_ = pos;
 	input_ = KamataEngine::Input::GetInstance();
+	audio_ = KamataEngine::Audio::GetInstance();
+	if (audio_)
+		hitPlayerSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
+
 
 	worldtransfrom_.Initialize();
 
@@ -51,8 +55,8 @@ void Player::OnCollision() {
 
 	// 被弾時に左右に揺れる
 	hitShakeTime_ = 0.0f;
-	hitShakeAmplitude_ = 0.6f; // 最大振幅
-	hitShakeVerticalAmplitude_ = 1.5f; // 垂直
+	hitShakeAmplitude_ = 0.6f;           // 最大振幅
+	hitShakeVerticalAmplitude_ = 1.5f;   // 垂直
 	hitShakeHorizontalAmplitude_ = 1.0f; // 水平
 }
 
@@ -114,12 +118,10 @@ void Player::Attack() {
 
 			// デバッグ出力: 座標を確認
 			char dbgBuf[256];
-			sprintf_s(dbgBuf, "playerPos=(%.2f,%.2f,%.2f) localF=(%.2f,%.2f,%.2f) camF=(%.2f,%.2f,%.2f) prefBullet=(%.2f,%.2f,%.2f) camBullet=(%.2f,%.2f,%.2f)\\n",
-			          playerWorldPos.x, playerWorldPos.y, playerWorldPos.z,
-			          localForward.x, localForward.y, localForward.z,
-			          cameraForward.x, cameraForward.y, cameraForward.z,
-			          preferredMoveBullet.x, preferredMoveBullet.y, preferredMoveBullet.z,
-			          cameraBasedMoveBullet.x, cameraBasedMoveBullet.y, cameraBasedMoveBullet.z);
+			sprintf_s(
+			    dbgBuf, "playerPos=(%.2f,%.2f,%.2f) localF=(%.2f,%.2f,%.2f) camF=(%.2f,%.2f,%.2f) prefBullet=(%.2f,%.2f,%.2f) camBullet=(%.2f,%.2f,%.2f)\\n", playerWorldPos.x, playerWorldPos.y,
+			    playerWorldPos.z, localForward.x, localForward.y, localForward.z, cameraForward.x, cameraForward.y, cameraForward.z, preferredMoveBullet.x, preferredMoveBullet.y,
+			    preferredMoveBullet.z, cameraBasedMoveBullet.x, cameraBasedMoveBullet.y, cameraBasedMoveBullet.z);
 			OutputDebugStringA(dbgBuf);
 
 			// プレイヤー基準（今回は後方へ大きくずらした位置）を優先して使う
@@ -178,106 +180,72 @@ void Player::Attack() {
 			Enemy* assistLockedEnemy = nullptr;
 			if (railCamera_ && enemies_) {
 				const float kVisualRadius = 0.08f;
-				const float kDetectionRadius = 0.1f;
+				// const float kDetectionRadius = 0.1f;
 				const float kAspect = (float)KamataEngine::WinApp::kWindowWidth / (float)KamataEngine::WinApp::kWindowHeight;
 				const float ndcVisualRadiusY = kVisualRadius * 2.0f;
 				const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;
-				const float ndcDetectionRadiusY = kDetectionRadius * 2.0f;
-				const float ndcDetectionRadiusX = ndcDetectionRadiusY / kAspect;
+				// const float ndcDetectionRadiusY = kDetectionRadius * 2.0f;
+				// const float ndcDetectionRadiusX = ndcDetectionRadiusY / kAspect;
 
 				const KamataEngine::Matrix4x4& viewMatrix = railCamera_->GetViewProjection().matView;
 				const KamataEngine::Matrix4x4& projMatrix = railCamera_->GetViewProjection().matProjection;
 
-				float bestNormSq = 1.0f;
+				// ロックオンされている敵（レティクルの円内）を探す
 				for (Enemy* e : *enemies_) {
-					if (!e || e->IsDead()) continue;
-					if (!e->IsOnScreen()) continue;
+					if (!e || e->IsDead())
+						continue;
+					if (!e->IsOnScreen())
+						continue;
+					// ロックオンされている敵のみを対象にする
+					if (!e->IsAssistLocked())
+						continue;
 					// world -> view
 					KamataEngine::Vector3 worldPos = e->GetWorldPosition();
 					KamataEngine::Vector3 viewPos;
 					viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
 					viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
 					viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
-					if (viewPos.z <= 0.0f) continue;
+					if (viewPos.z <= 0.0f)
+						continue;
 					float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
 					float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
 					float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
-					if (w_clip <= 0.0f) continue;
+					if (w_clip <= 0.0f)
+						continue;
 					float ndcX = clipX / w_clip;
 					float ndcY = clipY / w_clip;
 					float visualNormX = ndcX / ndcVisualRadiusX;
 					float visualNormY = ndcY / ndcVisualRadiusY;
 					float visualNormDistSq = (visualNormX * visualNormX) + (visualNormY * visualNormY);
+					// レティクルの円内の敵のみを対象にする
 					if (visualNormDistSq <= 1.0f) {
 						assistLockedEnemy = e;
 						break;
-					} else {
-						float normX = ndcX / ndcDetectionRadiusX;
-						float normY = ndcY / ndcDetectionRadiusY;
-						float normalizedDistSq = (normX * normX) + (normY * normY);
-						if (normalizedDistSq < bestNormSq) {
-							bestNormSq = normalizedDistSq;
-							assistLockedEnemy = e;
-						}
 					}
 				}
 			}
 
 			// ホーミング消したいときはここをコメントアウト
-			if (assistLockedEnemy) {
-				// レティクル周辺の円内（視覚円内）の敵に対しては即座にホーミングを有効化
-				// 判定円内だが視覚円外の敵に対しては保留ホーミングを使用
-				const float kVisualRadius = 0.08f;
-				//const float kDetectionRadius = 0.1f;
-				const float kAspect = (float)KamataEngine::WinApp::kWindowWidth / (float)KamataEngine::WinApp::kWindowHeight;
-				const float ndcVisualRadiusY = kVisualRadius * 2.0f;
-				const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;
-				
-				const KamataEngine::Matrix4x4& viewMatrix = railCamera_->GetViewProjection().matView;
-				const KamataEngine::Matrix4x4& projMatrix = railCamera_->GetViewProjection().matProjection;
-				
-				KamataEngine::Vector3 worldPos = assistLockedEnemy->GetWorldPosition();
-				KamataEngine::Vector3 viewPos;
-				viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
-				viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
-				viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
-				
-				bool isInVisualCircle = false;
-				if (viewPos.z > 0.0f) {
-					float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
-					float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
-					float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
-					if (w_clip > 0.0f) {
-						float ndcX = clipX / w_clip;
-						float ndcY = clipY / w_clip;
-						float visualNormX = ndcX / ndcVisualRadiusX;
-						float visualNormY = ndcY / ndcVisualRadiusY;
-						float visualNormDistSq = (visualNormX * visualNormX) + (visualNormY * visualNormY);
-						isInVisualCircle = (visualNormDistSq <= 1.0f);
-					}
-				}
-				
-				if (isInVisualCircle) {
-					// レティクル周辺の円内：即座にホーミングを有効化
-					newBullet->SetHomingTarget(assistLockedEnemy);
-					newBullet->SetHomingEnabled(true);
-					newBullet->SetAimAssistHoming(true);
-					newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
-				} else {
-					// 判定円内だが視覚円外：保留ホーミング（距離が近づいたら開始）
-					const float kPendingLockDistance = 400.0f;
-					newBullet->SetPendingHomingTarget(assistLockedEnemy, kPendingLockDistance);
-					newBullet->SetAimAssistHoming(true);
-					newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
-				}
+			// ロックオンされている敵（レティクルの円内）のみホーミングを有効化
+			if (assistLockedEnemy && assistLockedEnemy->IsAssistLocked()) {
+				// レティクル周辺の円内の敵に対してのみ即座にホーミングを有効化
+				newBullet->SetHomingTarget(assistLockedEnemy);
+				newBullet->SetHomingEnabled(true);
+				newBullet->SetAimAssistHoming(true);
+				newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
 			}
 
 			bullets_.push_back(newBullet);
-			// 連射の速度
-			shotTimer_ = 5;
-			isParry_ = false;
+
+			if (audio_){
+				audio_->playAudio(hitPlayerSound_, hitPlayerSoundHandle_, false, 0.2f);
 		}
+
+		// 連射の速度
+		shotTimer_ = 5;
+		isParry_ = false;
 	}
+}
 }
 
 KamataEngine::Vector3 Player::GetWorldPosition() {
@@ -306,16 +274,19 @@ void Player::Update() {
 	std::vector<PlayerBullet*> bulletSnapshot;
 	bulletSnapshot.reserve(bullets_.size());
 	for (PlayerBullet* b : bullets_) {
-		if (b) bulletSnapshot.push_back(b);
+		if (b)
+			bulletSnapshot.push_back(b);
 	}
 
 	for (PlayerBullet* b : bulletSnapshot) {
-		if (b) b->Update();
+		if (b)
+			b->Update();
 	}
 
 	// Remove and delete dead bullets
 	bullets_.remove_if([](PlayerBullet* bullet) {
-		if (!bullet) return true;
+		if (!bullet)
+			return true;
 		if (bullet->IsDead()) {
 			delete bullet;
 			return true;
@@ -385,7 +356,6 @@ void Player::Update() {
 			targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
 
 			worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
-
 
 			float pitchVelocity = railCamera_->GetRotationVelocity().x;
 			const float pitchFactor = 12.0f;
@@ -520,12 +490,14 @@ void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 
 	if (isRolling_) {
 
-	//	const float kJustEvasionRange = 50.0f; // すれ違い判定の距離
+		//	const float kJustEvasionRange = 50.0f; // すれ違い判定の距離
 		KamataEngine::Vector3 playerPos = GetWorldPosition();
 
 		for (EnemyBullet* bullet : bullets) {
-			if (!bullet) continue;
-			if (!bullet->IsHoming()) continue;
+			if (!bullet)
+				continue;
+			if (!bullet->IsHoming())
+				continue;
 
 			KamataEngine::Vector3 bulletPos = bullet->GetWorldPosition();
 
@@ -535,11 +507,11 @@ void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
 			float dz = playerPos.z - bulletPos.z;
 			float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
 
-		// 200以内の時に回避行動をしたらホーミングを失う
-		const float kEvasionRange = 200.0f;
-		if (dist < kEvasionRange) {
-			bullet->OnEvaded();
-		}
+			// 200以内の時に回避行動をしたらホーミングを失う
+			const float kEvasionRange = 200.0f;
+			if (dist < kEvasionRange) {
+				bullet->OnEvaded();
+			}
 		}
 	}
 }

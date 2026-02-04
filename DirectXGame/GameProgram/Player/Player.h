@@ -7,6 +7,8 @@
 #include <list>
 #include "EnemyBullet.h"
 
+using namespace KamataEngine;
+
 class Enemy;
 class RailCamera;
 
@@ -54,6 +56,8 @@ private:
 	KamataEngine::Input* input_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
 
+	Audio* audio_ = nullptr;
+
 	KamataEngine::Model* modelbullet_ = nullptr;
 	std::list<PlayerBullet*> bullets_;
 
@@ -61,6 +65,9 @@ private:
 
 	int specialTimer = 20;
 	bool isParry_ = false;
+
+	int hitPlayerSoundHandle_ = 0;
+	int hitPlayerSound_ = -1;
 
 	// パーティクル
 	KamataEngine::Model* modelParticle_ = nullptr;

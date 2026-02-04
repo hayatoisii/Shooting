@@ -218,8 +218,10 @@ void GameScene::Initialize() {
 		scoreDigitSprites_[i] = KamataEngine::Sprite::Create(0, {0, 0});
 		if (scoreDigitSprites_[i]) {
 			scoreDigitSprites_[i]->SetAnchorPoint({0.0f, 0.0f});
-			scoreDigitSprites_[i]->SetSize({48.0f, 64.0f});
-			scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 26.0f - 20.0f, 20.0f});
+			scoreDigitSprites_[i]->SetSize({80.0f, 64.0f}); // 横に伸ばす
+			// 数字の幅が80.0fなので、間隔を90.0fに設定して重ならないようにする
+			// 画面右端から余白20.0fを引いた位置から左に配置
+			scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 90.0f - 20.0f, 20.0f});
 			// hidden initially
 			scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
 		}
@@ -557,7 +559,7 @@ void GameScene::Update() {
 		if (isGameIntroFinished_) {
 			const float kDeltaSecGame = 1.0f / 60.0f; // 60FPS 想定
 			gameSceneTimer_ += kDeltaSecGame;
-			const float kAutoGameOverSeconds = 25.0f; // 25秒でゲームオーバー
+			const float kAutoGameOverSeconds = 40.0f; // 25秒でゲームオーバー
 			if (gameSceneTimer_ >= kAutoGameOverSeconds) {
 				// 時間切れ -> ゲームオーバー
 				TransitionToClearScene2();
@@ -981,36 +983,39 @@ void GameScene::Draw() {
 		}
 	}
 
-	if (minimapSprite_) {
-		minimapSprite_->Draw(); // 背景
-	}
-	// 敵アイコン (背景より手前、自機より奥)
-	for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
-		if (sprite) {
-			sprite->Draw();
+	// ミニマップと矢印キー表示はゲームシーンのみ表示
+	if (sceneState == SceneState::Game && isGameIntroFinished_) {
+		if (minimapSprite_) {
+			minimapSprite_->Draw(); // 背景
 		}
-	}
-	// 敵弾アイコン (背景より手前、自機より奥)
-	for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
-		if (sprite) {
-			sprite->Draw();
+		// 敵アイコン (背景より手前、自機より奥)
+		for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
+			if (sprite) {
+				sprite->Draw();
+			}
 		}
-	}
-	// 自機アイコン (最前面)
-	if (minimapPlayerSprite_) {
-		minimapPlayerSprite_->Draw();
-	}
+		// 敵弾アイコン (背景より手前、自機より奥)
+		for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
+			if (sprite) {
+				sprite->Draw();
+			}
+		}
+		// 自機アイコン (最前面)
+		if (minimapPlayerSprite_) {
+			minimapPlayerSprite_->Draw();
+		}
 
-	// 追加: 右/左キー表示を最前面に描画（常に右下に表示）
-	if (leftSprite_) {
-		leftSprite_->Draw();
-	}
-	if (lightSprite_) {
-		lightSprite_->Draw();
-	}
-	// Shift を最前面に描画
-	if (shiftSprite_) {
-		shiftSprite_->Draw();
+		// 追加: 右/左キー表示を最前面に描画（ゲームシーンのみ表示）
+		if (leftSprite_) {
+			leftSprite_->Draw();
+		}
+		if (lightSprite_) {
+			lightSprite_->Draw();
+		}
+		// Shift を最前面に描画
+		if (shiftSprite_) {
+			shiftSprite_->Draw();
+		}
 	}
 
 	// Draw score digits on top-right
@@ -1201,9 +1206,6 @@ void GameScene::CheckAllCollisions() {
 				if (enemy->IsDead()) {
 					hitCount++;
 				}
-
-				if (audio_)
-					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
 			}
 		}
 	}
@@ -1556,8 +1558,10 @@ void GameScene::UpdateScoreSprites() {
 			scoreDigitSprites_[i] = KamataEngine::Sprite::Create(handle, {0,0});
 			if (scoreDigitSprites_[i]) {
 				scoreDigitSprites_[i]->SetAnchorPoint({0.0f,0.0f});
-				scoreDigitSprites_[i]->SetSize({48.0f,64.0f});
-				scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 26.0f - 20.0f, 20.0f});
+				scoreDigitSprites_[i]->SetSize({80.0f, 64.0f}); // 横に伸ばす
+				// 数字の幅が80.0fなので、間隔を90.0fに設定して重ならないようにする
+				// 画面右端から余白20.0fを引いた位置から左に配置
+				scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 70.0f - 20.0f, 20.0f});
 			}
 		} else {
 			// texture missing: hide
