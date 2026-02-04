@@ -225,10 +225,51 @@ void Player::Attack() {
 
 			// ホーミング消したいときはここをコメントアウト
 			if (assistLockedEnemy) {
-				const float kPendingLockDistance = 400.0f;
-				newBullet->SetPendingHomingTarget(assistLockedEnemy, kPendingLockDistance);
-				newBullet->SetAimAssistHoming(true);
-				newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
+				// レティクル周辺の円内（視覚円内）の敵に対しては即座にホーミングを有効化
+				// 判定円内だが視覚円外の敵に対しては保留ホーミングを使用
+				const float kVisualRadius = 0.08f;
+				//const float kDetectionRadius = 0.1f;
+				const float kAspect = (float)KamataEngine::WinApp::kWindowWidth / (float)KamataEngine::WinApp::kWindowHeight;
+				const float ndcVisualRadiusY = kVisualRadius * 2.0f;
+				const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;
+				
+				const KamataEngine::Matrix4x4& viewMatrix = railCamera_->GetViewProjection().matView;
+				const KamataEngine::Matrix4x4& projMatrix = railCamera_->GetViewProjection().matProjection;
+				
+				KamataEngine::Vector3 worldPos = assistLockedEnemy->GetWorldPosition();
+				KamataEngine::Vector3 viewPos;
+				viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
+				viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
+				viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
+				
+				bool isInVisualCircle = false;
+				if (viewPos.z > 0.0f) {
+					float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
+					float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
+					float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
+					if (w_clip > 0.0f) {
+						float ndcX = clipX / w_clip;
+						float ndcY = clipY / w_clip;
+						float visualNormX = ndcX / ndcVisualRadiusX;
+						float visualNormY = ndcY / ndcVisualRadiusY;
+						float visualNormDistSq = (visualNormX * visualNormX) + (visualNormY * visualNormY);
+						isInVisualCircle = (visualNormDistSq <= 1.0f);
+					}
+				}
+				
+				if (isInVisualCircle) {
+					// レティクル周辺の円内：即座にホーミングを有効化
+					newBullet->SetHomingTarget(assistLockedEnemy);
+					newBullet->SetHomingEnabled(true);
+					newBullet->SetAimAssistHoming(true);
+					newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
+				} else {
+					// 判定円内だが視覚円外：保留ホーミング（距離が近づいたら開始）
+					const float kPendingLockDistance = 400.0f;
+					newBullet->SetPendingHomingTarget(assistLockedEnemy, kPendingLockDistance);
+					newBullet->SetAimAssistHoming(true);
+					newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
+				}
 			}
 
 			bullets_.push_back(newBullet);
