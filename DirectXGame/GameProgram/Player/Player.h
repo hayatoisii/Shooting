@@ -7,6 +7,8 @@
 #include <list>
 #include "EnemyBullet.h"
 
+using namespace KamataEngine;
+
 class Enemy;
 class RailCamera;
 
@@ -43,6 +45,9 @@ public:
 	static inline const float kHeight = 1.0f;
 
 	void EvadeBullets(std::list<EnemyBullet*>& bullets);
+	
+	// 回避中かどうかを取得
+	bool IsRolling() const { return isRolling_; }
 
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
@@ -51,6 +56,8 @@ private:
 	KamataEngine::Input* input_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
 
+	Audio* audio_ = nullptr;
+
 	KamataEngine::Model* modelbullet_ = nullptr;
 	std::list<PlayerBullet*> bullets_;
 
@@ -58,6 +65,9 @@ private:
 
 	int specialTimer = 20;
 	bool isParry_ = false;
+
+	int hitPlayerSoundHandle_ = 0;
+	int hitPlayerSound_ = -1;
 
 	// パーティクル
 	KamataEngine::Model* modelParticle_ = nullptr;
@@ -68,4 +78,26 @@ private:
 	int shotTimer_;
 
 	int dodgeTimer_ = 0;
+
+	bool isRolling_ = false;     // 回転中か
+	float rollTimer_ = 0.0f;     // 回転タイマー
+	float rollDirection_ = 0.0f; // 回転方向
+	const float kRollDuration_ = 60.0f;
+
+	// --- 被弾時の揺れ ---
+	float hitShakeTime_ = 0.0f;       // 経過フレーム数
+	float hitShakeAmplitude_ = 0.0f;
+	float hitShakeDecay_ = 0.08f;    // 減衰係数
+	float hitShakeFrequency_ = 0.3f;
+
+	// 垂直方向（上下）揺れ用
+	float hitShakeVerticalAmplitude_ = 0.0f; // 垂直振幅
+	float hitShakePrevVerticalOffset_ = 0.0f;
+
+	// 水平方向（左右）揺れ用
+	float hitShakeHorizontalAmplitude_ = 0.0f; // 水平
+	float hitShakePrevHorizontalOffset_ = 0.0f;
+
+	// 弾発射時に固定するY座標（上下移動で発射位置がずれないようにする）
+	float spawnBaseY_ = 0.0f;
 };

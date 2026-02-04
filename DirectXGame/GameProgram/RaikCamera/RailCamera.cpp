@@ -28,7 +28,7 @@ void RailCamera::Update() {
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
 	// 自動飛行の速度
-	const float kCameraSpeed = 5.0f;          // 0.8f; // 1.5
+	const float kCameraSpeed = 6.0f;          // 5
 	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
 	const float kRollAcceleration = 0.0016f;  // 横の回転
 	const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
@@ -100,6 +100,8 @@ void RailCamera::Update() {
 	rotation_ = deltaQuatRoll * deltaQuatPitch * deltaQuatYaw * rotation_;
 	rotation_ = Quaternion::Normalize(rotation_);
 
+	Quaternion finalRotation = rotation_;
+
 	Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
 
 	// 常に自動で前進
@@ -109,9 +111,41 @@ void RailCamera::Update() {
 		move.z += kCameraSpeed;
 	}
 
+	if (isDodging_) {
+
+		dodgeTimer_ += 1.0f;
+		float t = dodgeTimer_ / kDodgeDuration_;
+
+		if (t >= 1.0f) {
+			t = 1.0f;
+			isDodging_ = false;
+		}
+
+		//　回避の時に横移動する距離
+		const float kDodgeMoveSpeed = 3.0f; // 2.0f
+
+		move.x += dodgeDirection_ * kDodgeMoveSpeed * (1.0f - t);
+	}
+
 	move = KamataEngine::MathUtility::TransformNormal(move, rotationMatrix);
 	Vector3 currentPosition = worldtransfrom_.translation_;
 	Vector3 newPosition = currentPosition + move;
+	
+	// Playerの移動範囲を円状に制限（初期位置からの距離が15000以内）
+	Vector3 offsetFromInitial = newPosition - initialPosition_;
+	float distanceFromInitial = std::sqrt(offsetFromInitial.x * offsetFromInitial.x + offsetFromInitial.y * offsetFromInitial.y + offsetFromInitial.z * offsetFromInitial.z);
+	
+	if (distanceFromInitial > kMaxMoveRadius_) {
+		// 範囲を超えた場合、初期位置方向にクランプ
+		Vector3 directionToInitial = offsetFromInitial;
+		if (distanceFromInitial > 0.001f) {
+			directionToInitial.x /= distanceFromInitial;
+			directionToInitial.y /= distanceFromInitial;
+			directionToInitial.z /= distanceFromInitial;
+		}
+		newPosition = initialPosition_ + directionToInitial * kMaxMoveRadius_;
+	}
+	
 	worldtransfrom_.matWorld_ = rotationMatrix;
 	worldtransfrom_.matWorld_.m[3][0] = newPosition.x;
 	worldtransfrom_.matWorld_.m[3][1] = newPosition.y;
@@ -154,16 +188,18 @@ KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
 }
 
 void RailCamera::Dodge(float direction) {
-	const float kDodgeRollStrength = 0.2f; // ロール回転の強さ
-	const float kDodgeYawStrength = 0.1f;  // 旋回の強さ
+	if (isDodging_) {
+		return;
+	}
 
-	rotationVelocity_.z -= direction * kDodgeRollStrength;
-	rotationVelocity_.y += direction * kDodgeYawStrength;
+	isDodging_ = true;
+	dodgeTimer_ = 0.0f;
+	dodgeDirection_ = direction;
 }
 
 void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
-	// ★ 視点が吸い寄せられる強さ (この値を調整)
-	const float kAimAssistStrength = 0.005f;
+	// 視点が吸い寄せられる強さ (この値を調整)
+	const float kAimAssistStrength = 0.005f; // 0.005fから0.015f
 
 	// (※キー操作設定 (A/D=ヨー, W/S=ピッチ) に合わせて加速度を設定)
 

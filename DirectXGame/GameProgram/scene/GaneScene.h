@@ -7,6 +7,7 @@
 #include "Skydome.h"
 #include "../../Meteorite.h"
 #include <sstream>
+#include <vector>
 using namespace KamataEngine;
 
 float Distance(const Vector3& v1, const Vector3& v2);
@@ -44,6 +45,10 @@ public:
 
 	bool hasSpawnedEnemies_ = false;
 
+	// Score handling (made public so other game objects can award points)
+	void AddScore(int points);
+	void UpdateScoreSprites();
+
 private:
 	DirectXCommon* dxCommon_ = nullptr;
 	Input* input_ = nullptr;
@@ -59,9 +64,8 @@ private:
 
 	Model* modelPlayer_ = nullptr;
 	Model* modelEnemy_ = nullptr;
-
-	int32_t gameSceneTimer_ = 0;
-	const int32_t kGameTimeLimit_ = 60 * 30;
+	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
+	Model* modelEnemyBullet_ = nullptr;
 
 	Vector3 railcameraPos = {0, 5, -50};
 	Vector3 railcameraRad = {0, 0, 0};
@@ -79,6 +83,25 @@ private:
 
 	Model* modelTitleObject_ = nullptr;
 	WorldTransform worldTransformTitleObject_;
+
+	// 右／左キーを示すスプライト
+	KamataEngine::Sprite* lightSprite_ = nullptr; // 右キー用（表示名: light）
+	KamataEngine::Sprite* leftSprite_ = nullptr;  // 左キー用
+	uint32_t lightTextureHandle_ = 0;
+	uint32_t leftTextureHandle_ = 0;
+
+	KamataEngine::Sprite* shiftSprite_ = nullptr; // 追加: Shiftキー表示用スプライト
+	uint32_t shiftTextureHandle_ = 0;
+
+	// Shift スプライトの点滅用タイマー
+	int shiftBlinkTimer_ = 0;
+
+	// Shift スプライトの右上オフセット（ピクセル）
+	float shiftExtraRight_ = 16.0f; // Shift をさらに右にずらす量
+	float shiftExtraUp_ = 6.0f;     // Shift をさらに上にずらす量
+
+	// 矢印グループ全体を右に移動するオフセット（ピクセル）
+	float controlGroupOffset_ = 16.0f; // 矢印と Shift を一緒に右へ移動する量
 
 	enum class SceneState { Start, TransitionToGame, TransitionFromGame, GameIntro, Game, Clear, over };
 	SceneState sceneState = SceneState::Start;
@@ -170,10 +193,30 @@ private:
 	// 最後に記録したプレイヤー位置（ミニマップ回転の判定用）
 	KamataEngine::Vector3 lastPlayerPos_ = {0.0f, 0.0f, 0.0f};
 
-	// Homing shot timer and settings
 	int homingSpawnTimer_ = 0;
 	// Enemyミサイルの間隔
 	const int kHomingIntervalFrames_ = 60 * 10;
 	const float kHomingMaxDistance_ = 3000.0f;
 	const float kHomingBulletSpeed_ = 8.0f; // requested speed
+
+	// デバッグ: ゲーム開始から指定秒数でタイトルに戻す
+	bool debug10 = true;            // 有効化フラグ
+	// デバッグ10秒タイマー
+	float debug10ElapsedSec_ = 0.0f; // 経過秒数
+	const float kDebug10Seconds = 100.0f; // タイトルへ戻すまでの秒数（100秒）
+
+	// ゲームタイマー（秒）: 自動ゲームオーバー判定に使用
+	float gameSceneTimer_ = 0.0f;
+
+	// カウント表示 (ビットマップフォント用)
+	int score_ = 0; // 表示スコア
+	const int kMaxScore_ = 9999;
+
+	// 安全にシーンクリア遷移をリクエストするフラグ
+	bool requestSceneClear_ = false;
+
+	// デジットテクスチャハンドル (0..9)
+	std::vector<uint32_t> digitTextureHandles_;
+	// 表示用スプライト (4桁)
+	std::vector<KamataEngine::Sprite*> scoreDigitSprites_;
 };

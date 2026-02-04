@@ -42,6 +42,9 @@ private:
 
 	KamataEngine::Vector3 initialPosition_;
 	KamataEngine::Vector3 initialRotationEuler_;
+	
+	// Playerの移動範囲制限（円状、半径15000）
+	const float kMaxMoveRadius_ = 8000.0f;
 
 	KamataEngine::Quaternion rotation_;
 
@@ -52,4 +55,12 @@ private:
 	Camera camera_;
 
 	bool canMove_;
+
+	bool isDodging_ = false;
+	float dodgeTimer_ = 0.0f;
+	float dodgeDirection_ = 0.0f;
+
+	// 回避にかかる時間、小さくすると速く回る
+	const float kDodgeDuration_ = 30.0f;
+
 };

@@ -12,6 +12,8 @@ public:
 
     void Draw(const KamataEngine::Camera& camera);
 
+    void OnEvaded();
+
     ~EnemyBullet();
 
     bool IsDead() const { return isDead_; }
@@ -27,8 +29,16 @@ public:
     void SetHomingEnabled(bool enabled) { isHoming_ = enabled; }
     void SetSpeed(float s) { speed_ = s; }
     bool IsHoming() const { return isHoming_; }
+    
+    // 回避後のタイマーを取得（-1は未回避、0以上は残りフレーム数）
+    int32_t GetEvadedDeathTimer() const { return evadedDeathTimer_; }
 
-    void StopHoming() { isHoming_ = false; }
+    void StopHoming() {
+		isHoming_ = false;
+		deathTimer_ = 60;
+	}
+
+    void SetInvulnerableFrames(int frames) { invulnerableFrames_ = frames; }
 
 private:
 
@@ -50,4 +60,9 @@ private:
     Player* homingTarget_ = nullptr;
     bool isHoming_ = false;
     float speed_ = 1.0f; // units per frame
+
+    int invulnerableFrames_ = 0;
+
+    // 回避後のタイマー（1秒 = 60フレーム）
+    int32_t evadedDeathTimer_ = -1; // -1は未回避状態
 };

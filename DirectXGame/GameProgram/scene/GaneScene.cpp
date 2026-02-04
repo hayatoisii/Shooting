@@ -31,6 +31,7 @@ GameScene::~GameScene() {
 	delete modelSkydome_;
 	delete modelTitleObject_;
 	delete modelMeteorite_;
+	delete modelEnemyBullet_; // 敵弾モデルを解放（追加）
 	for (Meteorite* meteor : meteorites_) {
 		delete meteor;
 	}
@@ -41,11 +42,15 @@ GameScene::~GameScene() {
 	delete transitionSprite_;
 	delete taitoruSprite_;
 	delete aimAssistCircleSprite_;
+	// 追加: 右/左キー表示用スプライトを解放
+	delete lightSprite_;
+	delete leftSprite_;
+	delete shiftSprite_; // Shiftスプライトを解放
 	delete explosionEmitter_;
 	delete modelParticle_;
 	delete minimapSprite_;
 	delete minimapPlayerSprite_;
-	// clear scene
+	// シーンのクリア
 	delete clearEmitter_;
 	delete clearSprite_;
 	for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
@@ -62,6 +67,11 @@ GameScene::~GameScene() {
 	for (Enemy* enemy : enemies_) {
 		delete enemy;
 	}
+
+	// delete score digit sprites
+	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
+		delete s;
+	}
 }
 
 void GameScene::Initialize() {
@@ -73,9 +83,12 @@ void GameScene::Initialize() {
 	skydome_ = new Skydome();
 
 	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly2", true);
-	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("cube", true);
+	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
+
+	// 敵弾用のOBJモデルを読み込む（ファイル名: Resources/bulletEnemy.obj を想定）
+	modelEnemyBullet_ = KamataEngine::Model::CreateFromOBJ("bulletEnemy", true);
 
 	modelMeteorite_ = KamataEngine::Model::CreateFromOBJ("meteorite", true);
 	meteoriteSpawnTimer_ = 0;
@@ -105,11 +118,11 @@ void GameScene::Initialize() {
 		explosionEmitter_->Initialize(modelParticle_);
 	}
 
-	// Clear scene assets
+	// シーンクリア用アセット
 	clearTextureHandle_ = KamataEngine::TextureManager::Load("kuria.png");
 	clearSprite_ = KamataEngine::Sprite::Create(clearTextureHandle_, {0, 0});
 	if (clearSprite_) {
-		// Make kuria.png cover the whole screen
+		// kuria.png を画面全体にかぶせる
 		clearSprite_->SetAnchorPoint({0.0f, 0.0f});
 		clearSprite_->SetPosition({0.0f, 0.0f});
 		clearSprite_->SetSize({(float)WinApp::kWindowWidth, (float)WinApp::kWindowHeight});
@@ -120,7 +133,7 @@ void GameScene::Initialize() {
 		clearEmitter_->Initialize(modelParticle_);
 	}
 
-	// Confetti sprite texture
+	// コンフェッティ用スプライトテクスチャ
 	confettiTextureHandle_ = KamataEngine::TextureManager::Load("confetti.png");
 	confettiParticles_.resize(kMaxConfetti_);
 	for (size_t i = 0; i < kMaxConfetti_; ++i) {
@@ -129,7 +142,7 @@ void GameScene::Initialize() {
 			confettiParticles_[i].sprite->SetSize({8.0f, 8.0f});
 			confettiParticles_[i].sprite->SetAnchorPoint({0.5f, 0.5f});
 			confettiParticles_[i].active = false;
-			// default color white
+			// デフォルト色: 白
 			confettiParticles_[i].sprite->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
 		}
 	}
@@ -145,6 +158,7 @@ void GameScene::Initialize() {
 	minimapTextureHandle_ = KamataEngine::TextureManager::Load("minimap.png");
 	greenBoxTextureHandle_ = KamataEngine::TextureManager::Load("greenBox.png");
 	minimapPlayerTextureHandle_ = KamataEngine::TextureManager::Load("player.png");
+	// ミニマップ上の敵弾アイコンは元の赤いテクスチャを使用（変更を取り消し）
 	minimapEnemyBulletTextureHandle_ = KamataEngine::TextureManager::Load("missileRedBox.png");
 
 	// 1. ミニマップ背景
@@ -176,8 +190,45 @@ void GameScene::Initialize() {
 		minimapEnemyBulletSprites_[i]->SetPosition({-100.0f, -100.0f});
 	}
 
-	taitoruSprite_->SetPosition(screenCenter); // 画面中央に配置
-	taitoruSprite_->SetAnchorPoint({0.5f, 0.5f});
+	// --- ビットマップフォントの初期化 ---
+    digitTextureHandles_.resize(10);
+    // Load textures for digits 1..9 by their names (as user stated), and try 0 if present
+    for (int i = 1; i <= 9; ++i) {
+        uint32_t h = 0;
+        std::string base = std::to_string(i);
+        // Try with common extensions first to avoid showing error dialogs from Load when called with bare name
+        h = KamataEngine::TextureManager::Load((base + ".png").c_str());
+        if (h == 0) h = KamataEngine::TextureManager::Load((base + ".PNG").c_str());
+        if (h == 0) h = KamataEngine::TextureManager::Load(base.c_str());
+        digitTextureHandles_[i] = h;
+    }
+    // Try to load '0' if available; otherwise leave 0 handle
+    {
+        uint32_t h0 = 0;
+        h0 = KamataEngine::TextureManager::Load("0.png");
+        if (h0 == 0) h0 = KamataEngine::TextureManager::Load("0.PNG");
+        if (h0 == 0) h0 = KamataEngine::TextureManager::Load("0");
+        digitTextureHandles_[0] = h0;
+    }
+
+	// Create 4 digit sprites (thousands, hundreds, tens, ones)
+	scoreDigitSprites_.resize(4);
+	for (int i = 0; i < 4; ++i) {
+		// create placeholder sprite with no texture (handle 0) initially
+		scoreDigitSprites_[i] = KamataEngine::Sprite::Create(0, {0, 0});
+		if (scoreDigitSprites_[i]) {
+			scoreDigitSprites_[i]->SetAnchorPoint({0.0f, 0.0f});
+			scoreDigitSprites_[i]->SetSize({80.0f, 64.0f}); // 横に伸ばす
+			// 数字の幅が80.0fなので、間隔を90.0fに設定して重ならないようにする
+			// 画面右端から余白20.0fを引いた位置から左に配置
+			scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 90.0f - 20.0f, 20.0f});
+			// hidden initially
+			scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
+		}
+	}
+
+	// Ensure initial score display is updated (show 0000 if 0 texture exists)
+	UpdateScoreSprites();
 
 	camera_.Initialize();
 
@@ -206,13 +257,149 @@ void GameScene::Initialize() {
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
 
-	// init homing timer
-	homingSpawnTimer_ = kHomingIntervalFrames_; // start timer so first shot occurs after interval
+	// ホーミング弾生成タイマー初期化
+	homingSpawnTimer_ = kHomingIntervalFrames_; // 最初のショットが間隔後に発生するようタイマー初期化
+
+	// ミニマップ用テクスチャ等の初期化を行った後に、右/左キー表示用スプライトを初期化
+	// テクスチャ名は Resources に配置した "light.png" と "left.png" を想定
+	lightTextureHandle_ = KamataEngine::TextureManager::Load("light.png");
+	leftTextureHandle_ = KamataEngine::TextureManager::Load("left.png");
+	shiftTextureHandle_ = KamataEngine::TextureManager::Load("shift.png"); // Shift画像
+
+	// スプライト生成
+	lightSprite_ = KamataEngine::Sprite::Create(lightTextureHandle_, {0, 0});
+	leftSprite_ = KamataEngine::Sprite::Create(leftTextureHandle_, {0, 0});
+	shiftSprite_ = KamataEngine::Sprite::Create(shiftTextureHandle_, {0, 0});
+
+	if (lightSprite_) {
+		// グループオフセットを適用して右にずらす
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * 80.0f + controlGroupOffset_;
+		lightSprite_->SetAnchorPoint({1.0f, 1.0f});
+		lightSprite_->SetSize({80.0f, 80.0f});
+		lightSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+		lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
+	if (leftSprite_) {
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * 80.0f - 16.0f + controlGroupOffset_;
+		leftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		leftSprite_->SetSize({80.0f, 80.0f});
+		leftSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+		leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
+	if (shiftSprite_) {
+		shiftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		// 横長: 幅1.5倍, 高さは矢印基準サイズ
+		shiftSprite_->SetSize({80.0f * 1.5f, 80.0f});
+		// 初期配置: light の右側に少しずらして上に置く（グループオフセット適用）
+		float controlSizeInit = 80.0f;
+		float verticalGapInit = 8.0f;
+		float lightRightXInit = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSizeInit + controlGroupOffset_;
+		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
+		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
+		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
+		shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+	}
+
+	// スプライトの初期位置を右下に設定（毎フレームの更新時に再計算されるため、ここではウィンドウサイズ依存の初期位置のみ設定）
+	if (lightSprite_) {
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * 80.0f + controlGroupOffset_;
+		lightSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+	}
+	if (leftSprite_) {
+		float groupX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * 80.0f - 16.0f + controlGroupOffset_;
+		leftSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
+	}
+	if (shiftSprite_) {
+		float controlSizeInit = 80.0f;
+		float verticalGapInit = 8.0f;
+		float lightRightXInit = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSizeInit + controlGroupOffset_;
+		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
+		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
+		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
+	}
 }
 
 void GameScene::Update() {
 
 	skydome_->Update();
+
+	// 右／左キーの押下状態に応じてスプライトの明るさを切替
+	if (input_) {
+		bool rightPressed = input_->PushKey(DIK_RIGHT);
+		bool leftPressed = input_->PushKey(DIK_LEFT);
+
+		if (lightSprite_) {
+			if (rightPressed) {
+				// 明るく表示
+				lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+			} else {
+				// 非押下はやや半透明
+				lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+			}
+		}
+		if (leftSprite_) {
+			if (leftPressed) {
+				leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+			} else {
+				leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+			}
+		}
+	}
+
+	// 常に右下に表示するため、毎フレーム位置を再設定する（ウィンドウリサイズ対応）
+	float margin = 20.0f;
+	float gap = 16.0f; // スプライト間のギャップ
+
+	// 実際のサイズを取得（スプライトが無ければ基準値を使う）
+	float controlSize = 80.0f;
+	//float shiftW = shiftSprite_ ? shiftSprite_->GetSize().x : controlSize * 1.5f;
+	//float lightW = lightSprite_ ? lightSprite_->GetSize().x : controlSize;
+	//float leftW = leftSprite_ ? leftSprite_->GetSize().x : controlSize;
+
+	float bottomY = static_cast<float>(WinApp::kWindowHeight) - margin; // 下辺の位置
+
+	// 矢印（light/left）は下端に横並びで配置
+	float lightRightX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSize + controlGroupOffset_; // グループオフセット適用
+	float leftRightX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * controlSize - gap + controlGroupOffset_;  // グループオフセット適用
+
+	if (lightSprite_) {
+		lightSprite_->SetAnchorPoint({1.0f, 1.0f});
+		lightSprite_->SetSize({controlSize, controlSize});
+		lightSprite_->SetPosition({lightRightX, bottomY});
+	}
+	if (leftSprite_) {
+		leftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		leftSprite_->SetSize({controlSize, controlSize});
+		leftSprite_->SetPosition({leftRightX, bottomY});
+	}
+
+	// Shift は light の上に表示する
+	float verticalGap = 8.0f; // 縦方向の隙間
+	if (shiftSprite_) {
+		shiftSprite_->SetAnchorPoint({1.0f, 1.0f});
+		shiftSprite_->SetSize({controlSize * 1.5f, controlSize});
+		// 矢印スプライト一個分右にずらす + クラスメンバで追加オフセット
+		float shiftRightX = lightRightX + controlSize + shiftExtraRight_;
+		float shiftBottomY = bottomY - controlSize - verticalGap - shiftExtraUp_; // light の上に配置
+		shiftSprite_->SetPosition({shiftRightX, shiftBottomY});
+	}
+
+	// Shift の表示（Shift 押下時は点滅）
+	if (shiftSprite_ && input_) {
+		bool shiftPressed = input_->PushKey(DIK_RSHIFT) || input_->PushKey(DIK_LSHIFT);
+		bool aPressed = input_->PushKey(DIK_A);
+		bool dPressed = input_->PushKey(DIK_D);
+		if (shiftPressed && (aPressed || dPressed)) {
+			shiftBlinkTimer_++;
+			const int blinkPeriod = 8;
+			bool visible = ((shiftBlinkTimer_ / blinkPeriod) % 2) == 0;
+			float alpha = visible ? 1.0f : 0.3f;
+			shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, alpha});
+		} else {
+			shiftBlinkTimer_ = 0;
+			shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
+		}
+	}
 
 	switch (sceneState) {
 	case SceneState::Start: {
@@ -313,57 +500,77 @@ void GameScene::Update() {
 			if (railCamera_) {
 				railCamera_->SetCanMove(true);
 			}
+
+			// デバッグ10秒タイマーをリセット（ゲーム開始時にカウント開始）
+			// これにより、ゲーム開始から kDebug10Seconds 秒後に自動でタイトルへ戻る
+			debug10ElapsedSec_ = 0.0f;
 		}
 		break;
 	}
 	case SceneState::Game: {
 
+		// デバッグ: ゲーム開始から10秒でタイトルへ戻す処理
+		// 有効な場合、毎フレーム（60FPS 想定で）経過秒数を加算し、指定秒数経過後にタイトルへ遷移する
+		if (debug10 && isGameIntroFinished_) {
+			const float kDeltaSec = 1.0f / 60.0f; // フレーム毎の秒換算（概算）
+			debug10ElapsedSec_ += kDeltaSec;
+			if (debug10ElapsedSec_ >= kDebug10Seconds) {
+				// 10秒経過したのでタイトルへ戻す（リセット処理）
+				sceneState = SceneState::Start;
+				debug10ElapsedSec_ = 0.0f;
+				
+				camera_.Initialize();
+				camera_.TransferMatrix();
+				if (railCamera_) {
+					railCamera_->Reset();
+				}
+				if (player_) {
+					player_->ResetRotation();
+					player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+					player_->GetWorldTransform().UpdateMatrix();
+					player_->ResetParticles();
+					player_->ResetBullets();
+				}
+				
+				for (Enemy* enemy : enemies_) {
+					delete enemy;
+				}
+				enemies_.clear();
+				for (EnemyBullet* bullet : enemyBullets_) {
+					delete bullet;
+				}
+				enemyBullets_.clear();
+				
+				for (Meteorite* meteor : meteorites_) {
+					delete meteor;
+				}
+				meteorites_.clear();
+				meteoriteSpawnTimer_ = 0;
+				
+				LoadEnemyPopData();
+				hasSpawnedEnemies_ = false;
+				
+				// 処理を終えてこのフレームの残りの Game 処理をスキップ
+				break;
+			}
+		}
 
-		// デバッグ
+		// --- 自動ゲームオーバー(25秒) / タイマー更新 ---
+		if (isGameIntroFinished_) {
+			const float kDeltaSecGame = 1.0f / 60.0f; // 60FPS 想定
+			gameSceneTimer_ += kDeltaSecGame;
+			const float kAutoGameOverSeconds = 40.0f; // 25秒でゲームオーバー
+			if (gameSceneTimer_ >= kAutoGameOverSeconds) {
+				// 時間切れ -> ゲームオーバー
+				TransitionToClearScene2();
+				break;
+			}
+		}
+
+		// --- デバッグ
 		//gameSceneTimer_++;
-
 		// --- デバッグ用: 1秒でクリア (60フレーム) ---
-		const int DEBUG_CLEAR_TIME = 60; // 1秒
-		if (gameSceneTimer_ > DEBUG_CLEAR_TIME) {
-			TransitionToClearScene(); // クリア処理を呼び出す
-			break;                    // このフレームの残りのGame処理をスキップ
-		}
-
-
-		// デモ用自動復帰タイマー
-		if (gameSceneTimer_ > kGameTimeLimit_) {
-			sceneState = SceneState::Start;
-			camera_.Initialize();
-			camera_.TransferMatrix();
-			if (railCamera_) {
-				railCamera_->Reset();
-			}
-			if (player_) {
-				player_->ResetRotation();
-				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-				player_->GetWorldTransform().UpdateMatrix();
-				player_->ResetParticles();
-				player_->ResetBullets();
-			}
-			for (Enemy* enemy : enemies_) {
-				delete enemy;
-			}
-			enemies_.clear();
-			for (EnemyBullet* bullet : enemyBullets_) {
-				delete bullet;
-			}
-			enemyBullets_.clear();
-
-			for (Meteorite* meteor : meteorites_) {
-				delete meteor;
-			}
-			meteorites_.clear();
-			meteoriteSpawnTimer_ = 0;
-
-			LoadEnemyPopData();
-			hasSpawnedEnemies_ = false;
-			break;
-		}
+		// removed old frame-based debug clear
 
 		// --- 通常のゲーム処理 ---
 		railCamera_->Update();
@@ -380,34 +587,48 @@ void GameScene::Update() {
 		}
 
 		if (isGameIntroFinished_) {
-			const int kSpawnsPerFrame = 0;
+			const int kSpawnsPerFrame = 1;
 			meteoriteSpawnTimer_--;
 			if (meteoriteSpawnTimer_ <= 0) {
 				for (int i = 0; i < kSpawnsPerFrame; ++i) {
-					// SpawnMeteorite();
+					 SpawnMeteorite();
 				}
 				// 隕石の数
-				meteoriteSpawnTimer_ = 0;
+				meteoriteSpawnTimer_ = 1;
 			}
 
+			// Playerを先に更新して、最新の位置を取得できるようにする
+			player_->Update();
+
+			// 回避処理（Player更新後に実行）>
 			player_->EvadeBullets(enemyBullets_);
 
 			for (Enemy* enemy : enemies_) {
 				enemy->Update();
 			}
+
+			
+			for (Meteorite* meteor : meteorites_) {
+				if (meteor) {
+					// Playerの位置を渡して更新（近づくと大きくなる処理のため）>
+					meteor->Update(player_->GetWorldPosition());
+				}
+			}
+			
+
+			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）>
 			for (EnemyBullet* bullet : enemyBullets_) {
 				bullet->Update();
 			}
 
-			// HOMING spawn logic
 			if (homingSpawnTimer_ > 0) {
 				homingSpawnTimer_--;
 			} else {
-				// Find one enemy within max distance but not too close to player
 				Enemy* shooter = nullptr;
 				KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
 				float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
-				const float kMinHomingDistance = 500.0f; // don't fire if closer than this (changed to 500)
+				// この距離にPlayerが近づくとEnemyが弾を撃たなくなります
+				const float kMinHomingDistance = 1000.0f;
 				float minDistSq = kMinHomingDistance * kMinHomingDistance;
 				for (Enemy* enemy : enemies_) {
 					if (!enemy || enemy->IsDead())
@@ -417,15 +638,14 @@ void GameScene::Update() {
 					float dy = epos.y - playerPosForHoming.y;
 					float dz = epos.z - playerPosForHoming.z;
 					float distSq = dx * dx + dy * dy + dz * dz;
-					// only choose enemy if within max distance and further than min distance
 					if (distSq <= maxDistSq && distSq > minDistSq) {
 						shooter = enemy;
-						break; // use first found
+						break;
 					}
 				}
 
 				if (shooter) {
-					// create homing bullet
+
 					KamataEngine::Vector3 moveBullet = shooter->GetWorldPosition();
 					KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 					KamataEngine::Vector3 toPlayer = playerPos - moveBullet;
@@ -438,7 +658,8 @@ void GameScene::Update() {
 					KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
 
 					EnemyBullet* newBullet = new EnemyBullet();
-					newBullet->Initialize(modelEnemy_, moveBullet, vel);
+					//newBullet->Initialize(modelEnemy_, moveBullet, vel); // 生成時に enemy 弾モデルを渡す
+					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel); // 敵弾用モデルで初期化
 					newBullet->SetHomingEnabled(true);
 					newBullet->SetHomingTarget(player_);
 					newBullet->SetSpeed(kHomingBulletSpeed_);
@@ -457,7 +678,6 @@ void GameScene::Update() {
 				return false;
 			});
 			CheckAllCollisions();
-			player_->Update();
 
 			if (player_ && minimapPlayerSprite_) { // player_ が null でないか確認
 				KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
@@ -681,6 +901,12 @@ void GameScene::Update() {
 		}
 		break;
 	}
+
+	// Deferred scene clear: perform transition at a safe point after game update
+	if (requestSceneClear_ && sceneState == SceneState::Game) {
+		requestSceneClear_ = false;
+		TransitionToClearScene();
+	}
 }
 
 void GameScene::Draw() {
@@ -757,24 +983,44 @@ void GameScene::Draw() {
 		}
 	}
 
-	if (minimapSprite_) {
-		minimapSprite_->Draw(); // 背景
-	}
-	// 敵アイコン (背景より手前、自機より奥)
-	for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
-		if (sprite) {
-			sprite->Draw();
+	// ミニマップと矢印キー表示はゲームシーンのみ表示
+	if (sceneState == SceneState::Game && isGameIntroFinished_) {
+		if (minimapSprite_) {
+			minimapSprite_->Draw(); // 背景
+		}
+		// 敵アイコン (背景より手前、自機より奥)
+		for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
+			if (sprite) {
+				sprite->Draw();
+			}
+		}
+		// 敵弾アイコン (背景より手前、自機より奥)
+		for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
+			if (sprite) {
+				sprite->Draw();
+			}
+		}
+		// 自機アイコン (最前面)
+		if (minimapPlayerSprite_) {
+			minimapPlayerSprite_->Draw();
+		}
+
+		// 追加: 右/左キー表示を最前面に描画（ゲームシーンのみ表示）
+		if (leftSprite_) {
+			leftSprite_->Draw();
+		}
+		if (lightSprite_) {
+			lightSprite_->Draw();
+		}
+		// Shift を最前面に描画
+		if (shiftSprite_) {
+			shiftSprite_->Draw();
 		}
 	}
-	// 敵弾アイコン (背景より手前、自機より奥)
-	for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
-		if (sprite) {
-			sprite->Draw();
-		}
-	}
-	// 自機アイコン (最前面)
-	if (minimapPlayerSprite_) {
-		minimapPlayerSprite_->Draw();
+
+	// Draw score digits on top-right
+	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
+		if (s) s->Draw();
 	}
 
 	if (sceneState == SceneState::Clear) {
@@ -783,7 +1029,7 @@ void GameScene::Draw() {
 		// draw sprite confetti on top of clear sprite
 		for (auto& c : confettiParticles_) {
 			if (c.active && c.sprite)
-				c.sprite->Draw();
+			 c.sprite->Draw();
 		}
 	}
 
@@ -876,19 +1122,39 @@ void GameScene::CheckAllCollisions() {
 
 	// --- 自キャラ vs 敵弾 (HP制に) ---
 	posA[0] = player_->GetWorldPosition();
+	
+	// 回避中は無敵時間として、当たり判定を無効にする
+	bool isPlayerRolling = player_->IsRolling();
+	
 	for (EnemyBullet* bullet : enemyBullets_) {
 		if (!bullet || bullet->IsDead())
 			continue;
+
+		
+		// 回避中は当たり判定を無効にする
+		if (isPlayerRolling) {
+			continue;
+		}
+		
+		// ホーミングを失った弾（回避された弾）は当たり判定を無効にする
+		if (!bullet->IsHoming() && bullet->GetEvadedDeathTimer() >= 0) {
+			continue; // 回避された弾は当たり判定を無効
+		}
+		
 		posB[0] = bullet->GetWorldPosition();
 		float distanceSquared = DistanceSquared(posA[0], posB[0]);
 		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
 		if (distanceSquared <= combinedRadiusSquared) {
 
-			// Immediately transition to GameOver scene for easier confirmation
+			// Decrease HP and mark bullet dead. Only transition to game-over if player actually died.
 			player_->OnCollision();
 			bullet->OnCollision();
-			TransitionToClearScene2();
-			return;
+
+			if (player_->IsDead()) {
+				TransitionToClearScene2();
+				return;
+			}
+			// Otherwise, continue checking other collisions (player lost a HP but still alive)
 		}
 	}
 
@@ -924,8 +1190,9 @@ void GameScene::CheckAllCollisions() {
 		if (!enemy || enemy->IsDead())
 			continue;
 		// 画面外の敵は衝突判定やエイムアシスト用の行列演算を行わない
-		if (!enemy->IsOnScreen())
-			continue;
+		// (Collision should be checked regardless of on-screen state)
+		// if (!enemy->IsOnScreen())
+		// 	continue;
 		posA[1] = enemy->GetWorldPosition();
 		for (PlayerBullet* bullet : playerBullets) {
 			if (!bullet || bullet->IsDead())
@@ -939,15 +1206,7 @@ void GameScene::CheckAllCollisions() {
 
 				if (enemy->IsDead()) {
 					hitCount++;
-				}
-
-				if (audio_)
 					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
-
-				// デバッグ
-				if (hitCount >= 1) {
-					//TransitionToClearScene();
-					return;
 				}
 			}
 		}
@@ -963,9 +1222,13 @@ void GameScene::CheckAllCollisions() {
 }
 
 void GameScene::TransitionToClearScene() {
-	// sceneState = SceneState::Clear; // Clear には行かず Start にする
 	// Change: go to Clear scene so player sees clear screen instead of immediately returning to title
 	sceneState = SceneState::Clear;
+
+	// reset score on clear
+	score_ = 0;
+	UpdateScoreSprites();
+	requestSceneClear_ = false;
 
 	gameOverTimer_ = 0; // (念のためタイマー系もリセット)
 	hitCount = 0;       // 撃破数リセット
@@ -1007,6 +1270,10 @@ void GameScene::TransitionToClearScene() {
 
 void GameScene::TransitionToClearScene2() {
 	sceneState = SceneState::over;
+	// reset score on game over
+	score_ = 0;
+	UpdateScoreSprites();
+	requestSceneClear_ = false;
 	gameOverTimer_ = 0;
 	hitCount2 = 0;
 }
@@ -1029,15 +1296,15 @@ void GameScene::SpawnMeteorite() {
 	randomDir = KamataEngine::MathUtility::Normalize(randomDir);
 
 	// この距離に隕石が発生する
-	const float kSpawnDistance = 0.0f;
+	const float kSpawnDistance = 800.0f;
 
 	KamataEngine::Vector3 offset = randomDir * kSpawnDistance;
 	KamataEngine::Vector3 spawnPos = cameraPos + offset;
 
 	// スケールと半径をランダム
-	const float kBaseRadius = 0.0f;
-	const float kMinScale = 0.0f;
-	const float kMaxScale = 0.0f;
+	const float kBaseRadius = 2.0f;
+	const float kMinScale = 1.0f;
+	const float kMaxScale = 5.0f;
 
 	float randFactor = static_cast<float>(std::rand()) / RAND_MAX;
 	float randomBaseScale = kMinScale + (randFactor * (kMaxScale - kMinScale));
@@ -1046,6 +1313,7 @@ void GameScene::SpawnMeteorite() {
 	newMeteor->Initialize(modelMeteorite_, spawnPos, randomBaseScale, randomRadius);
 	meteorites_.push_back(newMeteor);
 }
+
 
 void GameScene::UpdateMeteorites() {
 	// 　この数値より離れたら隕石を消去
@@ -1133,7 +1401,7 @@ void GameScene::UpdateAimAssist() {
 
 	// 6. 敵の検索
 	// NDC空間での半径を計算する (ndc は画面幅方向がアスペクトで伸びているため補正が必要)
-	// kVisualRadius は画面高さに対する比率なので、NDCでの半径は (2 * kVisualRadius)
+	// kVisualRadius は画面HEIGHTに対する比率なので、NDCでの半径は (2 * kVisualRadius)
 	const float ndcVisualRadiusY = kVisualRadius * 2.0f;
 	// X方向のNDC半径はアスペクト比で割る（幅が大きいと NDC 単位での幅は小さくなる）
 	const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;
@@ -1192,9 +1460,12 @@ void GameScene::UpdateAimAssist() {
 	}
 
 	// 9. ターゲットが見つかったらアシスト適用
-	if (bestTarget) {
-
-		// アシスト自体は「判定」円で見つかったら実行
+	// WASDで視点移動中は吸い寄せを無効化
+	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
+	bool isViewMoving = input->PushKey(DIK_W) || input->PushKey(DIK_S) || input->PushKey(DIK_A) || input->PushKey(DIK_D);
+	
+	if (bestTarget && !isViewMoving) {
+		// アシスト自体は「判定」円で見つかったら実行（WASDが押されていない時のみ）
 		railCamera_->ApplyAimAssist(bestTargetNdc.x, bestTargetNdc.y);
 
 		float visualNormX = bestTargetNdc.x / ndcVisualRadiusX;
@@ -1212,7 +1483,6 @@ void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
 		return;
 	}
 
-	// ★ ParticleEmitter に追加した「EmitBurst」関数を呼ぶ
 	explosionEmitter_->EmitBurst(
 	    position, // 発生座標
 	    10,       // 粒の数
@@ -1252,4 +1522,52 @@ KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vecto
 	finalPos.y = std::clamp(finalPos.y, minY, maxY);
 
 	return finalPos;
+}
+
+// Score handling
+void GameScene::AddScore(int points) {
+	if (points <= 0) return;
+	score_ += points;
+	if (score_ > kMaxScore_) score_ = kMaxScore_;
+	UpdateScoreSprites();
+
+	// If score reaches or exceeds 200, request clear the scene at a safe point
+	if (sceneState == SceneState::Game && score_ >= 600) {
+		requestSceneClear_ = true;
+	}
+}
+
+void GameScene::UpdateScoreSprites() {
+	int display = score_;
+	// clamp
+	if (display < 0) display = 0;
+	if (display > kMaxScore_) display = kMaxScore_;
+
+	int digits[4] = {0, 0, 0, 0};
+	digits[3] = display % 10;
+	digits[2] = (display / 10) % 10;
+	digits[1] = (display / 100) % 10;
+	digits[0] = (display / 1000) % 10;
+
+	// Always show four digits (use '0' texture for leading zeros if available)
+	for (int i = 0; i < 4; ++i) {
+		int d = digits[i];
+		uint32_t handle = 0;
+		if (d >= 0 && d < (int)digitTextureHandles_.size()) handle = digitTextureHandles_[d];
+		if (handle != 0) {
+			// recreate sprite with digit texture
+			if (scoreDigitSprites_[i]) delete scoreDigitSprites_[i];
+			scoreDigitSprites_[i] = KamataEngine::Sprite::Create(handle, {0,0});
+			if (scoreDigitSprites_[i]) {
+				scoreDigitSprites_[i]->SetAnchorPoint({0.0f,0.0f});
+				scoreDigitSprites_[i]->SetSize({80.0f, 64.0f}); // 横に伸ばす
+				// 数字の幅が80.0fなので、間隔を90.0fに設定して重ならないようにする
+				// 画面右端から余白20.0fを引いた位置から左に配置
+				scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 70.0f - 20.0f, 20.0f});
+			}
+		} else {
+			// texture missing: hide
+			if (scoreDigitSprites_[i]) scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
+		}
+	}
 }
