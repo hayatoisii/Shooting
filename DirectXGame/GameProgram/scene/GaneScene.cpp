@@ -67,6 +67,11 @@ GameScene::~GameScene() {
 	for (Enemy* enemy : enemies_) {
 		delete enemy;
 	}
+
+	// delete score digit sprites
+	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
+		delete s;
+	}
 }
 
 void GameScene::Initialize() {
@@ -185,8 +190,43 @@ void GameScene::Initialize() {
 		minimapEnemyBulletSprites_[i]->SetPosition({-100.0f, -100.0f});
 	}
 
-	taitoruSprite_->SetPosition(screenCenter); // 画面中央に配置
-	taitoruSprite_->SetAnchorPoint({0.5f, 0.5f});
+	// --- ビットマップフォントの初期化 ---
+    digitTextureHandles_.resize(10);
+    // Load textures for digits 1..9 by their names (as user stated), and try 0 if present
+    for (int i = 1; i <= 9; ++i) {
+        uint32_t h = 0;
+        std::string base = std::to_string(i);
+        // Try with common extensions first to avoid showing error dialogs from Load when called with bare name
+        h = KamataEngine::TextureManager::Load((base + ".png").c_str());
+        if (h == 0) h = KamataEngine::TextureManager::Load((base + ".PNG").c_str());
+        if (h == 0) h = KamataEngine::TextureManager::Load(base.c_str());
+        digitTextureHandles_[i] = h;
+    }
+    // Try to load '0' if available; otherwise leave 0 handle
+    {
+        uint32_t h0 = 0;
+        h0 = KamataEngine::TextureManager::Load("0.png");
+        if (h0 == 0) h0 = KamataEngine::TextureManager::Load("0.PNG");
+        if (h0 == 0) h0 = KamataEngine::TextureManager::Load("0");
+        digitTextureHandles_[0] = h0;
+    }
+
+	// Create 4 digit sprites (thousands, hundreds, tens, ones)
+	scoreDigitSprites_.resize(4);
+	for (int i = 0; i < 4; ++i) {
+		// create placeholder sprite with no texture (handle 0) initially
+		scoreDigitSprites_[i] = KamataEngine::Sprite::Create(0, {0, 0});
+		if (scoreDigitSprites_[i]) {
+			scoreDigitSprites_[i]->SetAnchorPoint({0.0f, 0.0f});
+			scoreDigitSprites_[i]->SetSize({48.0f, 64.0f});
+			scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 26.0f - 20.0f, 20.0f});
+			// hidden initially
+			scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
+		}
+	}
+
+	// Ensure initial score display is updated (show 0000 if 0 texture exists)
+	UpdateScoreSprites();
 
 	camera_.Initialize();
 
@@ -476,7 +516,7 @@ void GameScene::Update() {
 				// 10秒経過したのでタイトルへ戻す（リセット処理）
 				sceneState = SceneState::Start;
 				debug10ElapsedSec_ = 0.0f;
-
+				
 				camera_.Initialize();
 				camera_.TransferMatrix();
 				if (railCamera_) {
@@ -489,7 +529,7 @@ void GameScene::Update() {
 					player_->ResetParticles();
 					player_->ResetBullets();
 				}
-
+				
 				for (Enemy* enemy : enemies_) {
 					delete enemy;
 				}
@@ -498,66 +538,37 @@ void GameScene::Update() {
 					delete bullet;
 				}
 				enemyBullets_.clear();
-
+				
 				for (Meteorite* meteor : meteorites_) {
 					delete meteor;
 				}
 				meteorites_.clear();
 				meteoriteSpawnTimer_ = 0;
-
+				
 				LoadEnemyPopData();
 				hasSpawnedEnemies_ = false;
-
+				
 				// 処理を終えてこのフレームの残りの Game 処理をスキップ
 				break;
 			}
 		}
 
+		// --- 自動ゲームオーバー(25秒) / タイマー更新 ---
+		if (isGameIntroFinished_) {
+			const float kDeltaSecGame = 1.0f / 60.0f; // 60FPS 想定
+			gameSceneTimer_ += kDeltaSecGame;
+			const float kAutoGameOverSeconds = 25.0f; // 25秒でゲームオーバー
+			if (gameSceneTimer_ >= kAutoGameOverSeconds) {
+				// 時間切れ -> ゲームオーバー
+				TransitionToClearScene2();
+				break;
+			}
+		}
 
-		// デバッグ
+		// --- デバッグ
 		//gameSceneTimer_++;
 		// --- デバッグ用: 1秒でクリア (60フレーム) ---
-		const int DEBUG_CLEAR_TIME = 60; // 1秒
-		if (gameSceneTimer_ > DEBUG_CLEAR_TIME) {
-			TransitionToClearScene(); // クリア処理を呼び出す
-			break;                    // このフレームの残りのGame処理をスキップ
-		}
-
-
-		// デモ用自動復帰タイマー
-		if (gameSceneTimer_ > kGameTimeLimit_) {
-			sceneState = SceneState::Start;
-			camera_.Initialize();
-			camera_.TransferMatrix();
-			if (railCamera_) {
-				railCamera_->Reset();
-			}
-			if (player_) {
-				player_->ResetRotation();
-				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-				player_->GetWorldTransform().UpdateMatrix();
-				player_->ResetParticles();
-				player_->ResetBullets();
-			}
-			for (Enemy* enemy : enemies_) {
-				delete enemy;
-			}
-			enemies_.clear();
-			for (EnemyBullet* bullet : enemyBullets_) {
-				delete bullet;
-			}
-			enemyBullets_.clear();
-
-			for (Meteorite* meteor : meteorites_) {
-				delete meteor;
-			}
-			meteorites_.clear();
-			meteoriteSpawnTimer_ = 0;
-
-			LoadEnemyPopData();
-			hasSpawnedEnemies_ = false;
-			break;
-		}
+		// removed old frame-based debug clear
 
 		// --- 通常のゲーム処理 ---
 		railCamera_->Update();
@@ -587,7 +598,7 @@ void GameScene::Update() {
 			// Playerを先に更新して、最新の位置を取得できるようにする
 			player_->Update();
 
-			// 回避処理（Player更新後に実行）
+			// 回避処理（Player更新後に実行）>
 			player_->EvadeBullets(enemyBullets_);
 
 			for (Enemy* enemy : enemies_) {
@@ -597,13 +608,13 @@ void GameScene::Update() {
 			
 			for (Meteorite* meteor : meteorites_) {
 				if (meteor) {
-					// Playerの位置を渡して更新（近づくと大きくなる処理のため）
+					// Playerの位置を渡して更新（近づくと大きくなる処理のため）>
 					meteor->Update(player_->GetWorldPosition());
 				}
 			}
 			
 
-			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）
+			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）>
 			for (EnemyBullet* bullet : enemyBullets_) {
 				bullet->Update();
 			}
@@ -888,6 +899,12 @@ void GameScene::Update() {
 		}
 		break;
 	}
+
+	// Deferred scene clear: perform transition at a safe point after game update
+	if (requestSceneClear_ && sceneState == SceneState::Game) {
+		requestSceneClear_ = false;
+		TransitionToClearScene();
+	}
 }
 
 void GameScene::Draw() {
@@ -996,13 +1013,18 @@ void GameScene::Draw() {
 		shiftSprite_->Draw();
 	}
 
+	// Draw score digits on top-right
+	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
+		if (s) s->Draw();
+	}
+
 	if (sceneState == SceneState::Clear) {
 		if (clearSprite_)
 			clearSprite_->Draw();
 		// draw sprite confetti on top of clear sprite
 		for (auto& c : confettiParticles_) {
 			if (c.active && c.sprite)
-				c.sprite->Draw();
+			 c.sprite->Draw();
 		}
 	}
 
@@ -1162,8 +1184,9 @@ void GameScene::CheckAllCollisions() {
 		if (!enemy || enemy->IsDead())
 			continue;
 		// 画面外の敵は衝突判定やエイムアシスト用の行列演算を行わない
-		if (!enemy->IsOnScreen())
-			continue;
+		// (Collision should be checked regardless of on-screen state)
+		// if (!enemy->IsOnScreen())
+		// 	continue;
 		posA[1] = enemy->GetWorldPosition();
 		for (PlayerBullet* bullet : playerBullets) {
 			if (!bullet || bullet->IsDead())
@@ -1181,12 +1204,6 @@ void GameScene::CheckAllCollisions() {
 
 				if (audio_)
 					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
-
-				// デバッグ
-				if (hitCount >= 1) {
-					//TransitionToClearScene();
-					return;
-				}
 			}
 		}
 	}
@@ -1201,9 +1218,13 @@ void GameScene::CheckAllCollisions() {
 }
 
 void GameScene::TransitionToClearScene() {
-	// sceneState = SceneState::Clear; // Clear には行かず Start にする
 	// Change: go to Clear scene so player sees clear screen instead of immediately returning to title
 	sceneState = SceneState::Clear;
+
+	// reset score on clear
+	score_ = 0;
+	UpdateScoreSprites();
+	requestSceneClear_ = false;
 
 	gameOverTimer_ = 0; // (念のためタイマー系もリセット)
 	hitCount = 0;       // 撃破数リセット
@@ -1245,6 +1266,10 @@ void GameScene::TransitionToClearScene() {
 
 void GameScene::TransitionToClearScene2() {
 	sceneState = SceneState::over;
+	// reset score on game over
+	score_ = 0;
+	UpdateScoreSprites();
+	requestSceneClear_ = false;
 	gameOverTimer_ = 0;
 	hitCount2 = 0;
 }
@@ -1493,4 +1518,50 @@ KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vecto
 	finalPos.y = std::clamp(finalPos.y, minY, maxY);
 
 	return finalPos;
+}
+
+// Score handling
+void GameScene::AddScore(int points) {
+	if (points <= 0) return;
+	score_ += points;
+	if (score_ > kMaxScore_) score_ = kMaxScore_;
+	UpdateScoreSprites();
+
+	// If score reaches or exceeds 200, request clear the scene at a safe point
+	if (sceneState == SceneState::Game && score_ >= 200) {
+		requestSceneClear_ = true;
+	}
+}
+
+void GameScene::UpdateScoreSprites() {
+	int display = score_;
+	// clamp
+	if (display < 0) display = 0;
+	if (display > kMaxScore_) display = kMaxScore_;
+
+	int digits[4] = {0, 0, 0, 0};
+	digits[3] = display % 10;
+	digits[2] = (display / 10) % 10;
+	digits[1] = (display / 100) % 10;
+	digits[0] = (display / 1000) % 10;
+
+	// Always show four digits (use '0' texture for leading zeros if available)
+	for (int i = 0; i < 4; ++i) {
+		int d = digits[i];
+		uint32_t handle = 0;
+		if (d >= 0 && d < (int)digitTextureHandles_.size()) handle = digitTextureHandles_[d];
+		if (handle != 0) {
+			// recreate sprite with digit texture
+			if (scoreDigitSprites_[i]) delete scoreDigitSprites_[i];
+			scoreDigitSprites_[i] = KamataEngine::Sprite::Create(handle, {0,0});
+			if (scoreDigitSprites_[i]) {
+				scoreDigitSprites_[i]->SetAnchorPoint({0.0f,0.0f});
+				scoreDigitSprites_[i]->SetSize({48.0f,64.0f});
+				scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 26.0f - 20.0f, 20.0f});
+			}
+		} else {
+			// texture missing: hide
+			if (scoreDigitSprites_[i]) scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
+		}
+	}
 }

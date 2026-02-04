@@ -111,6 +111,8 @@ void Enemy::OnCollision() {
 		isDead_ = true;
 		if (gameScene_) {
 			gameScene_->RequestExplosion(GetWorldPosition());
+			// Award score for enemy death
+			gameScene_->AddScore(100);
 		}
 	};
 }

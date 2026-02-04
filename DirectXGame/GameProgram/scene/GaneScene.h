@@ -7,6 +7,7 @@
 #include "Skydome.h"
 #include "../../Meteorite.h"
 #include <sstream>
+#include <vector>
 using namespace KamataEngine;
 
 float Distance(const Vector3& v1, const Vector3& v2);
@@ -44,6 +45,10 @@ public:
 
 	bool hasSpawnedEnemies_ = false;
 
+	// Score handling (made public so other game objects can award points)
+	void AddScore(int points);
+	void UpdateScoreSprites();
+
 private:
 	DirectXCommon* dxCommon_ = nullptr;
 	Input* input_ = nullptr;
@@ -61,9 +66,6 @@ private:
 	Model* modelEnemy_ = nullptr;
 	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
 	Model* modelEnemyBullet_ = nullptr;
-
-	int32_t gameSceneTimer_ = 0;
-	const int32_t kGameTimeLimit_ = 60 * 30;
 
 	Vector3 railcameraPos = {0, 5, -50};
 	Vector3 railcameraRad = {0, 0, 0};
@@ -199,6 +201,22 @@ private:
 
 	// デバッグ: ゲーム開始から指定秒数でタイトルに戻す
 	bool debug10 = true;            // 有効化フラグ
+	// デバッグ10秒タイマー
 	float debug10ElapsedSec_ = 0.0f; // 経過秒数
-	const float kDebug10Seconds = 100.0f; // タイトルへ戻すまでの秒数（10秒）
+	const float kDebug10Seconds = 100.0f; // タイトルへ戻すまでの秒数（100秒）
+
+	// ゲームタイマー（秒）: 自動ゲームオーバー判定に使用
+	float gameSceneTimer_ = 0.0f;
+
+	// カウント表示 (ビットマップフォント用)
+	int score_ = 0; // 表示スコア
+	const int kMaxScore_ = 9999;
+
+	// 安全にシーンクリア遷移をリクエストするフラグ
+	bool requestSceneClear_ = false;
+
+	// デジットテクスチャハンドル (0..9)
+	std::vector<uint32_t> digitTextureHandles_;
+	// 表示用スプライト (4桁)
+	std::vector<KamataEngine::Sprite*> scoreDigitSprites_;
 };

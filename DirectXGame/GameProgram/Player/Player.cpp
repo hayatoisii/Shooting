@@ -9,6 +9,7 @@
 #include "base/WinApp.h"
 #include <cstdio>
 #include <Windows.h>
+#include <vector>
 
 Player::~Player() {
 	delete modelbullet_;
@@ -258,10 +259,22 @@ void Player::SetParent(const KamataEngine::WorldTransform* parent) { worldtransf
 
 void Player::Update() {
 
-	for (PlayerBullet* bullet : bullets_) {
-		bullet->Update();
+	// Update bullets safely: copy pointers to a temporary vector so that
+	// if bullets_ is modified during an update (e.g. bullets marked dead by collision)
+	// we won't iterate invalidated iterators.
+	std::vector<PlayerBullet*> bulletSnapshot;
+	bulletSnapshot.reserve(bullets_.size());
+	for (PlayerBullet* b : bullets_) {
+		if (b) bulletSnapshot.push_back(b);
 	}
+
+	for (PlayerBullet* b : bulletSnapshot) {
+		if (b) b->Update();
+	}
+
+	// Remove and delete dead bullets
 	bullets_.remove_if([](PlayerBullet* bullet) {
+		if (!bullet) return true;
 		if (bullet->IsDead()) {
 			delete bullet;
 			return true;
