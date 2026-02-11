@@ -121,6 +121,8 @@
     <ClCompile Include="GameProgram\MT\worldTransformEx.cpp" />
     <ClCompile Include="GameProgram\Particle\Meteorite.cpp" />
     <ClCompile Include="GameProgram\MT\Quaternion.cpp" />
+    <ClCompile Include="TextureConverter.cpp" />
+    <ClCompile Include="TextureManagerExtension.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\TerrainPS.hlsl">
@@ -212,6 +214,8 @@
     <ClInclude Include="GameProgram\MT\worldTransformEx.h" />
     <ClInclude Include="GameProgram\Particle\Meteorite.h" />
     <ClInclude Include="GameProgram\MT\Quaternion.h" />
+    <ClInclude Include="TextureConverter.h" />
+    <ClInclude Include="TextureManagerExtension.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

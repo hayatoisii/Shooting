@@ -1,11 +1,11 @@
 #pragma once
+#include "Meteorite.h"
 #include "AABB.h"
 #include "Enemy.h"
 #include "KamataEngine.h"
 #include "Player.h"
 #include "RailCamera.h"
 #include "Skydome.h"
-#include "../../Meteorite.h"
 #include <sstream>
 #include <vector>
 using namespace KamataEngine;
@@ -126,12 +126,12 @@ private:
 
 	float gameOverTimer_ = 0.0f;
 	bool debugAutoClearEnabled_ = true;
-	int debugAutoClearTimer_ = 0; // frames
+	int debugAutoClearTimer_ = 0;         // frames
 	const int kDebugAutoClearFrames = 60; // ~1 second at 60 FPS
 
 	// カメラ位置アンカー
 	WorldTransform cameraPositionAnchor_;
-	
+
 	KamataEngine::Model* modelMeteorite_;
 	std::list<Meteorite*> meteorites_;
 	int meteoriteSpawnTimer_;
@@ -200,9 +200,9 @@ private:
 	const float kHomingBulletSpeed_ = 8.0f; // requested speed
 
 	// デバッグ: ゲーム開始から指定秒数でタイトルに戻す
-	bool debug10 = true;            // 有効化フラグ
+	bool debug10 = true; // 有効化フラグ
 	// デバッグ10秒タイマー
-	float debug10ElapsedSec_ = 0.0f; // 経過秒数
+	float debug10ElapsedSec_ = 0.0f;      // 経過秒数
 	const float kDebug10Seconds = 100.0f; // タイトルへ戻すまでの秒数（100秒）
 
 	// ゲームタイマー（秒）: 自動ゲームオーバー判定に使用

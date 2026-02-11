@@ -1,10 +1,58 @@
 #include <KamataEngine.h>
 #include "GaneScene.h"
+#include "TextureConverter.h"
+#include <filesystem>
 
 using namespace KamataEngine;
+namespace fs = std::filesystem;
+
+// Resourcesフォルダ内の全PNGをDDSに変換する関数
+void ConvertAllTextures() {
+	TextureConverter converter;
+
+	// "Resources" フォルダの中にあるファイルを全部チェックする
+	// ※もしフォルダ名が違う場合は "Resources" を書き換えてください
+	std::string directoryPath = "Resources";
+
+	// フォルダが存在するか確認
+	if (!fs::exists(directoryPath)) {
+		return;
+	}
+
+	// フォルダ内のファイルを1つずつ取り出すループ
+	for (const auto& entry : fs::directory_iterator(directoryPath)) {
+		// ファイルのパスを取得
+		std::string filePath = entry.path().string();
+
+		// 拡張子が ".png" のファイルだけを探す
+		if (entry.path().extension() == ".png") {
+
+			// 対応する .dds ファイルの名前を作る
+			std::string ddsPath = filePath;
+			ddsPath.replace(ddsPath.find(".png"), 4, ".dds");
+
+			// ★工夫ポイント：
+			// 「まだDDSがない」または「PNGの方が新しい（更新された）」場合だけ変換する
+			// これをしないと、毎回全変換が走って起動が遅くなります
+			if (!fs::exists(ddsPath) || fs::last_write_time(entry.path()) > fs::last_write_time(ddsPath)) {
+
+				// 変換実行！
+				converter.ConvertTextureWICToDDS(filePath);
+
+				// ログ出力（Outputウィンドウで確認用）
+				OutputDebugStringA(("Converted: " + filePath + "\n").c_str());
+			}
+		}
+	}
+}
 
 // Windowsアプリでのエントリーポイント(main関数)
 int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+	
+	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	// ゲームウィンドウが出る前に、ここで全画像をチェックして変換してしまいます
+	ConvertAllTextures();
+	
 	WinApp* win = nullptr;
 	DirectXCommon* dxCommon = nullptr;
 	// 汎用機能

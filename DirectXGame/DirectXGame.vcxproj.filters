@@ -90,6 +90,12 @@
     <ClCompile Include="GameProgram\Particle\Meteorite.cpp">
       <Filter>GameProgram\Enemy</Filter>
     </ClCompile>
+    <ClCompile Include="TextureConverter.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
+    <ClCompile Include="TextureManagerExtension.cpp">
+      <Filter>ソース ファイル</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\SpritePS.hlsl">
@@ -182,6 +188,12 @@
     </ClInclude>
     <ClInclude Include="GameProgram\Particle\Meteorite.h">
       <Filter>GameProgram\Enemy</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureConverter.h">
+      <Filter>ヘッダー ファイル</Filter>
+    </ClInclude>
+    <ClInclude Include="TextureManagerExtension.h">
+      <Filter>ヘッダー ファイル</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

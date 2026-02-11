@@ -6,7 +6,7 @@
 #include <cstdlib>
 #include <fstream>
 
-KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine:: Vector3& end, float t) {
+KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine::Vector3& end, float t) {
 	t = std::clamp(t, 0.0f, 1.0f);
 	return start + (end - start) * t;
 }
@@ -93,22 +93,22 @@ void GameScene::Initialize() {
 	modelMeteorite_ = KamataEngine::Model::CreateFromOBJ("meteorite", true);
 	meteoriteSpawnTimer_ = 0;
 
-	transitionTextureHandle_ = KamataEngine::TextureManager::Load("black.png");
+	transitionTextureHandle_ = TextureManager::GetInstance()->LoadDDS("black.dds");
 	transitionSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
 	KamataEngine::Vector2 screenCenter = {WinApp::kWindowWidth / 2.0f, WinApp::kWindowHeight / 2.0f};
 	transitionSprite_->SetPosition(screenCenter);
 	transitionSprite_->SetAnchorPoint({0.5f, 0.5f});
 	transitionSprite_->SetSize({0.0f, 0.0f});
 
-	reticleTextureHandle_ = KamataEngine::TextureManager::Load("reticle.png");
+	reticleTextureHandle_ = TextureManager::GetInstance()->LoadDDS("reticle.dds");
 	reticleSprite_ = KamataEngine::Sprite::Create(reticleTextureHandle_, {0, 0});
 	reticleSprite_->SetPosition(screenCenter);
 	reticleSprite_->SetAnchorPoint({0.5f, 0.5f});
 
-	taitoruTextureHandle_ = KamataEngine::TextureManager::Load("sousa.png");
+	taitoruTextureHandle_ = TextureManager::GetInstance()->LoadDDS("sousa.dds");
 	taitoruSprite_ = KamataEngine::Sprite::Create(taitoruTextureHandle_, {0, 0});
 
-	aimAssistCircleTextureHandle_ = KamataEngine::TextureManager::Load("aimCircle.png");
+	aimAssistCircleTextureHandle_ = TextureManager::GetInstance()->LoadDDS("aimCircle.dds");
 	aimAssistCircleSprite_ = KamataEngine::Sprite::Create(aimAssistCircleTextureHandle_, {0, 0});
 	aimAssistCircleSprite_->SetSize({0.0f, 0.0f});
 
@@ -119,7 +119,7 @@ void GameScene::Initialize() {
 	}
 
 	// シーンクリア用アセット
-	clearTextureHandle_ = KamataEngine::TextureManager::Load("kuria.png");
+	clearTextureHandle_ = TextureManager::GetInstance()->LoadDDS("kuria.dds");
 	clearSprite_ = KamataEngine::Sprite::Create(clearTextureHandle_, {0, 0});
 	if (clearSprite_) {
 		// kuria.png を画面全体にかぶせる
@@ -134,7 +134,7 @@ void GameScene::Initialize() {
 	}
 
 	// コンフェッティ用スプライトテクスチャ
-	confettiTextureHandle_ = KamataEngine::TextureManager::Load("confetti.png");
+	confettiTextureHandle_ = TextureManager::GetInstance()->LoadDDS("confetti.dds");
 	confettiParticles_.resize(kMaxConfetti_);
 	for (size_t i = 0; i < kMaxConfetti_; ++i) {
 		confettiParticles_[i].sprite = KamataEngine::Sprite::Create(confettiTextureHandle_, {0, 0});
@@ -155,11 +155,11 @@ void GameScene::Initialize() {
 		aimAssistCircleSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
 	}
 
-	minimapTextureHandle_ = KamataEngine::TextureManager::Load("minimap.png");
-	greenBoxTextureHandle_ = KamataEngine::TextureManager::Load("greenBox.png");
-	minimapPlayerTextureHandle_ = KamataEngine::TextureManager::Load("player.png");
+	minimapTextureHandle_ = TextureManager::GetInstance()->LoadDDS("minimap.dds");
+	greenBoxTextureHandle_ = TextureManager::GetInstance()->LoadDDS("greenBox.dds");
+	minimapPlayerTextureHandle_ = TextureManager::GetInstance()->LoadDDS("player.dds");
 	// ミニマップ上の敵弾アイコンは元の赤いテクスチャを使用（変更を取り消し）
-	minimapEnemyBulletTextureHandle_ = KamataEngine::TextureManager::Load("missileRedBox.png");
+	minimapEnemyBulletTextureHandle_ = TextureManager::GetInstance()->LoadDDS("missileRedBox.dds");
 
 	// 1. ミニマップ背景
 	minimapSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0, 0});
@@ -191,25 +191,29 @@ void GameScene::Initialize() {
 	}
 
 	// --- ビットマップフォントの初期化 ---
-    digitTextureHandles_.resize(10);
-    // Load textures for digits 1..9 by their names (as user stated), and try 0 if present
-    for (int i = 1; i <= 9; ++i) {
-        uint32_t h = 0;
-        std::string base = std::to_string(i);
-        // Try with common extensions first to avoid showing error dialogs from Load when called with bare name
-        h = KamataEngine::TextureManager::Load((base + ".png").c_str());
-        if (h == 0) h = KamataEngine::TextureManager::Load((base + ".PNG").c_str());
-        if (h == 0) h = KamataEngine::TextureManager::Load(base.c_str());
-        digitTextureHandles_[i] = h;
-    }
-    // Try to load '0' if available; otherwise leave 0 handle
-    {
-        uint32_t h0 = 0;
-        h0 = KamataEngine::TextureManager::Load("0.png");
-        if (h0 == 0) h0 = KamataEngine::TextureManager::Load("0.PNG");
-        if (h0 == 0) h0 = KamataEngine::TextureManager::Load("0");
-        digitTextureHandles_[0] = h0;
-    }
+	digitTextureHandles_.resize(10);
+	// Load textures for digits 1..9 by their names (as user stated), and try 0 if present
+	for (int i = 1; i <= 9; ++i) {
+		uint32_t h = 0;
+		std::string base = std::to_string(i);
+		// Try with common extensions first to avoid showing error dialogs from Load when called with bare name
+		h = TextureManager::GetInstance()->LoadDDS((base + ".dds").c_str());
+		if (h == 0)
+			h = TextureManager::GetInstance()->LoadDDS((base + ".DDS").c_str());
+		if (h == 0)
+			h = TextureManager::GetInstance()->LoadDDS(base.c_str());
+		digitTextureHandles_[i] = h;
+	}
+	// Try to load '0' if available; otherwise leave 0 handle
+	{
+		uint32_t h0 = 0;
+		h0 = TextureManager::GetInstance()->LoadDDS("0.dds");
+		if (h0 == 0)
+			h0 = TextureManager::GetInstance()->LoadDDS("0.DDS");
+		if (h0 == 0)
+			h0 = TextureManager::GetInstance()->LoadDDS("0");
+		digitTextureHandles_[0] = h0;
+	}
 
 	// Create 4 digit sprites (thousands, hundreds, tens, ones)
 	scoreDigitSprites_.resize(4);
@@ -262,9 +266,9 @@ void GameScene::Initialize() {
 
 	// ミニマップ用テクスチャ等の初期化を行った後に、右/左キー表示用スプライトを初期化
 	// テクスチャ名は Resources に配置した "light.png" と "left.png" を想定
-	lightTextureHandle_ = KamataEngine::TextureManager::Load("light.png");
-	leftTextureHandle_ = KamataEngine::TextureManager::Load("left.png");
-	shiftTextureHandle_ = KamataEngine::TextureManager::Load("shift.png"); // Shift画像
+	lightTextureHandle_ = TextureManager::GetInstance()->LoadDDS("light.dds");
+	leftTextureHandle_ = TextureManager::GetInstance()->LoadDDS("left.dds");
+	shiftTextureHandle_ = TextureManager::GetInstance()->LoadDDS("shift.dds"); // Shift画像
 
 	// スプライト生成
 	lightSprite_ = KamataEngine::Sprite::Create(lightTextureHandle_, {0, 0});
@@ -352,15 +356,15 @@ void GameScene::Update() {
 
 	// 実際のサイズを取得（スプライトが無ければ基準値を使う）
 	float controlSize = 80.0f;
-	//float shiftW = shiftSprite_ ? shiftSprite_->GetSize().x : controlSize * 1.5f;
-	//float lightW = lightSprite_ ? lightSprite_->GetSize().x : controlSize;
-	//float leftW = leftSprite_ ? leftSprite_->GetSize().x : controlSize;
+	// float shiftW = shiftSprite_ ? shiftSprite_->GetSize().x : controlSize * 1.5f;
+	// float lightW = lightSprite_ ? lightSprite_->GetSize().x : controlSize;
+	// float leftW = leftSprite_ ? leftSprite_->GetSize().x : controlSize;
 
 	float bottomY = static_cast<float>(WinApp::kWindowHeight) - margin; // 下辺の位置
 
 	// 矢印（light/left）は下端に横並びで配置
-	float lightRightX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSize + controlGroupOffset_; // グループオフセット適用
-	float leftRightX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * controlSize - gap + controlGroupOffset_;  // グループオフセット適用
+	float lightRightX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSize + controlGroupOffset_;      // グループオフセット適用
+	float leftRightX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * controlSize - gap + controlGroupOffset_; // グループオフセット適用
 
 	if (lightSprite_) {
 		lightSprite_->SetAnchorPoint({1.0f, 1.0f});
@@ -518,7 +522,7 @@ void GameScene::Update() {
 				// 10秒経過したのでタイトルへ戻す（リセット処理）
 				sceneState = SceneState::Start;
 				debug10ElapsedSec_ = 0.0f;
-				
+
 				camera_.Initialize();
 				camera_.TransferMatrix();
 				if (railCamera_) {
@@ -531,7 +535,7 @@ void GameScene::Update() {
 					player_->ResetParticles();
 					player_->ResetBullets();
 				}
-				
+
 				for (Enemy* enemy : enemies_) {
 					delete enemy;
 				}
@@ -540,16 +544,16 @@ void GameScene::Update() {
 					delete bullet;
 				}
 				enemyBullets_.clear();
-				
+
 				for (Meteorite* meteor : meteorites_) {
 					delete meteor;
 				}
 				meteorites_.clear();
 				meteoriteSpawnTimer_ = 0;
-				
+
 				LoadEnemyPopData();
 				hasSpawnedEnemies_ = false;
-				
+
 				// 処理を終えてこのフレームの残りの Game 処理をスキップ
 				break;
 			}
@@ -568,7 +572,7 @@ void GameScene::Update() {
 		}
 
 		// --- デバッグ
-		//gameSceneTimer_++;
+		// gameSceneTimer_++;
 		// --- デバッグ用: 1秒でクリア (60フレーム) ---
 		// removed old frame-based debug clear
 
@@ -591,7 +595,7 @@ void GameScene::Update() {
 			meteoriteSpawnTimer_--;
 			if (meteoriteSpawnTimer_ <= 0) {
 				for (int i = 0; i < kSpawnsPerFrame; ++i) {
-					 SpawnMeteorite();
+					SpawnMeteorite();
 				}
 				// 隕石の数
 				meteoriteSpawnTimer_ = 1;
@@ -607,14 +611,12 @@ void GameScene::Update() {
 				enemy->Update();
 			}
 
-			
 			for (Meteorite* meteor : meteorites_) {
 				if (meteor) {
 					// Playerの位置を渡して更新（近づくと大きくなる処理のため）>
 					meteor->Update(player_->GetWorldPosition());
 				}
 			}
-			
 
 			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）>
 			for (EnemyBullet* bullet : enemyBullets_) {
@@ -658,7 +660,7 @@ void GameScene::Update() {
 					KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
 
 					EnemyBullet* newBullet = new EnemyBullet();
-					//newBullet->Initialize(modelEnemy_, moveBullet, vel); // 生成時に enemy 弾モデルを渡す
+					// newBullet->Initialize(modelEnemy_, moveBullet, vel); // 生成時に enemy 弾モデルを渡す
 					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel); // 敵弾用モデルで初期化
 					newBullet->SetHomingEnabled(true);
 					newBullet->SetHomingTarget(player_);
@@ -719,8 +721,10 @@ void GameScene::Update() {
 				// 3. 敵弾アイコンの更新
 				size_t activeBulletCount = 0;
 				for (EnemyBullet* eb : enemyBullets_) {
-					if (!eb || eb->IsDead()) continue;
-					if (activeBulletCount >= kMaxMinimapEnemyBullets_) break;
+					if (!eb || eb->IsDead())
+						continue;
+					if (activeBulletCount >= kMaxMinimapEnemyBullets_)
+						break;
 					KamataEngine::Vector3 bpos = eb->GetWorldPosition();
 					KamataEngine::Vector2 bmin = ConvertWorldToMinimap(bpos, playerPos);
 					minimapEnemyBulletSprites_[activeBulletCount]->SetPosition(bmin);
@@ -750,7 +754,6 @@ void GameScene::Update() {
 		if (!confettiActive_) {
 			confettiActive_ = true;
 			confettiSpawnTimer_ = 0;
-
 		}
 
 		// spawn sprite confetti from top of screen
@@ -1020,7 +1023,8 @@ void GameScene::Draw() {
 
 	// Draw score digits on top-right
 	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
-		if (s) s->Draw();
+		if (s)
+			s->Draw();
 	}
 
 	if (sceneState == SceneState::Clear) {
@@ -1029,7 +1033,7 @@ void GameScene::Draw() {
 		// draw sprite confetti on top of clear sprite
 		for (auto& c : confettiParticles_) {
 			if (c.active && c.sprite)
-			 c.sprite->Draw();
+				c.sprite->Draw();
 		}
 	}
 
@@ -1122,25 +1126,24 @@ void GameScene::CheckAllCollisions() {
 
 	// --- 自キャラ vs 敵弾 (HP制に) ---
 	posA[0] = player_->GetWorldPosition();
-	
+
 	// 回避中は無敵時間として、当たり判定を無効にする
 	bool isPlayerRolling = player_->IsRolling();
-	
+
 	for (EnemyBullet* bullet : enemyBullets_) {
 		if (!bullet || bullet->IsDead())
 			continue;
 
-		
 		// 回避中は当たり判定を無効にする
 		if (isPlayerRolling) {
 			continue;
 		}
-		
+
 		// ホーミングを失った弾（回避された弾）は当たり判定を無効にする
 		if (!bullet->IsHoming() && bullet->GetEvadedDeathTimer() >= 0) {
 			continue; // 回避された弾は当たり判定を無効
 		}
-		
+
 		posB[0] = bullet->GetWorldPosition();
 		float distanceSquared = DistanceSquared(posA[0], posB[0]);
 		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
@@ -1314,7 +1317,6 @@ void GameScene::SpawnMeteorite() {
 	meteorites_.push_back(newMeteor);
 }
 
-
 void GameScene::UpdateMeteorites() {
 	// 　この数値より離れたら隕石を消去
 	const float kDespawnDistanceSq = 0.0f * 0.0f;
@@ -1463,7 +1465,7 @@ void GameScene::UpdateAimAssist() {
 	// WASDで視点移動中は吸い寄せを無効化
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 	bool isViewMoving = input->PushKey(DIK_W) || input->PushKey(DIK_S) || input->PushKey(DIK_A) || input->PushKey(DIK_D);
-	
+
 	if (bestTarget && !isViewMoving) {
 		// アシスト自体は「判定」円で見つかったら実行（WASDが押されていない時のみ）
 		railCamera_->ApplyAimAssist(bestTargetNdc.x, bestTargetNdc.y);
@@ -1526,9 +1528,11 @@ KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vecto
 
 // Score handling
 void GameScene::AddScore(int points) {
-	if (points <= 0) return;
+	if (points <= 0)
+		return;
 	score_ += points;
-	if (score_ > kMaxScore_) score_ = kMaxScore_;
+	if (score_ > kMaxScore_)
+		score_ = kMaxScore_;
 	UpdateScoreSprites();
 
 	// If score reaches or exceeds 200, request clear the scene at a safe point
@@ -1540,8 +1544,10 @@ void GameScene::AddScore(int points) {
 void GameScene::UpdateScoreSprites() {
 	int display = score_;
 	// clamp
-	if (display < 0) display = 0;
-	if (display > kMaxScore_) display = kMaxScore_;
+	if (display < 0)
+		display = 0;
+	if (display > kMaxScore_)
+		display = kMaxScore_;
 
 	int digits[4] = {0, 0, 0, 0};
 	digits[3] = display % 10;
@@ -1553,13 +1559,15 @@ void GameScene::UpdateScoreSprites() {
 	for (int i = 0; i < 4; ++i) {
 		int d = digits[i];
 		uint32_t handle = 0;
-		if (d >= 0 && d < (int)digitTextureHandles_.size()) handle = digitTextureHandles_[d];
+		if (d >= 0 && d < (int)digitTextureHandles_.size())
+			handle = digitTextureHandles_[d];
 		if (handle != 0) {
 			// recreate sprite with digit texture
-			if (scoreDigitSprites_[i]) delete scoreDigitSprites_[i];
-			scoreDigitSprites_[i] = KamataEngine::Sprite::Create(handle, {0,0});
+			if (scoreDigitSprites_[i])
+				delete scoreDigitSprites_[i];
+			scoreDigitSprites_[i] = KamataEngine::Sprite::Create(handle, {0, 0});
 			if (scoreDigitSprites_[i]) {
-				scoreDigitSprites_[i]->SetAnchorPoint({0.0f,0.0f});
+				scoreDigitSprites_[i]->SetAnchorPoint({0.0f, 0.0f});
 				scoreDigitSprites_[i]->SetSize({80.0f, 64.0f}); // 横に伸ばす
 				// 数字の幅が80.0fなので、間隔を90.0fに設定して重ならないようにする
 				// 画面右端から余白20.0fを引いた位置から左に配置
@@ -1567,7 +1575,8 @@ void GameScene::UpdateScoreSprites() {
 			}
 		} else {
 			// texture missing: hide
-			if (scoreDigitSprites_[i]) scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
+			if (scoreDigitSprites_[i])
+				scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
 		}
 	}
 }

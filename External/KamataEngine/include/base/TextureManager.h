@@ -36,6 +36,7 @@ public:
 	/// <param name="fileName">ファイル名</param>
 	/// <returns>テクスチャハンドル</returns>
 	static uint32_t Load(const std::string& fileName);
+	uint32_t LoadDDS(const std::string& fileName);
 
 	/// <summary>
 	/// 読み込み解除

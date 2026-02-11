@@ -1,5 +1,5 @@
 #pragma once
-#include "../../Quaternion.h"
+#include "Quaternion.h"
 #include "MT.h"
 #include <3d/Camera.h>
 #include <3d/WorldTransform.h>

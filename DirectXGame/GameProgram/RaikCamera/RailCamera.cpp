@@ -1,5 +1,5 @@
 #include "RailCamera.h"
-#include "../../Quaternion.h"
+#include "Quaternion.h"
 #include <KamataEngine.h>
 #include <algorithm>
 #include <cmath>
