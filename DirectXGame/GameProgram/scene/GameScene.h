@@ -52,6 +52,9 @@ public:
 	void AddScore(int points);
 	void UpdateScoreSprites();
 
+	// ゲーム状態のリセット
+	void ResetGameState();
+
 private:
 	DirectXCommon* dxCommon_ = nullptr;
 	Input* input_ = nullptr;
@@ -82,7 +85,6 @@ private:
 	const int32_t kTitlePauseFrames = 60;
 
 	int hitCount = 0;
-	int hitCount2 = 0;
 
 	Model* modelTitleObject_ = nullptr;
 	WorldTransform worldTransformTitleObject_;
@@ -138,7 +140,6 @@ private:
 	KamataEngine::Model* modelMeteorite_;
 	std::list<Meteorite*> meteorites_;
 	int meteoriteSpawnTimer_;
-	int meteoriteUpdateCounter_;
 
 	KamataEngine::Sprite* titleSprite_ = nullptr;
 	uint32_t titleTextureHandle_ = 0;

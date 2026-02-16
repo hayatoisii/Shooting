@@ -70,8 +70,21 @@ GameScene::~GameScene() {
 
 	// delete score digit sprites
 	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
-		delete s;
+		if (s) {
+			delete s;
+			s = nullptr;
+		}
 	}
+	scoreDigitSprites_.clear();
+	
+	// delete confetti particles
+	for (auto& c : confettiParticles_) {
+		if (c.sprite) {
+			delete c.sprite;
+			c.sprite = nullptr;
+		}
+	}
+	confettiParticles_.clear();
 }
 
 void GameScene::Initialize() {
@@ -216,20 +229,7 @@ void GameScene::Initialize() {
 	}
 
 	// Create 4 digit sprites (thousands, hundreds, tens, ones)
-	scoreDigitSprites_.resize(4);
-	for (int i = 0; i < 4; ++i) {
-		// create placeholder sprite with no texture (handle 0) initially
-		scoreDigitSprites_[i] = KamataEngine::Sprite::Create(0, {0, 0});
-		if (scoreDigitSprites_[i]) {
-			scoreDigitSprites_[i]->SetAnchorPoint({0.0f, 0.0f});
-			scoreDigitSprites_[i]->SetSize({80.0f, 64.0f}); // 横に伸ばす
-			// 数字の幅が80.0fなので、間隔を90.0fに設定して重ならないようにする
-			// 画面右端から余白20.0fを引いた位置から左に配置
-			scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 90.0f - 20.0f, 20.0f});
-			// hidden initially
-			scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
-		}
-	}
+	scoreDigitSprites_.resize(4, nullptr);
 
 	// Ensure initial score display is updated (show 0000 if 0 texture exists)
 	UpdateScoreSprites();
@@ -304,23 +304,6 @@ void GameScene::Initialize() {
 		shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
 	}
 
-	// スプライトの初期位置を右下に設定（毎フレームの更新時に再計算されるため、ここではウィンドウサイズ依存の初期位置のみ設定）
-	if (lightSprite_) {
-		float groupX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * 80.0f + controlGroupOffset_;
-		lightSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
-	}
-	if (leftSprite_) {
-		float groupX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * 80.0f - 16.0f + controlGroupOffset_;
-		leftSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
-	}
-	if (shiftSprite_) {
-		float controlSizeInit = 80.0f;
-		float verticalGapInit = 8.0f;
-		float lightRightXInit = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSizeInit + controlGroupOffset_;
-		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
-		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
-		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
-	}
 }
 
 void GameScene::Update() {
@@ -356,9 +339,6 @@ void GameScene::Update() {
 
 	// 実際のサイズを取得（スプライトが無ければ基準値を使う）
 	float controlSize = 80.0f;
-	// float shiftW = shiftSprite_ ? shiftSprite_->GetSize().x : controlSize * 1.5f;
-	// float lightW = lightSprite_ ? lightSprite_->GetSize().x : controlSize;
-	// float leftW = leftSprite_ ? leftSprite_->GetSize().x : controlSize;
 
 	float bottomY = static_cast<float>(WinApp::kWindowHeight) - margin; // 下辺の位置
 
@@ -519,42 +499,9 @@ void GameScene::Update() {
 			const float kDeltaSec = 1.0f / 60.0f; // フレーム毎の秒換算（概算）
 			debug10ElapsedSec_ += kDeltaSec;
 			if (debug10ElapsedSec_ >= kDebug10Seconds) {
-				// 10秒経過したのでタイトルへ戻す（リセット処理）
 				sceneState = SceneState::Start;
 				debug10ElapsedSec_ = 0.0f;
-
-				camera_.Initialize();
-				camera_.TransferMatrix();
-				if (railCamera_) {
-					railCamera_->Reset();
-				}
-				if (player_) {
-					player_->ResetRotation();
-					player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-					player_->GetWorldTransform().UpdateMatrix();
-					player_->ResetParticles();
-					player_->ResetBullets();
-				}
-
-				for (Enemy* enemy : enemies_) {
-					delete enemy;
-				}
-				enemies_.clear();
-				for (EnemyBullet* bullet : enemyBullets_) {
-					delete bullet;
-				}
-				enemyBullets_.clear();
-
-				for (Meteorite* meteor : meteorites_) {
-					delete meteor;
-				}
-				meteorites_.clear();
-				meteoriteSpawnTimer_ = 0;
-
-				LoadEnemyPopData();
-				hasSpawnedEnemies_ = false;
-
-				// 処理を終えてこのフレームの残りの Game 処理をスキップ
+				ResetGameState();
 				break;
 			}
 		}
@@ -571,10 +518,6 @@ void GameScene::Update() {
 			}
 		}
 
-		// --- デバッグ
-		// gameSceneTimer_++;
-		// --- デバッグ用: 1秒でクリア (60フレーム) ---
-		// removed old frame-based debug clear
 
 		// --- 通常のゲーム処理 ---
 		railCamera_->Update();
@@ -604,7 +547,7 @@ void GameScene::Update() {
 			// Playerを先に更新して、最新の位置を取得できるようにする
 			player_->Update();
 
-			// 回避処理（Player更新後に実行）>
+			// 回避処理（Player更新後に実行）
 			player_->EvadeBullets(enemyBullets_);
 
 			for (Enemy* enemy : enemies_) {
@@ -613,12 +556,12 @@ void GameScene::Update() {
 
 			for (Meteorite* meteor : meteorites_) {
 				if (meteor) {
-					// Playerの位置を渡して更新（近づくと大きくなる処理のため）>
+					// Playerの位置を渡して更新（近づくと大きくなる処理のため）
 					meteor->Update(player_->GetWorldPosition());
 				}
 			}
 
-			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）>
+			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）
 			for (EnemyBullet* bullet : enemyBullets_) {
 				bullet->Update();
 			}
@@ -660,8 +603,7 @@ void GameScene::Update() {
 					KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
 
 					EnemyBullet* newBullet = new EnemyBullet();
-					// newBullet->Initialize(modelEnemy_, moveBullet, vel); // 生成時に enemy 弾モデルを渡す
-					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel); // 敵弾用モデルで初期化
+					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel);
 					newBullet->SetHomingEnabled(true);
 					newBullet->SetHomingTarget(player_);
 					newBullet->SetSpeed(kHomingBulletSpeed_);
@@ -704,14 +646,13 @@ void GameScene::Update() {
 					lastPlayerPos_ = playerPos;
 				}
 
-				// この処理はミニマップにＥｎｅｍｙを移すために絶対に必要だから消しちゃダメ
-				//  2. 敵アイコンの位置を更新
+				// 2. 敵アイコンの位置を更新
 				size_t activeEnemyCount = 0;
 				// 敵リスト (enemies_) を走査
 				for (Enemy* enemy : enemies_) {
 					// 生きていて、スプライトの最大数を超えていない場合
 					if (enemy && !enemy->IsDead() && activeEnemyCount < kMaxMinimapEnemies_) {
-						KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition(); //
+						KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
 						KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(enemyPos, playerPos);
 						minimapEnemySprites_[activeEnemyCount]->SetPosition(minimapPos);
 						activeEnemyCount++;
@@ -777,41 +718,15 @@ void GameScene::Update() {
 							c.active = true;
 							// random bright color
 							float r, g, b;
-							int pattern = std::rand() % 6;                                  // 6パターン
-							float randomValue = static_cast<float>(std::rand()) / RAND_MAX; // 0.0f ～ 1.0f
-
-							switch (pattern) {
-							case 0:
-								r = 1.0f;
-								g = randomValue;
-								b = 0.0f;
-								break; // 赤～黄
-							case 1:
-								r = randomValue;
-								g = 1.0f;
-								b = 0.0f;
-								break; // 緑～黄
-							case 2:
-								r = 0.0f;
-								g = 1.0f;
-								b = randomValue;
-								break; // 緑～シアン
-							case 3:
-								r = 0.0f;
-								g = randomValue;
-								b = 1.0f;
-								break; // 青～シアン
-							case 4:
-								r = randomValue;
-								g = 0.0f;
-								b = 1.0f;
-								break; // 青～マゼンタ
-							default:
-								r = 1.0f;
-								g = 0.0f;
-								b = randomValue;
-								break; // 赤～マゼンタ
-							}
+							int pattern = std::rand() % 6;
+							float randomValue = static_cast<float>(std::rand()) / RAND_MAX;
+							const float colors[6][3] = {
+								{1.0f, randomValue, 0.0f}, {randomValue, 1.0f, 0.0f}, {0.0f, 1.0f, randomValue},
+								{0.0f, randomValue, 1.0f}, {randomValue, 0.0f, 1.0f}, {1.0f, 0.0f, randomValue}
+							};
+							r = colors[pattern][0];
+							g = colors[pattern][1];
+							b = colors[pattern][2];
 							c.sprite->SetColor({r, g, b, 1.0f});
 							c.sprite->SetPosition(c.pos);
 							c.sprite->SetRotation(c.rotation);
@@ -844,8 +759,7 @@ void GameScene::Update() {
 		if (input_->TriggerKey(DIK_SPACE)) {
 			confettiActive_ = false;
 			sceneState = SceneState::Start;
-			// reset as before...
-			// ...existing reset code omitted for brevity...
+			ResetGameState();
 		}
 		break;
 
@@ -869,38 +783,7 @@ void GameScene::Update() {
 		if (input_->TriggerKey(DIK_SPACE) || gameOverTimer_ >= 90) {
 			sceneState = SceneState::Start;
 			gameOverTimer_ = 0;
-
-			camera_.Initialize();
-			camera_.TransferMatrix();
-
-			if (railCamera_) {
-				railCamera_->Reset();
-			}
-
-			if (player_) {
-				player_->ResetRotation();
-				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-				player_->GetWorldTransform().UpdateMatrix();
-				player_->ResetParticles();
-				player_->ResetBullets();
-			}
-
-			for (Enemy* enemy : enemies_) {
-				delete enemy;
-			}
-			enemies_.clear();
-			for (EnemyBullet* bullet : enemyBullets_) {
-				delete bullet;
-			}
-			enemyBullets_.clear();
-			for (Meteorite* meteor : meteorites_) {
-				delete meteor;
-			}
-			meteorites_.clear();
-			meteoriteSpawnTimer_ = 0;
-
-			LoadEnemyPopData();
-			hasSpawnedEnemies_ = false;
+			ResetGameState();
 		}
 		break;
 	}
@@ -1161,41 +1044,12 @@ void GameScene::CheckAllCollisions() {
 		}
 	}
 
-	/*
-	// 自キャラ vs 隕石 の判定
-	posA[0] = player_->GetWorldPosition(); // プレイヤー位置
-	float playerRadius = radiusA[0];       // プレイヤー半径
-
-	for (Meteorite* meteor : meteorites_) {
-	    if (!meteor || meteor->IsDead())
-	        continue;
-
-	    posB[0] = meteor->GetWorldPosition();
-	    float meteoriteRadius = meteor->GetRadius();
-	    float distanceSquared = DistanceSquared(posA[0], posB[0]);
-	    float combinedRadiusSquared = (playerRadius + meteoriteRadius) * (playerRadius + meteoriteRadius);
-
-	    if (distanceSquared <= combinedRadiusSquared) {
-	        player_->OnCollision();
-	        meteor->OnCollision();
-
-	        if (player_->IsDead()) {
-	            TransitionToClearScene2();
-	            return;
-	        }
-	    }
-	}
-	*/
 
 	// 自弾 vs 敵キャラ
 	// 変更: 画面外の敵は多くの処理で不要なのでスキップして負荷を下げる
 	for (Enemy* enemy : enemies_) {
 		if (!enemy || enemy->IsDead())
 			continue;
-		// 画面外の敵は衝突判定やエイムアシスト用の行列演算を行わない
-		// (Collision should be checked regardless of on-screen state)
-		// if (!enemy->IsOnScreen())
-		// 	continue;
 		posA[1] = enemy->GetWorldPosition();
 		for (PlayerBullet* bullet : playerBullets) {
 			if (!bullet || bullet->IsDead())
@@ -1225,50 +1079,13 @@ void GameScene::CheckAllCollisions() {
 }
 
 void GameScene::TransitionToClearScene() {
-	// Change: go to Clear scene so player sees clear screen instead of immediately returning to title
 	sceneState = SceneState::Clear;
-
-	// reset score on clear
 	score_ = 0;
 	UpdateScoreSprites();
 	requestSceneClear_ = false;
-
-	gameOverTimer_ = 0; // (念のためタイマー系もリセット)
-	hitCount = 0;       // 撃破数リセット
-	hitCount2 = 0;
-
-	camera_.Initialize();
-	camera_.TransferMatrix();
-
-	if (railCamera_) {
-		railCamera_->Reset();
-	}
-
-	if (player_) {
-		player_->ResetRotation();
-		player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-		player_->GetWorldTransform().UpdateMatrix();
-		player_->ResetParticles();
-		player_->ResetBullets(); // (弾のリセットも行う)
-	}
-
-	for (Enemy* enemy : enemies_) {
-		delete enemy;
-	}
-	enemies_.clear();
-	for (EnemyBullet* bullet : enemyBullets_) {
-		delete bullet;
-	}
-	enemyBullets_.clear();
-
-	for (Meteorite* meteor : meteorites_) {
-		delete meteor;
-	}
-	meteorites_.clear();
-	meteoriteSpawnTimer_ = 0;
-
-	LoadEnemyPopData();
-	hasSpawnedEnemies_ = false;
+	gameOverTimer_ = 0;
+	hitCount = 0;
+	ResetGameState();
 }
 
 void GameScene::TransitionToClearScene2() {
@@ -1278,7 +1095,6 @@ void GameScene::TransitionToClearScene2() {
 	UpdateScoreSprites();
 	requestSceneClear_ = false;
 	gameOverTimer_ = 0;
-	hitCount2 = 0;
 }
 
 void GameScene::SpawnMeteorite() {
@@ -1561,22 +1377,58 @@ void GameScene::UpdateScoreSprites() {
 		uint32_t handle = 0;
 		if (d >= 0 && d < (int)digitTextureHandles_.size())
 			handle = digitTextureHandles_[d];
-		if (handle != 0) {
-			// recreate sprite with digit texture
-			if (scoreDigitSprites_[i])
-				delete scoreDigitSprites_[i];
+		
+		if (!scoreDigitSprites_[i] && handle != 0) {
+			// スプライトが存在しない場合のみ作成
 			scoreDigitSprites_[i] = KamataEngine::Sprite::Create(handle, {0, 0});
 			if (scoreDigitSprites_[i]) {
 				scoreDigitSprites_[i]->SetAnchorPoint({0.0f, 0.0f});
-				scoreDigitSprites_[i]->SetSize({80.0f, 64.0f}); // 横に伸ばす
-				// 数字の幅が80.0fなので、間隔を90.0fに設定して重ならないようにする
-				// 画面右端から余白20.0fを引いた位置から左に配置
+				scoreDigitSprites_[i]->SetSize({80.0f, 64.0f});
 				scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 70.0f - 20.0f, 20.0f});
 			}
-		} else {
-			// texture missing: hide
-			if (scoreDigitSprites_[i])
+		} else if (scoreDigitSprites_[i]) {
+			if (handle != 0) {
+				// テクスチャハンドルのみ変更（再作成しない）
+				scoreDigitSprites_[i]->SetTextureHandle(handle);
+				scoreDigitSprites_[i]->SetPosition({(float)WinApp::kWindowWidth - (4 - i) * 70.0f - 20.0f, 20.0f});
+			} else {
+				// texture missing: hide
 				scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
+			}
 		}
 	}
+}
+
+void GameScene::ResetGameState() {
+	camera_.Initialize();
+	camera_.TransferMatrix();
+
+	if (railCamera_) {
+		railCamera_->Reset();
+	}
+
+	if (player_) {
+		player_->ResetRotation();
+		player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
+		player_->GetWorldTransform().UpdateMatrix();
+		player_->ResetParticles();
+		player_->ResetBullets();
+	}
+
+	for (Enemy* enemy : enemies_) {
+		delete enemy;
+	}
+	enemies_.clear();
+	for (EnemyBullet* bullet : enemyBullets_) {
+		delete bullet;
+	}
+	enemyBullets_.clear();
+	for (Meteorite* meteor : meteorites_) {
+		delete meteor;
+	}
+	meteorites_.clear();
+	meteoriteSpawnTimer_ = 0;
+
+	LoadEnemyPopData();
+	hasSpawnedEnemies_ = false;
 }
