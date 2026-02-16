@@ -6,7 +6,7 @@
 #include "EnemyBullet.h"
 #include <cassert>
 #include "MT.h"
-#include "GaneScene.h"
+#include "GameScene.h"
 
 // 前方宣言
 namespace KamataEngine { class Sprite; }
@@ -20,31 +20,55 @@ enum class Phase {
 	Leave,    // 離脱する
 };
 
+/// 敵クラス
+/// 目的: ゲーム内の敵キャラクターを管理し、移動・攻撃・描画を行う
+/// 責務: 敵の位置・状態管理、プレイヤーへの攻撃、画面内外判定、アシストロック表示
 class Enemy {
 public:
 
+	/// 初期化処理
 	void Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& pos);
+	
+	/// 更新処理
 	void Update();
+	
+	/// 3Dモデルの描画
 	void Draw(const KamataEngine::Camera& camera);
-	void DrawSprite(); // スプライトを描画
+	
+	/// スプライトの描画（ロックオン表示等）
+	void DrawSprite();
+	
+	/// デストラクタ
 	~Enemy();
+	
+	/// 弾を発射する
 	void Fire();
 
+	/// 死亡状態を取得
 	bool IsDead() const { return isDead_; }
 
+	/// 衝突時の処理
 	void OnCollision();
 
+	/// ワールド座標を取得
 	KamataEngine::Vector3 GetWorldPosition();
 
+	/// プレイヤーを設定
 	void SetPlayer(Player* player) { player_ = player; }
+	
+	/// ゲームシーンを設定
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
+	
+	/// カメラを設定
 	void SetCamera(const KamataEngine::Camera* camera) { camera_ = camera; }
-	// 画面内判定
+	
+	/// 画面内判定
 	bool IsOnScreen() const { return isOnScreen_; }
 
+	/// HPを取得
 	int GetHp() const { return hp_; }
 
-	// 画面座標の更新
+	/// 画面座標の更新
 	void UpdateScreenPosition();
 
 	// 発射間隔
@@ -52,15 +76,24 @@ public:
 
 	bool isDead_ = false;
 
+	/// 親トランスフォームを設定
 	void SetParent(const KamataEngine::WorldTransform* parent);
+	
+	/// アシストロック状態を設定
 	void SetAssistLocked(bool isLocked) { isAssistLocked_ = isLocked; }
+	
+	/// アシストロック状態を取得
 	bool IsAssistLocked() const { return isAssistLocked_; }
+	
+	/// アシストロックIDを設定
 	void SetAssistLockId(int id) { assistLockId_ = id; }
+	
+	/// アシストロックIDを取得
 	int GetAssistLockId() const { return assistLockId_; }
 
 private:
 
-	KamataEngine::WorldTransform worldtransfrom_;
+	KamataEngine::WorldTransform worldtransform_;
 	KamataEngine::Model* model_ = nullptr;
 
 	KamataEngine::Model* modelbullet_ = nullptr;
@@ -68,7 +101,7 @@ private:
 	int hp_ = 1;
 
 	// 発射タイマー
-	int32_t spawnTimer = 0;
+	int32_t spawnTimer_ = 0;
 
 	Player* player_ = nullptr;
 	GameScene* gameScene_ = nullptr;

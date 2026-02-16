@@ -10,8 +10,8 @@ PlayerBullet::~PlayerBullet() { model_ = nullptr; }
 void PlayerBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity) {
 	assert(model);
 	model_ = model;
-	worldtransfrom_.translation_ = position;
-	worldtransfrom_.Initialize();
+	worldtransform_.translation_ = position;
+	worldtransform_.Initialize();
 	velocity_ = velocity;
 
 	const float kDesiredRange = 5000.0f;
@@ -151,23 +151,23 @@ void PlayerBullet::Update() {
 		homingTarget_ = nullptr;
 	}
 
-	worldtransfrom_.translation_.x += velocity_.x;
-	worldtransfrom_.translation_.y += velocity_.y;
-	worldtransfrom_.translation_.z += velocity_.z;
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.translation_.x += velocity_.x;
+	worldtransform_.translation_.y += velocity_.y;
+	worldtransform_.translation_.z += velocity_.z;
+	worldtransform_.UpdateMatrix();
 }
 
 KamataEngine::Vector3 PlayerBullet::GetWorldPosition() {
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.UpdateMatrix();
 	KamataEngine::Vector3 worldPos;
-	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
-	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
-	worldPos.z = worldtransfrom_.matWorld_.m[3][2];
+	worldPos.x = worldtransform_.matWorld_.m[3][0];
+	worldPos.y = worldtransform_.matWorld_.m[3][1];
+	worldPos.z = worldtransform_.matWorld_.m[3][2];
 	return worldPos;
 }
 
 void PlayerBullet::Draw(const KamataEngine::Camera& camera) {
 	if (!isDead_) {
-		model_->Draw(worldtransfrom_, camera);
+		model_->Draw(worldtransform_, camera);
 	}
 }

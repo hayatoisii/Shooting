@@ -1,6 +1,6 @@
 #include "Enemy.h"
 #include "2d/Sprite.h"
-#include "GaneScene.h"
+#include "GameScene.h"
 #include "KamataEngine.h"
 #include "Player.h"
 #include "base/TextureManager.h"
@@ -21,8 +21,8 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	assert(model);
 	model_ = model;
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("cube", true);
-	worldtransfrom_.Initialize();
-	worldtransfrom_.translation_ = pos;
+	worldtransform_.Initialize();
+	worldtransform_.translation_ = pos;
 
 	initialWorldPos_ = pos;
 
@@ -32,7 +32,7 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 
 	isFollowingFast_ = false;
 
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.UpdateMatrix();
 
 	hp_ = 5;
 
@@ -69,7 +69,7 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	baseX_ = pos.x;
 	baseZ_ = pos.z;
 	// 初期にランダムにスポーンする処理
-	const float kInitMaxOffset = 4000.0f;
+	static const float kInitMaxOffset = 4000.0f;
 	currentOffsetX_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
 	currentOffsetZ_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
 	moveSpeedX_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f; // X軸方向の速度
@@ -99,9 +99,9 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() {
 	KamataEngine::Vector3 worldPos;
-	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
-	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
-	worldPos.z = worldtransfrom_.matWorld_.m[3][2];
+	worldPos.x = worldtransform_.matWorld_.m[3][0];
+	worldPos.y = worldtransform_.matWorld_.m[3][1];
+	worldPos.z = worldtransform_.matWorld_.m[3][2];
 	return worldPos;
 }
 
@@ -119,12 +119,12 @@ void Enemy::OnCollision() {
 
 void Enemy::Fire() {
 	assert(player_);
-	spawnTimer--;
+	spawnTimer_--;
 
-	if (spawnTimer < 0.0f) {
+	if (spawnTimer_ < 0.0f) {
 
 		KamataEngine::Vector3 moveBullet = GetWorldPosition();
-		const float kBulletSpeed = 10.0f;
+		static const float kBulletSpeed = 10.0f;
 		KamataEngine::Vector3 velocity(0, 0, 0);
 
 		KamataEngine::Vector3 playerWorldtransform = player_->GetWorldPosition();
@@ -149,13 +149,11 @@ void Enemy::Fire() {
 			gameScene_->AddEnemyBullet(newBullet);
 		}
 
-		spawnTimer = kFireInterval;
+		spawnTimer_ = kFireInterval;
 	}
 }
 
 void Enemy::Update() {
-
-	// Fire();
 
 	// 大航海のような広範囲移動処理（X軸とZ軸に散らばって移動し続ける）
 	directionChangeTimerX_++;
@@ -187,8 +185,8 @@ void Enemy::Update() {
 	float renderX = prevRenderedX_ + (targetX - prevRenderedX_) * posSmoothFactor_;
 	float renderZ = prevRenderedZ_ + (targetZ - prevRenderedZ_) * posSmoothFactor_;
 
-	worldtransfrom_.translation_.x = renderX;
-	worldtransfrom_.translation_.z = renderZ;
+	worldtransform_.translation_.x = renderX;
+	worldtransform_.translation_.z = renderZ;
 
 	// 現在のレンダリング位置の移動ベクトル
 	KamataEngine::Vector3 moveDir = { renderX - prevRenderedX_, 0.0f, renderZ - prevRenderedZ_ };
@@ -202,7 +200,7 @@ void Enemy::Update() {
 
 		// 計算した前方ベクトルからヨー角を求めてモデルに適用（モデル前方が Z+ の場合）
 		float yaw = std::atan2(smoothedForward_.x, smoothedForward_.z);
-		worldtransfrom_.rotation_.y = yaw;
+		worldtransform_.rotation_.y = yaw;
 	}
 
 	prevRenderedX_ = renderX;
@@ -210,7 +208,7 @@ void Enemy::Update() {
 
 	// Y座標は固定
 
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.UpdateMatrix();
 
 	if (camera_ && targetSprite_) {
 		UpdateScreenPosition();
@@ -259,7 +257,7 @@ void Enemy::Update() {
 			smoothedForward_.x += (vx - smoothedForward_.x) * facingSmoothFactor_;
 			smoothedForward_.z += (vz - smoothedForward_.z) * facingSmoothFactor_;
 			float yaw = std::atan2(smoothedForward_.x, smoothedForward_.z);
-			worldtransfrom_.rotation_.y = yaw;
+			worldtransform_.rotation_.y = yaw;
 		}
 	}
 
@@ -275,7 +273,7 @@ void Enemy::Update() {
 	}
 }
 
-void Enemy::Draw(const KamataEngine::Camera& camera) { model_->Draw(worldtransfrom_, camera); }
+void Enemy::Draw(const KamataEngine::Camera& camera) { model_->Draw(worldtransform_, camera); }
 
 void Enemy::DrawSprite() {
 	if (isOnScreen_) {
@@ -459,4 +457,4 @@ void Enemy::UpdateScreenPosition() {
 	wasOnScreenLastFrame_ = isOnScreen_;
 }
 
-void Enemy::SetParent(const KamataEngine::WorldTransform* parent) { worldtransfrom_.parent_ = parent; }
+void Enemy::SetParent(const KamataEngine::WorldTransform* parent) { worldtransform_.parent_ = parent; }

@@ -12,45 +12,77 @@ using namespace KamataEngine;
 class Enemy;
 class RailCamera;
 
+/// プレイヤークラス
+/// 目的: ゲーム内のプレイヤーキャラクターを管理し、操作・攻撃・回避を行う
+/// 責務: プレイヤーの位置・状態管理、入力処理、弾発射、回避行動、被弾処理
 class Player {
 public:
 	Player() = default;
 	~Player();
 
+	/// 初期化処理
 	void Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera, const KamataEngine::Vector3& pos);
+	
+	/// 更新処理
 	void Update();
+	
+	/// 描画処理
 	void Draw();
+	
+	/// 攻撃処理（弾発射）
 	void Attack();
+	
+	/// 衝突時の処理
 	void OnCollision();
 
+	/// 死亡状態を取得
 	bool IsDead() const { return isDead_; }
-	KamataEngine::WorldTransform& GetWorldTransform() { return worldtransfrom_; }
+	
+	/// ワールドトランスフォームを取得
+	KamataEngine::WorldTransform& GetWorldTransform() { return worldtransform_; }
 
+	/// ゲームオーバー時のアニメーション更新
 	void UpdateGameOver(float animationTime);
 
+	/// ワールド座標を取得
 	KamataEngine::Vector3 GetWorldPosition();
+	
+	/// AABB（軸平行境界ボックス）を取得
 	AABB GetAABB();
+	
+	/// 弾のリストを取得
 	const std::list<PlayerBullet*>& GetBullets() const { return bullets_; }
 
+	/// 親トランスフォームを設定
 	void SetParent(const KamataEngine::WorldTransform* parent);
+	
+	/// レールカメラを設定
 	void SetRailCamera(RailCamera* camera);
+	
+	/// 敵のリストを設定
 	void SetEnemies(std::list<Enemy*>* enemies) { enemies_ = enemies; }
 
+	/// 回転をリセット
 	void ResetRotation();
+
+	/// パーティクルをリセット
 	void ResetParticles();
+	
+	/// 弾をリセット
 	void ResetBullets();
 
 	// 当たり判定用のサイズ
 	static inline const float kWidth = 1.0f;
 	static inline const float kHeight = 1.0f;
 
+	/// 弾の回避処理
 	void EvadeBullets(std::list<EnemyBullet*>& bullets);
 	
-	// 回避中かどうかを取得
+	/// 回避中かどうかを取得
 	bool IsRolling() const { return isRolling_; }
 
 private:
-	KamataEngine::WorldTransform worldtransfrom_;
+	KamataEngine::WorldTransform worldtransform_;
 	KamataEngine::Model* model_ = nullptr;
 	KamataEngine::Camera* camera_ = nullptr;
 	KamataEngine::Input* input_ = nullptr;

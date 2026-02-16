@@ -46,7 +46,7 @@ public:
 	void SetPendingHomingTarget(Enemy* target, float lockDistance) { pendingHomingTarget_ = target; pendingLockDistance_ = lockDistance; }
 
 private:
-	KamataEngine::WorldTransform worldtransfrom_;
+	KamataEngine::WorldTransform worldtransform_;
 
 	KamataEngine::Model* model_ = nullptr;
 

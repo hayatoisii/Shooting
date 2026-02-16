@@ -43,6 +43,9 @@
     <Filter Include="GameProgram\MathUtility">
       <UniqueIdentifier>{f1379ecc-de4e-49ea-abd2-a99503adb3a8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="GameProgram\TextureConverter">
+      <UniqueIdentifier>{2f5585cb-37bc-4111-b7d8-61bc747d3a64}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -50,9 +53,6 @@
     </ClCompile>
     <ClCompile Include="GameProgram\Player\Player.cpp">
       <Filter>GameProgram\Player</Filter>
-    </ClCompile>
-    <ClCompile Include="GameProgram\scene\GaneScene.cpp">
-      <Filter>GameProgram\scene</Filter>
     </ClCompile>
     <ClCompile Include="GameProgram\Enemy\Enemy.cpp">
       <Filter>GameProgram\Enemy</Filter>
@@ -90,11 +90,14 @@
     <ClCompile Include="GameProgram\Particle\Meteorite.cpp">
       <Filter>GameProgram\Enemy</Filter>
     </ClCompile>
-    <ClCompile Include="TextureConverter.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="GameProgram\scene\GameScene.cpp">
+      <Filter>GameProgram\scene</Filter>
     </ClCompile>
-    <ClCompile Include="TextureManagerExtension.cpp">
-      <Filter>ソース ファイル</Filter>
+    <ClCompile Include="GameProgram\TextureManager\TextureConverter.cpp">
+      <Filter>GameProgram\TextureConverter</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\TextureManager\TextureManagerExtension.cpp">
+      <Filter>GameProgram\TextureConverter</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -150,9 +153,6 @@
     <ClInclude Include="GameProgram\Player\Player.h">
       <Filter>GameProgram\Player</Filter>
     </ClInclude>
-    <ClInclude Include="GameProgram\scene\GaneScene.h">
-      <Filter>GameProgram\scene</Filter>
-    </ClInclude>
     <ClInclude Include="GameProgram\Enemy\Enemy.h">
       <Filter>GameProgram\Enemy</Filter>
     </ClInclude>
@@ -189,11 +189,14 @@
     <ClInclude Include="GameProgram\Particle\Meteorite.h">
       <Filter>GameProgram\Enemy</Filter>
     </ClInclude>
-    <ClInclude Include="TextureConverter.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="GameProgram\scene\GameScene.h">
+      <Filter>GameProgram\scene</Filter>
     </ClInclude>
-    <ClInclude Include="TextureManagerExtension.h">
-      <Filter>ヘッダー ファイル</Filter>
+    <ClInclude Include="GameProgram\TextureManager\TextureConverter.h">
+      <Filter>GameProgram\TextureConverter</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\TextureManager\TextureManagerExtension.h">
+      <Filter>GameProgram\TextureConverter</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -23,7 +23,7 @@ public:
 
 	void setTarget(Player* target) { target_ = target; }
 	const Camera& GetViewProjection() { return camera_; }
-	const WorldTransform& GetWorldTransform() { return worldtransfrom_; }
+	const WorldTransform& GetWorldTransform() { return worldtransform_; }
 
 	const KamataEngine::Vector3& GetRotationVelocity() const { return rotationVelocity_; }
 
@@ -38,7 +38,7 @@ public:
 	void Dodge(float direction);
 
 private:
-	KamataEngine::WorldTransform worldtransfrom_;
+	KamataEngine::WorldTransform worldtransform_;
 
 	KamataEngine::Vector3 initialPosition_;
 	KamataEngine::Vector3 initialRotationEuler_;

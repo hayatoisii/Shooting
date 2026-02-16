@@ -1,4 +1,4 @@
-#include "GaneScene.h"
+#include "GameScene.h"
 #include "3d/AxisIndicator.h"
 #include <algorithm>
 #include <cassert>
@@ -40,7 +40,7 @@ GameScene::~GameScene() {
 	delete railCamera_;
 	delete reticleSprite_;
 	delete transitionSprite_;
-	delete taitoruSprite_;
+	delete titleSprite_;
 	delete aimAssistCircleSprite_;
 	// 追加: 右/左キー表示用スプライトを解放
 	delete lightSprite_;
@@ -93,7 +93,7 @@ void GameScene::Initialize() {
 	modelMeteorite_ = KamataEngine::Model::CreateFromOBJ("meteorite", true);
 	meteoriteSpawnTimer_ = 0;
 
-	transitionTextureHandle_ = TextureManager::GetInstance()->LoadDDS("black.dds");
+	transitionTextureHandle_ = TextureManager::GetInstance()->Load("black.png");
 	transitionSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
 	KamataEngine::Vector2 screenCenter = {WinApp::kWindowWidth / 2.0f, WinApp::kWindowHeight / 2.0f};
 	transitionSprite_->SetPosition(screenCenter);
@@ -105,10 +105,10 @@ void GameScene::Initialize() {
 	reticleSprite_->SetPosition(screenCenter);
 	reticleSprite_->SetAnchorPoint({0.5f, 0.5f});
 
-	taitoruTextureHandle_ = TextureManager::GetInstance()->LoadDDS("sousa.dds");
-	taitoruSprite_ = KamataEngine::Sprite::Create(taitoruTextureHandle_, {0, 0});
+	titleTextureHandle_ = TextureManager::GetInstance()->Load("sousa.png");
+	titleSprite_ = KamataEngine::Sprite::Create(titleTextureHandle_, {0, 0});
 
-	aimAssistCircleTextureHandle_ = TextureManager::GetInstance()->LoadDDS("aimCircle.dds");
+	aimAssistCircleTextureHandle_ = TextureManager::GetInstance()->Load("aimCircle.png");
 	aimAssistCircleSprite_ = KamataEngine::Sprite::Create(aimAssistCircleTextureHandle_, {0, 0});
 	aimAssistCircleSprite_->SetSize({0.0f, 0.0f});
 
@@ -119,7 +119,7 @@ void GameScene::Initialize() {
 	}
 
 	// シーンクリア用アセット
-	clearTextureHandle_ = TextureManager::GetInstance()->LoadDDS("kuria.dds");
+	clearTextureHandle_ = TextureManager::GetInstance()->Load("kuria.png");
 	clearSprite_ = KamataEngine::Sprite::Create(clearTextureHandle_, {0, 0});
 	if (clearSprite_) {
 		// kuria.png を画面全体にかぶせる
@@ -134,7 +134,7 @@ void GameScene::Initialize() {
 	}
 
 	// コンフェッティ用スプライトテクスチャ
-	confettiTextureHandle_ = TextureManager::GetInstance()->LoadDDS("confetti.dds");
+	confettiTextureHandle_ = TextureManager::GetInstance()->Load("confetti.png");
 	confettiParticles_.resize(kMaxConfetti_);
 	for (size_t i = 0; i < kMaxConfetti_; ++i) {
 		confettiParticles_[i].sprite = KamataEngine::Sprite::Create(confettiTextureHandle_, {0, 0});
@@ -155,11 +155,11 @@ void GameScene::Initialize() {
 		aimAssistCircleSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
 	}
 
-	minimapTextureHandle_ = TextureManager::GetInstance()->LoadDDS("minimap.dds");
-	greenBoxTextureHandle_ = TextureManager::GetInstance()->LoadDDS("greenBox.dds");
-	minimapPlayerTextureHandle_ = TextureManager::GetInstance()->LoadDDS("player.dds");
+	minimapTextureHandle_ = TextureManager::GetInstance()->Load("minimap.png");
+	greenBoxTextureHandle_ = TextureManager::GetInstance()->Load("greenBox.png");
+	minimapPlayerTextureHandle_ = TextureManager::GetInstance()->Load("player.png");
 	// ミニマップ上の敵弾アイコンは元の赤いテクスチャを使用（変更を取り消し）
-	minimapEnemyBulletTextureHandle_ = TextureManager::GetInstance()->LoadDDS("missileRedBox.dds");
+	minimapEnemyBulletTextureHandle_ = TextureManager::GetInstance()->Load("missileRedBox.png");
 
 	// 1. ミニマップ背景
 	minimapSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0, 0});
@@ -960,8 +960,8 @@ void GameScene::Draw() {
 	KamataEngine::Sprite::PreDraw(commandList);
 
 	if (sceneState == SceneState::Start || sceneState == SceneState::TransitionToGame) {
-		if (taitoruSprite_) {
-			taitoruSprite_->Draw();
+		if (titleSprite_) {
+			titleSprite_->Draw();
 		}
 	}
 

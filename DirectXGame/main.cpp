@@ -1,7 +1,7 @@
 #include <KamataEngine.h>
-#include "GaneScene.h"
-#include "TextureConverter.h"
+#include "GameScene.h"
 #include <filesystem>
+#include "GameProgram/TextureManager/TextureConverter.h"
 
 using namespace KamataEngine;
 namespace fs = std::filesystem;
@@ -11,7 +11,6 @@ void ConvertAllTextures() {
 	TextureConverter converter;
 
 	// "Resources" フォルダの中にあるファイルを全部チェックする
-	// ※もしフォルダ名が違う場合は "Resources" を書き換えてください
 	std::string directoryPath = "Resources";
 
 	// フォルダが存在するか確認
@@ -31,9 +30,7 @@ void ConvertAllTextures() {
 			std::string ddsPath = filePath;
 			ddsPath.replace(ddsPath.find(".png"), 4, ".dds");
 
-			// ★工夫ポイント：
 			// 「まだDDSがない」または「PNGの方が新しい（更新された）」場合だけ変換する
-			// これをしないと、毎回全変換が走って起動が遅くなります
 			if (!fs::exists(ddsPath) || fs::last_write_time(entry.path()) > fs::last_write_time(ddsPath)) {
 
 				// 変換実行！

@@ -7,16 +7,16 @@ void Meteorite::Initialize(KamataEngine::Model* model, const KamataEngine::Vecto
 	radius_ = radius;
 	baseScale_ = baseScale;
 
-	worldtransfrom_.Initialize();
-	worldtransfrom_.translation_ = pos;
-	worldtransfrom_.scale_ = {baseScale_, baseScale_, baseScale_};
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.Initialize();
+	worldtransform_.translation_ = pos;
+	worldtransform_.scale_ = {baseScale_, baseScale_, baseScale_};
+	worldtransform_.UpdateMatrix();
 	isDead_ = false;
 }
 
 void Meteorite::Update(const KamataEngine::Vector3& playerPos) {
 
-	KamataEngine::Vector3 pos = worldtransfrom_.translation_;
+	KamataEngine::Vector3 pos = worldtransform_.translation_;
 	float dx = pos.x - playerPos.x;
 	float dy = pos.y - playerPos.y;
 	float dz = pos.z - playerPos.z;
@@ -43,14 +43,14 @@ void Meteorite::Update(const KamataEngine::Vector3& playerPos) {
 	}
 
 	float finalScale = baseScale_ * scaleFactor;
-	worldtransfrom_.scale_ = {finalScale, finalScale, finalScale};
+	worldtransform_.scale_ = {finalScale, finalScale, finalScale};
 
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.UpdateMatrix();
 }
 
 void Meteorite::Draw(const KamataEngine::Camera& camera) {
 	if (model_ && !isDead_) {
-		model_->Draw(worldtransfrom_, camera);
+		model_->Draw(worldtransform_, camera);
 	}
 }
 
@@ -61,8 +61,8 @@ void Meteorite::OnCollision() {
 KamataEngine::Vector3 Meteorite::GetWorldPosition() const {
 	// ワールド行列から座標を取得
 	KamataEngine::Vector3 worldPos;
-	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
-	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
-	worldPos.z = worldtransfrom_.matWorld_.m[3][2];
+	worldPos.x = worldtransform_.matWorld_.m[3][0];
+	worldPos.y = worldtransform_.matWorld_.m[3][1];
+	worldPos.z = worldtransform_.matWorld_.m[3][2];
 	return worldPos;
 }

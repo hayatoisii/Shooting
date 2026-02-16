@@ -10,8 +10,8 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 	initialPosition_ = pos;
 	initialRotationEuler_ = rad;
 
-	worldtransfrom_.translation_ = pos;
-	worldtransfrom_.Initialize();
+	worldtransform_.translation_ = pos;
+	worldtransform_.Initialize();
 	camera_.Initialize();
 
 	Quaternion qPitch = Quaternion::MakeRotateAxisAngle({1.0f, 0.0f, 0.0f}, initialRotationEuler_.x);
@@ -128,7 +128,7 @@ void RailCamera::Update() {
 	}
 
 	move = KamataEngine::MathUtility::TransformNormal(move, rotationMatrix);
-	Vector3 currentPosition = worldtransfrom_.translation_;
+	Vector3 currentPosition = worldtransform_.translation_;
 	Vector3 newPosition = currentPosition + move;
 	
 	// Playerの移動範囲を円状に制限（初期位置からの距離が15000以内）
@@ -146,13 +146,13 @@ void RailCamera::Update() {
 		newPosition = initialPosition_ + directionToInitial * kMaxMoveRadius_;
 	}
 	
-	worldtransfrom_.matWorld_ = rotationMatrix;
-	worldtransfrom_.matWorld_.m[3][0] = newPosition.x;
-	worldtransfrom_.matWorld_.m[3][1] = newPosition.y;
-	worldtransfrom_.matWorld_.m[3][2] = newPosition.z;
-	worldtransfrom_.translation_ = newPosition;
+	worldtransform_.matWorld_ = rotationMatrix;
+	worldtransform_.matWorld_.m[3][0] = newPosition.x;
+	worldtransform_.matWorld_.m[3][1] = newPosition.y;
+	worldtransform_.matWorld_.m[3][2] = newPosition.z;
+	worldtransform_.translation_ = newPosition;
 
-	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
+	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransform_.matWorld_);
 	camera_.TransferMatrix();
 }
 
@@ -166,13 +166,13 @@ void RailCamera::Reset() {
 	rotationVelocity_ = {0.0f, 0.0f, 0.0f};
 	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
 
-	worldtransfrom_.matWorld_ = MakeIdentityMatrix();
-	worldtransfrom_.matWorld_.m[3][0] = initialPosition_.x;
-	worldtransfrom_.matWorld_.m[3][1] = initialPosition_.y;
-	worldtransfrom_.matWorld_.m[3][2] = initialPosition_.z;
-	worldtransfrom_.translation_ = initialPosition_;
+	worldtransform_.matWorld_ = MakeIdentityMatrix();
+	worldtransform_.matWorld_.m[3][0] = initialPosition_.x;
+	worldtransform_.matWorld_.m[3][1] = initialPosition_.y;
+	worldtransform_.matWorld_.m[3][2] = initialPosition_.z;
+	worldtransform_.translation_ = initialPosition_;
 
-	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
+	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransform_.matWorld_);
 	camera_.TransferMatrix();
 
 	canMove_ = false;

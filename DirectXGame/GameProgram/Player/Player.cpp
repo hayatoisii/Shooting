@@ -25,14 +25,14 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	model_ = model;
 	camera_ = camera;
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("Bullet", true);
-	worldtransfrom_.translation_ = pos;
+	worldtransform_.translation_ = pos;
 	input_ = KamataEngine::Input::GetInstance();
 	audio_ = KamataEngine::Audio::GetInstance();
 	if (audio_)
 		hitPlayerSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
 
 
-	worldtransfrom_.Initialize();
+	worldtransform_.Initialize();
 
 	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true);
 	engineExhaust_ = new ParticleEmitter();
@@ -74,11 +74,11 @@ void Player::Attack() {
 
 			// --- 弾発生位置の計算 ---
 			// ワールド行列が最新であることを保証
-			worldtransfrom_.UpdateMatrix();
+			worldtransform_.UpdateMatrix();
 
 			// プレイヤーのワールド位置とローカル軸を取得してスポーン位置を計算する
 			KamataEngine::Vector3 playerWorldPos = GetWorldPosition();
-			const KamataEngine::Matrix4x4& wm = worldtransfrom_.matWorld_;
+			const KamataEngine::Matrix4x4& wm = worldtransform_.matWorld_;
 			KamataEngine::Vector3 localForward = {wm.m[2][0], wm.m[2][1], wm.m[2][2]};
 			KamataEngine::Vector3 localRight = {wm.m[0][0], wm.m[0][1], wm.m[0][2]};
 			KamataEngine::Vector3 localUp = {wm.m[1][0], wm.m[1][1], wm.m[1][2]};
@@ -250,9 +250,9 @@ void Player::Attack() {
 
 KamataEngine::Vector3 Player::GetWorldPosition() {
 	KamataEngine::Vector3 worldPos;
-	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
-	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
-	worldPos.z = worldtransfrom_.matWorld_.m[3][2];
+	worldPos.x = worldtransform_.matWorld_.m[3][0];
+	worldPos.y = worldtransform_.matWorld_.m[3][1];
+	worldPos.z = worldtransform_.matWorld_.m[3][2];
 	return worldPos;
 }
 
@@ -264,7 +264,7 @@ AABB Player::GetAABB() {
 	return aabb;
 }
 
-void Player::SetParent(const KamataEngine::WorldTransform* parent) { worldtransfrom_.parent_ = parent; }
+void Player::SetParent(const KamataEngine::WorldTransform* parent) { worldtransform_.parent_ = parent; }
 
 void Player::Update() {
 
@@ -333,11 +333,11 @@ void Player::Update() {
 
 		currentRotation.z = maxAngle * easeT * rollDirection_ * -1.0f;
 
-		worldtransfrom_.rotation_ = currentRotation;
+		worldtransform_.rotation_ = currentRotation;
 
 	} else {
 
-		worldtransfrom_.rotation_ = currentRotation;
+		worldtransform_.rotation_ = currentRotation;
 
 		if (railCamera_) {
 			const float lerpFactor = 0.1f;
@@ -355,7 +355,7 @@ void Player::Update() {
 			const float maxRollAngle = 4.0f;
 			targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
 
-			worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
+			worldtransform_.rotation_.z += (targetRoll - worldtransform_.rotation_.z) * lerpFactor;
 
 			float pitchVelocity = railCamera_->GetRotationVelocity().x;
 			const float pitchFactor = 12.0f;
@@ -363,13 +363,13 @@ void Player::Update() {
 			const float maxPitchAngle = 1.5f;
 			targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
 
-			worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
+			worldtransform_.rotation_.x += (targetPitch - worldtransform_.rotation_.x) * lerpFactor;
 		}
 	}
 
 	// -- 被弾時の揺れ適用 --
-	worldtransfrom_.translation_.x -= hitShakePrevHorizontalOffset_;
-	worldtransfrom_.translation_.y -= hitShakePrevVerticalOffset_;
+	worldtransform_.translation_.x -= hitShakePrevHorizontalOffset_;
+	worldtransform_.translation_.y -= hitShakePrevVerticalOffset_;
 	hitShakePrevHorizontalOffset_ = 0.0f;
 	hitShakePrevVerticalOffset_ = 0.0f;
 
@@ -379,15 +379,15 @@ void Player::Update() {
 		float damping = std::exp(-hitShakeDecay_ * hitShakeTime_);
 
 		float angle = hitShakeAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
-		worldtransfrom_.rotation_.y += angle;
-		worldtransfrom_.rotation_.z += angle * 0.25f;
+		worldtransform_.rotation_.y += angle;
+		worldtransform_.rotation_.z += angle * 0.25f;
 
 		float verticalOffset = hitShakeVerticalAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
-		worldtransfrom_.translation_.y += verticalOffset;
+		worldtransform_.translation_.y += verticalOffset;
 		hitShakePrevVerticalOffset_ = verticalOffset;
 
 		float horizontalOffset = hitShakeHorizontalAmplitude_ * damping * std::cos(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
-		worldtransfrom_.translation_.x += horizontalOffset;
+		worldtransform_.translation_.x += horizontalOffset;
 		hitShakePrevHorizontalOffset_ = horizontalOffset;
 
 		if (damping < 0.01f) {
@@ -400,16 +400,16 @@ void Player::Update() {
 		}
 	}
 
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.UpdateMatrix();
 
 	Attack();
 
 	// 排気パーティクル
 	if (engineExhaust_) {
 		KamataEngine::Vector3 exhaustOffset = {0.0f, -0.3f, -3.0f};
-		KamataEngine::Vector3 emitterPos = KamataEngine::MathUtility::Transform(exhaustOffset, worldtransfrom_.matWorld_);
+		KamataEngine::Vector3 emitterPos = KamataEngine::MathUtility::Transform(exhaustOffset, worldtransform_.matWorld_);
 
-		KamataEngine::Vector3 playerBackVector = {-worldtransfrom_.matWorld_.m[2][0], -worldtransfrom_.matWorld_.m[2][1], -worldtransfrom_.matWorld_.m[2][2]};
+		KamataEngine::Vector3 playerBackVector = {-worldtransform_.matWorld_.m[2][0], -worldtransform_.matWorld_.m[2][1], -worldtransform_.matWorld_.m[2][2]};
 		playerBackVector = KamataEngine::MathUtility::Normalize(playerBackVector);
 
 		const float exhaustSpeed = 0.5f; // 排気速度
@@ -421,7 +421,7 @@ void Player::Update() {
 }
 
 void Player::Draw() {
-	model_->Draw(worldtransfrom_, *camera_);
+	model_->Draw(worldtransform_, *camera_);
 	if (engineExhaust_) {
 		engineExhaust_->Draw(*camera_);
 	}
@@ -433,8 +433,8 @@ void Player::Draw() {
 void Player::SetRailCamera(RailCamera* camera) { railCamera_ = camera; }
 
 void Player::ResetRotation() {
-	worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.rotation_ = {0.0f, 0.0f, 0.0f};
+	worldtransform_.UpdateMatrix();
 }
 
 void Player::ResetParticles() {
@@ -446,29 +446,29 @@ void Player::ResetParticles() {
 void Player::UpdateGameOver(float animationTime) {
 	// 姿勢制御
 	const float pitchDownAngle = 3.14159265f / 4.0f; // const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;これかわらない、かわらない
-	worldtransfrom_.rotation_.x = pitchDownAngle;
+	worldtransform_.rotation_.x = pitchDownAngle;
 
 	// 回転
 	const float baseSpinSpeed = 0.01f;
 	const float spinAcceleration = 0.0005f;
 	float currentSpinSpeed = baseSpinSpeed + spinAcceleration * animationTime;
-	worldtransfrom_.rotation_.y += currentSpinSpeed;
+	worldtransform_.rotation_.y += currentSpinSpeed;
 
 	// 移動
 	const float baseFallSpeed = 0.02f;
 	const float fallAcceleration = 0.001f;
 	float currentFallSpeed = baseFallSpeed + fallAcceleration * animationTime;
-	worldtransfrom_.translation_.y -= currentFallSpeed;
+	worldtransform_.translation_.y -= currentFallSpeed;
 
-	worldtransfrom_.UpdateMatrix();
+	worldtransform_.UpdateMatrix();
 
 	// パーティクル放出
 	if (engineExhaust_) {
 		KamataEngine::Vector3 emitOffset = {0.8f, 0.0f, -0.8f};
-		KamataEngine::Vector3 worldEmitPos = KamataEngine::MathUtility::Transform(emitOffset, worldtransfrom_.matWorld_);
+		KamataEngine::Vector3 worldEmitPos = KamataEngine::MathUtility::Transform(emitOffset, worldtransform_.matWorld_);
 		KamataEngine::Vector3 localVelocityDir = {1.0f, 1.0f, -0.5f};
 		localVelocityDir = KamataEngine::MathUtility::Normalize(localVelocityDir);
-		KamataEngine::Vector3 worldVelocityDir = KamataEngine::MathUtility::TransformNormal(localVelocityDir, worldtransfrom_.matWorld_);
+		KamataEngine::Vector3 worldVelocityDir = KamataEngine::MathUtility::TransformNormal(localVelocityDir, worldtransform_.matWorld_);
 		const float smokeSpeed = 0.5f;
 		KamataEngine::Vector3 smokeVelocity = worldVelocityDir * smokeSpeed;
 		engineExhaust_->Emit(worldEmitPos, smokeVelocity);

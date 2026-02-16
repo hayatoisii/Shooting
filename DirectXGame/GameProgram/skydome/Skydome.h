@@ -12,7 +12,7 @@ public:
 
 private:
 
-	KamataEngine::WorldTransform worldtransfrom_;
+	KamataEngine::WorldTransform worldtransform_;
 	KamataEngine::Model* model_ = nullptr;
 	KamataEngine::Camera* camera_ = nullptr;
 

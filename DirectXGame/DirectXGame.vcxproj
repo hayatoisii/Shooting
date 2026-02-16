@@ -63,7 +63,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;_DEBUG;USE_IMGUI;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Meteorite;$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\TextureConverter;$(ProjectDir)GameProgram\Meteorite;$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\skydome;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
@@ -86,7 +86,7 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_WINDOWS;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\Meteorite;$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\skydome;$(ProjectDir)GameProgram\Meteorite;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)GameProgram\TextureConverter;$(ProjectDir)GameProgram\Meteorite;$(ProjectDir)GameProgram\Enemy;$(ProjectDir)GameProgram\MT;$(ProjectDir)GameProgram\Particle;$(ProjectDir)GameProgram\Player;$(ProjectDir)GameProgram\RaikCamera;$(ProjectDir)GameProgram\scene;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\MathUtility;$(ProjectDir)GameProgram\Quaternion;$(ProjectDir)GameProgram\skydome;$(ProjectDir)GameProgram\Meteorite;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <Optimization>MinSpace</Optimization>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -109,7 +109,9 @@
     <ClCompile Include="GameProgram\MT\AABB.cpp" />
     <ClCompile Include="GameProgram\Enemy\Enemy.cpp" />
     <ClCompile Include="GameProgram\Enemy\EnemyBullet.cpp" />
-    <ClCompile Include="GameProgram\scene\GaneScene.cpp" />
+    <ClCompile Include="GameProgram\scene\GameScene.cpp" />
+    <ClCompile Include="GameProgram\TextureManager\TextureConverter.cpp" />
+    <ClCompile Include="GameProgram\TextureManager\TextureManagerExtension.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="GameProgram\MT\MT.cpp" />
     <ClCompile Include="GameProgram\Particle\Particle.cpp" />
@@ -121,8 +123,6 @@
     <ClCompile Include="GameProgram\MT\worldTransformEx.cpp" />
     <ClCompile Include="GameProgram\Particle\Meteorite.cpp" />
     <ClCompile Include="GameProgram\MT\Quaternion.cpp" />
-    <ClCompile Include="TextureConverter.cpp" />
-    <ClCompile Include="TextureManagerExtension.cpp" />
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Resources\shaders\TerrainPS.hlsl">
@@ -203,7 +203,7 @@
     <ClInclude Include="GameProgram\MT\AABB.h" />
     <ClInclude Include="GameProgram\Enemy\Enemy.h" />
     <ClInclude Include="GameProgram\Enemy\EnemyBullet.h" />
-    <ClInclude Include="GameProgram\scene\GaneScene.h" />
+    <ClInclude Include="GameProgram\scene\GameScene.h" />
     <ClInclude Include="GameProgram\MT\MT.h" />
     <ClInclude Include="GameProgram\Particle\Particle.h" />
     <ClInclude Include="GameProgram\Particle\ParticleEmitter.h" />
@@ -214,8 +214,8 @@
     <ClInclude Include="GameProgram\MT\worldTransformEx.h" />
     <ClInclude Include="GameProgram\Particle\Meteorite.h" />
     <ClInclude Include="GameProgram\MT\Quaternion.h" />
-    <ClInclude Include="TextureConverter.h" />
-    <ClInclude Include="TextureManagerExtension.h" />
+    <ClInclude Include="GameProgram\TextureManager\TextureConverter.h" />
+    <ClInclude Include="GameProgram\TextureManager\TextureManagerExtension.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

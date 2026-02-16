@@ -24,7 +24,7 @@ public:
 
 private:
 	KamataEngine::Model* model_ = nullptr;
-	KamataEngine::WorldTransform worldtransfrom_;
+	KamataEngine::WorldTransform worldtransform_;
 	KamataEngine::Vector3 velocity_ = {0.0f, 0.0f, 0.0f};
 	float radius_ = 1.0f;
 	float baseScale_ = 1.0f;

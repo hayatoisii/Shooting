@@ -13,6 +13,9 @@ using namespace KamataEngine;
 float Distance(const Vector3& v1, const Vector3& v2);
 Vector3 Lerp(const Vector3& start, const Vector3& end, float t);
 
+/// ゲームシーンクラス
+/// 目的: ゲーム全体のシーン管理とゲームロジックの統括を行う
+/// 責務: シーン遷移管理、敵・弾・隕石の生成・更新、衝突判定、スコア管理、UI表示、カメラ制御
 class GameScene {
 public:
 	GameScene();
@@ -106,7 +109,7 @@ private:
 	enum class SceneState { Start, TransitionToGame, TransitionFromGame, GameIntro, Game, Clear, over };
 	SceneState sceneState = SceneState::Start;
 
-	float DistanceSquared(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2);
+	float DistanceSquared(const Vector3& v1, const Vector3& v2);
 
 	KamataEngine::Sprite* transitionSprite_ = nullptr;
 	uint32_t transitionTextureHandle_ = 0;
@@ -137,8 +140,8 @@ private:
 	int meteoriteSpawnTimer_;
 	int meteoriteUpdateCounter_;
 
-	KamataEngine::Sprite* taitoruSprite_ = nullptr;
-	uint32_t taitoruTextureHandle_ = 0;
+	KamataEngine::Sprite* titleSprite_ = nullptr;
+	uint32_t titleTextureHandle_ = 0;
 
 	KamataEngine::Sprite* aimAssistCircleSprite_ = nullptr;
 	uint32_t aimAssistCircleTextureHandle_ = 0;
