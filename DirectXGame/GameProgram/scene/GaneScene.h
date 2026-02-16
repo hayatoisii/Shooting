@@ -5,7 +5,7 @@
 #include "Player.h"
 #include "RailCamera.h"
 #include "Skydome.h"
-#include "../../Meteorite.h"
+#include "Meteorite.h"
 #include <sstream>
 #include <vector>
 using namespace KamataEngine;
