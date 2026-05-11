@@ -406,8 +406,8 @@ void Player::Update() {
 
 	// 排気パーティクル
 	if (engineExhaust_) {
-		KamataEngine::Vector3 exhaustOffset = {0.0f, -0.3f, -3.0f};
-		KamataEngine::Vector3 emitterPos = KamataEngine::MathUtility::Transform(exhaustOffset, worldtransform_.matWorld_);
+		KamataEngine::Vector3 exhausOffset = {0.0f, -0.3f, -3.0f};
+	//	KamataEngine::Vector3 emitterPos = KamataEngine::MathUtility::Transform(exhaustOffset, worldtransform_.matWorld_);
 
 		KamataEngine::Vector3 playerBackVector = {-worldtransform_.matWorld_.m[2][0], -worldtransform_.matWorld_.m[2][1], -worldtransform_.matWorld_.m[2][2]};
 		playerBackVector = KamataEngine::MathUtility::Normalize(playerBackVector);
@@ -415,7 +415,7 @@ void Player::Update() {
 		const float exhaustSpeed = 0.5f; // 排気速度
 		KamataEngine::Vector3 exhaustVelocity = playerBackVector * exhaustSpeed;
 
-		engineExhaust_->Emit(emitterPos, exhaustVelocity);
+	//	engineExhaust_->Emit(emitterPos, exhaustVelocity);
 		engineExhaust_->Update();
 	}
 }
