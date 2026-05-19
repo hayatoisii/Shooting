@@ -445,7 +445,7 @@ void Player::ResetParticles() {
 
 void Player::UpdateGameOver(float animationTime) {
 	// 姿勢制御
-	const float pitchDownAngle = 3.14159265f / 4.0f; // const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;これかわらない、かわらない
+	const float pitchDownAngle = 3.14159265f / 4.0f; // const float pitchDownAngle = KamataEngine::MathUtility::PI / 4.0f;これかわらない、かわらない 
 	worldtransfrom_.rotation_.x = pitchDownAngle;
 
 	// 回転
