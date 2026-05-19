@@ -84,6 +84,12 @@
     <ClCompile Include="GameProgram\MT\AABB.cpp">
       <Filter>GameProgram\MT</Filter>
     </ClCompile>
+    <ClCompile Include="GameProgram\MT\GameBullet.cpp">
+      <Filter>GameProgram\MT</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\MT\GameCharacter.cpp">
+      <Filter>GameProgram\MT</Filter>
+    </ClCompile>
     <ClCompile Include="GameProgram\MT\Quaternion.cpp">
       <Filter>GameProgram\MT</Filter>
     </ClCompile>
@@ -175,6 +181,12 @@
       <Filter>GameProgram\MT</Filter>
     </ClInclude>
     <ClInclude Include="GameProgram\MT\AABB.h">
+      <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\MT\GameBullet.h">
+      <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\MT\GameCharacter.h">
       <Filter>GameProgram\MT</Filter>
     </ClInclude>
     <ClInclude Include="GameProgram\MT\Quaternion.h">

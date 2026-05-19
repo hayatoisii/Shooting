@@ -1,4 +1,6 @@
 #include "GaneScene.h"
+#include "GameBullet.h"
+#include "GameCharacter.h"
 #include "3d/AxisIndicator.h"
 #include <algorithm>
 #include <cassert>
@@ -445,8 +447,8 @@ void GameScene::Update() {
 		if (transitionTimer_ >= kTransitionTime) {
 			sceneState = SceneState::GameIntro;
 			gameIntroTimer_ = 0.0f;
-			player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-			player_->GetWorldTransform().UpdateMatrix();
+			player_->SetPosition(playerIntroStartPosition_);
+			player_->RefreshWorldMatrix();
 			isGameIntroFinished_ = false;
 			UpdateEnemyPopCommands();
 		}
@@ -458,7 +460,7 @@ void GameScene::Update() {
 			cameraPositionAnchor_.UpdateMatrix();
 		}
 		if (player_)
-			player_->GetWorldTransform().UpdateMatrix();
+			player_->RefreshWorldMatrix();
 		camera_.matView = railCamera_->GetViewProjection().matView;
 		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
 		camera_.TransferMatrix();
@@ -471,8 +473,8 @@ void GameScene::Update() {
 		t = 1.0f - std::pow(1.0f - t, 3.0f);
 		t = std::clamp(t, 0.0f, 1.0f);
 
-		player_->GetWorldTransform().translation_ = Lerp(playerIntroStartPosition_, playerIntroTargetPosition_, t);
-		player_->GetWorldTransform().UpdateMatrix();
+		player_->SetPosition(Lerp(playerIntroStartPosition_, playerIntroTargetPosition_, t));
+		player_->RefreshWorldMatrix();
 
 		UpdateAimAssist();
 		railCamera_->Update();
@@ -489,9 +491,9 @@ void GameScene::Update() {
 		camera_.TransferMatrix();
 
 		const float kArrivalThreshold = 0.1f;
-		if (gameIntroTimer_ >= kGameIntroDuration_ || Distance(player_->GetWorldTransform().translation_, playerIntroTargetPosition_) < kArrivalThreshold) {
-			player_->GetWorldTransform().translation_ = playerIntroTargetPosition_;
-			player_->GetWorldTransform().UpdateMatrix();
+		if (gameIntroTimer_ >= kGameIntroDuration_ || Distance(player_->GetLocalPosition(), playerIntroTargetPosition_) < kArrivalThreshold) {
+			player_->SetPosition(playerIntroTargetPosition_);
+			player_->RefreshWorldMatrix();
 			sceneState = SceneState::Game;
 			isGameIntroFinished_ = true;
 			gameSceneTimer_ = 0;
@@ -525,9 +527,10 @@ void GameScene::Update() {
 					railCamera_->Reset();
 				}
 				if (player_) {
+					player_->ResetStats();
 					player_->ResetRotation();
-					player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-					player_->GetWorldTransform().UpdateMatrix();
+					player_->SetPosition(playerIntroStartPosition_);
+					player_->RefreshWorldMatrix();
 					player_->ResetParticles();
 					player_->ResetBullets();
 				}
@@ -738,7 +741,7 @@ void GameScene::Update() {
 
 		} else { // イントロ中
 			if (player_) {
-				player_->GetWorldTransform().UpdateMatrix();
+				player_->RefreshWorldMatrix();
 			}
 		}
 
@@ -875,9 +878,10 @@ void GameScene::Update() {
 			}
 
 			if (player_) {
+				player_->ResetStats();
 				player_->ResetRotation();
-				player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-				player_->GetWorldTransform().UpdateMatrix();
+				player_->SetPosition(playerIntroStartPosition_);
+				player_->RefreshWorldMatrix();
 				player_->ResetParticles();
 				player_->ResetBullets();
 			}
@@ -1116,95 +1120,86 @@ void GameScene::CheckAllCollisions() {
 	}
 
 	KamataEngine::Vector3 posA[3]{}, posB[3]{};
-	float radiusA[3] = {0.8f, 2.0f, 0.8f};
-	float radiusB[3] = {0.8f, 2.0f, 10.8f};
 	const std::list<PlayerBullet*>& playerBullets = player_->GetBullets();
 
-	// --- 自キャラ vs 敵弾 (HP制に) ---
-	posA[0] = player_->GetWorldPosition();
+	// ポリモーフィズム: プレイヤーを基底クラス（GameCharacter）として扱う
+	GameCharacter* playerCharacter = player_;
+
+	// --- 自キャラ vs 敵弾（HP制） ---
+	posA[0] = playerCharacter->GetWorldPosition();
+	const float playerRadius = playerCharacter->GetCollisionRadius();
 	
 	// 回避中は無敵時間として、当たり判定を無効にする
 	bool isPlayerRolling = player_->IsRolling();
 	
-	for (EnemyBullet* bullet : enemyBullets_) {
-		if (!bullet || bullet->IsDead())
+	for (EnemyBullet* enemyBullet : enemyBullets_) {
+		if (!enemyBullet || enemyBullet->IsDead())
 			continue;
 
-		
 		// 回避中は当たり判定を無効にする
 		if (isPlayerRolling) {
 			continue;
 		}
-		
+
 		// ホーミングを失った弾（回避された弾）は当たり判定を無効にする
-		if (!bullet->IsHoming() && bullet->GetEvadedDeathTimer() >= 0) {
-			continue; // 回避された弾は当たり判定を無効
+		if (!enemyBullet->IsHoming() && enemyBullet->GetEvadedDeathTimer() >= 0) {
+			continue;
 		}
-		
+
+		// ポリモーフィズム: 敵弾を基底クラス（GameBullet）として扱う
+		GameBullet* bullet = enemyBullet;
 		posB[0] = bullet->GetWorldPosition();
 		float distanceSquared = DistanceSquared(posA[0], posB[0]);
-		float combinedRadiusSquared = (radiusA[0] + radiusB[0]) * (radiusA[0] + radiusB[0]);
+		float combinedRadius = playerRadius + bullet->GetCollisionRadius();
+		float combinedRadiusSquared = combinedRadius * combinedRadius;
 		if (distanceSquared <= combinedRadiusSquared) {
 
-			// Decrease HP and mark bullet dead. Only transition to game-over if player actually died.
-			player_->OnCollision();
-			bullet->OnCollision();
+			// ポリモーフィズム: 実際の型（Player）の OnCollision が呼ばれる
+			ApplyCollisionDamage(playerCharacter);
+			MarkBulletDestroyed(bullet);
 
-			if (player_->IsDead()) {
+			if (playerCharacter->IsDead()) {
 				TransitionToClearScene2();
 				return;
 			}
-			// Otherwise, continue checking other collisions (player lost a HP but still alive)
 		}
 	}
 
 	/*
-	// 自キャラ vs 隕石 の判定
-	posA[0] = player_->GetWorldPosition(); // プレイヤー位置
-	float playerRadius = radiusA[0];       // プレイヤー半径
-
-	for (Meteorite* meteor : meteorites_) {
-	    if (!meteor || meteor->IsDead())
-	        continue;
-
-	    posB[0] = meteor->GetWorldPosition();
-	    float meteoriteRadius = meteor->GetRadius();
-	    float distanceSquared = DistanceSquared(posA[0], posB[0]);
-	    float combinedRadiusSquared = (playerRadius + meteoriteRadius) * (playerRadius + meteoriteRadius);
-
-	    if (distanceSquared <= combinedRadiusSquared) {
-	        player_->OnCollision();
-	        meteor->OnCollision();
-
-	        if (player_->IsDead()) {
-	            TransitionToClearScene2();
-	            return;
-	        }
-	    }
-	}
+	// 自キャラ vs 隕石 の判定（再有効化する場合は GameCharacter* を使う）
+	// posA[0] = playerCharacter->GetWorldPosition();
+	// float meteorPlayerRadius = playerCharacter->GetCollisionRadius();
+	// for (Meteorite* meteor : meteorites_) {
+	//     ...
+	//     ApplyCollisionDamage(playerCharacter);
+	// }
 	*/
 
-	// 自弾 vs 敵キャラ
-	// 変更: 画面外の敵は多くの処理で不要なのでスキップして負荷を下げる
-	for (Enemy* enemy : enemies_) {
-		if (!enemy || enemy->IsDead())
+	// --- 自弾 vs 敵キャラ ---
+	for (Enemy* enemyObject : enemies_) {
+		if (!enemyObject || enemyObject->IsDead())
 			continue;
-		// 画面外の敵は衝突判定やエイムアシスト用の行列演算を行わない
-		// (Collision should be checked regardless of on-screen state)
-		// if (!enemy->IsOnScreen())
-		// 	continue;
-		posA[1] = enemy->GetWorldPosition();
-		for (PlayerBullet* bullet : playerBullets) {
-			if (!bullet || bullet->IsDead())
+
+		// ポリモーフィズム: 敵を基底クラス（GameCharacter）として扱う
+		GameCharacter* enemyCharacter = enemyObject;
+		posA[1] = enemyCharacter->GetWorldPosition();
+		const float enemyRadius = enemyCharacter->GetCollisionRadius();
+
+		for (PlayerBullet* playerBullet : playerBullets) {
+			if (!playerBullet || playerBullet->IsDead())
 				continue;
+
+			GameBullet* bullet = playerBullet;
 			posB[1] = bullet->GetWorldPosition();
 			float distanceSquared = DistanceSquared(posA[1], posB[1]);
-			float combinedRadiusSquared = (radiusA[2] + radiusB[2]) * (radiusA[2] + radiusB[2]);
+			float combinedRadius = enemyRadius + bullet->GetCollisionRadius();
+			float combinedRadiusSquared = combinedRadius * combinedRadius;
 			if (distanceSquared <= combinedRadiusSquared) {
-				enemy->OnCollision();
-				bullet->OnCollision();
+				// ポリモーフィズム: 実際の型（Enemy）の OnCollision が呼ばれる
+				ApplyCollisionDamage(enemyCharacter);
+				MarkBulletDestroyed(bullet);
 
-				if (enemy->IsDead()) {
+				if (enemyCharacter->IsDead()) {
 					hitCount++;
 					audio_->playAudio(hitSound_, hitSoundHandle_, false, 0.7f);
 				}
@@ -1242,9 +1237,10 @@ void GameScene::TransitionToClearScene() {
 	}
 
 	if (player_) {
+		player_->ResetStats();
 		player_->ResetRotation();
-		player_->GetWorldTransform().translation_ = playerIntroStartPosition_;
-		player_->GetWorldTransform().UpdateMatrix();
+		player_->SetPosition(playerIntroStartPosition_);
+		player_->RefreshWorldMatrix();
 		player_->ResetParticles();
 		player_->ResetBullets(); // (弾のリセットも行う)
 	}

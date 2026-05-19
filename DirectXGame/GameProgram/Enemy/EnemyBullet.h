@@ -1,68 +1,70 @@
 #pragma once
+#include "AABB.h"
+#include "GameBullet.h"
 #include <3d/Camera.h>
 #include <3d/Model.h>
 #include <3d/WorldTransform.h>
-#include "AABB.h"
-class Player; // forward
-class EnemyBullet {
+
+class Player;
+class GameCharacter;
+
+// 敵弾（GameBullet を継承）
+class EnemyBullet : public GameBullet {
 public:
-    void Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity);
+	void Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity);
 
-    void Update();
+	void Update();
 
-    void Draw(const KamataEngine::Camera& camera);
+	void Draw(const KamataEngine::Camera& camera);
 
-    void OnEvaded();
+	void OnEvaded();
 
-    ~EnemyBullet();
+	~EnemyBullet() override;
 
-    bool IsDead() const { return isDead_; }
+	// --- GameBullet の仮想関数（override） ---
+	KamataEngine::Vector3 GetWorldPosition() const override;
+	bool IsDead() const override;
+	void OnCollision() override;
+	float GetCollisionRadius() const override;
+	const char* GetKindName() const override;
 
-    void OnCollision();
+	AABB GetAABB();
 
-    KamataEngine::Vector3 GetWorldPosition();
+	// ホーミング（ターゲットは GameCharacter* で保持し、Player を指す）
+	void SetHomingTarget(Player* target);
+	void SetHomingEnabled(bool enabled) { isHoming_ = enabled; }
+	void SetSpeed(float s) { speed_ = s; }
+	bool IsHoming() const { return isHoming_; }
 
-    AABB GetAABB();
+	// 回避後のタイマーを取得（-1は未回避、0以上は残りフレーム数）
+	int32_t GetEvadedDeathTimer() const { return evadedDeathTimer_; }
 
-    // Homing support
-    void SetHomingTarget(Player* target) { homingTarget_ = target; }
-    void SetHomingEnabled(bool enabled) { isHoming_ = enabled; }
-    void SetSpeed(float s) { speed_ = s; }
-    bool IsHoming() const { return isHoming_; }
-    
-    // 回避後のタイマーを取得（-1は未回避、0以上は残りフレーム数）
-    int32_t GetEvadedDeathTimer() const { return evadedDeathTimer_; }
-
-    void StopHoming() {
+	void StopHoming() {
 		isHoming_ = false;
 		deathTimer_ = 60;
 	}
 
-    void SetInvulnerableFrames(int frames) { invulnerableFrames_ = frames; }
+	void SetInvulnerableFrames(int frames) { invulnerableFrames_ = frames; }
 
 private:
+	KamataEngine::WorldTransform worldtransfrom_;
+	KamataEngine::Model* model_ = nullptr;
+	KamataEngine::Vector3 velocity_;
 
-    KamataEngine::WorldTransform worldtransfrom_;
-    KamataEngine::Model* model_ = nullptr;
-    KamataEngine::Vector3 velocity_;
+	static const int32_t kLifeTime = 60 * 10;
+	int32_t deathTimer_ = kLifeTime;
+	bool isDead_ = false;
 
-    // 寿命　Enemyミサイル
-    static const int32_t kLifeTime = 60 * 10; // default 10 seconds
-    // デスタイマー
-    int32_t deathTimer_ = kLifeTime;
-    // デスフラグ
-    bool isDead_ = false;
+	static inline const float kWidth = 1.0f;
+	static inline const float kHeight = 1.0f;
 
-    static inline const float kWidth = 1.0f;
-    static inline const float kHeight = 1.0f;
+	// ホーミング先（Player は GameCharacter の派生クラス）
+	GameCharacter* homingTarget_ = nullptr;
+	bool isHoming_ = false;
+	float speed_ = 1.0f;
 
-    // Homing members
-    Player* homingTarget_ = nullptr;
-    bool isHoming_ = false;
-    float speed_ = 1.0f; // units per frame
+	int invulnerableFrames_ = 0;
 
-    int invulnerableFrames_ = 0;
-
-    // 回避後のタイマー（1秒 = 60フレーム）
-    int32_t evadedDeathTimer_ = -1; // -1は未回避状態
+	// 回避後のタイマー（1秒 = 60フレーム）
+	int32_t evadedDeathTimer_ = -1;
 };

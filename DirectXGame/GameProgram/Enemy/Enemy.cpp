@@ -34,7 +34,8 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 
 	worldtransfrom_.UpdateMatrix();
 
-	hp_ = 5;
+	hp_ = kMaxHp_;
+	isDead_ = false;
 
 	uint32_t indicatorHandle = TextureManager::Load("indicator.png");
 	directionIndicatorSprite_ = Sprite::Create(indicatorHandle, {0, 0});
@@ -97,7 +98,7 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	turnSmoothFactor_ = 0.04f;   // 方向変化の滑らかさ
 }
 
-KamataEngine::Vector3 Enemy::GetWorldPosition() {
+KamataEngine::Vector3 Enemy::GetWorldPosition() const {
 	KamataEngine::Vector3 worldPos;
 	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
 	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
@@ -105,6 +106,17 @@ KamataEngine::Vector3 Enemy::GetWorldPosition() {
 	return worldPos;
 }
 
+bool Enemy::IsDead() const { return isDead_; }
+
+int Enemy::GetHp() const { return hp_; }
+
+int Enemy::GetMaxHp() const { return kMaxHp_; }
+
+float Enemy::GetCollisionRadius() const { return 2.0f; }
+
+const char* Enemy::GetKindName() const { return "Enemy"; }
+
+// ポリモーフィズム: Enemy 固有の被弾処理（撃破時は爆発・スコア加算）
 void Enemy::OnCollision() {
 	hp_--;
 	if (hp_ <= 0) {

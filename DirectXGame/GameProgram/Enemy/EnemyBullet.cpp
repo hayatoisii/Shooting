@@ -1,10 +1,16 @@
 #include "EnemyBullet.h"
+#include "GameCharacter.h"
 #include "Player.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 
 EnemyBullet::~EnemyBullet() { model_ = nullptr; }
+
+void EnemyBullet::SetHomingTarget(Player* target) {
+	// Player は GameCharacter の派生クラス
+	homingTarget_ = target;
+}
 
 void EnemyBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity) {
 	assert(model);
@@ -29,8 +35,13 @@ void EnemyBullet::OnEvaded() {
 	evadedDeathTimer_ = 60;
 }
 
-KamataEngine::Vector3 EnemyBullet::GetWorldPosition() {
-	worldtransfrom_.UpdateMatrix();
+bool EnemyBullet::IsDead() const { return isDead_; }
+
+float EnemyBullet::GetCollisionRadius() const { return 0.8f; }
+
+const char* EnemyBullet::GetKindName() const { return "EnemyBullet"; }
+
+KamataEngine::Vector3 EnemyBullet::GetWorldPosition() const {
 	KamataEngine::Vector3 worldPos;
 	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
 	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
@@ -101,7 +112,8 @@ void EnemyBullet::Update() {
 		// 必中ヒット距離
 		const float kHitRange = 15.0f;
 		if (dist <= kHitRange) {
-			homingTarget_->OnCollision();
+			// ポリモーフィズム: ホーミング先（Player = GameCharacter）へダメージ
+			ApplyCollisionDamage(homingTarget_);
 			isDead_ = true;
 			return;
 		}
@@ -159,6 +171,7 @@ void EnemyBullet::Update() {
 	worldtransfrom_.UpdateMatrix();
 }
 
+// ポリモーフィズム: 敵弾の消滅処理（GameBullet::OnCollision の override）
 void EnemyBullet::OnCollision() { isDead_ = true; }
 
 void EnemyBullet::Draw(const KamataEngine::Camera& camera) {

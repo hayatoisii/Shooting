@@ -1,6 +1,7 @@
 #pragma once
 #include <3d/Model.h>
 #include <3d/WorldTransform.h>
+#include "GameCharacter.h"
 #include "KamataEngine.h"
 #include <3d/Camera.h>
 #include "EnemyBullet.h"
@@ -20,21 +21,25 @@ enum class Phase {
 	Leave,    // 離脱する
 };
 
-class Enemy {
+// 敵キャラクター（GameCharacter を継承。ポリモーフィズムの派生クラス）
+class Enemy : public GameCharacter {
 public:
 
 	void Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& pos);
 	void Update();
 	void Draw(const KamataEngine::Camera& camera);
 	void DrawSprite(); // スプライトを描画
-	~Enemy();
+	~Enemy() override;
 	void Fire();
 
-	bool IsDead() const { return isDead_; }
-
-	void OnCollision();
-
-	KamataEngine::Vector3 GetWorldPosition();
+	// --- GameCharacter の仮想関数（override） ---
+	KamataEngine::Vector3 GetWorldPosition() const override;
+	bool IsDead() const override;
+	void OnCollision() override;
+	int GetHp() const override;
+	int GetMaxHp() const override;
+	float GetCollisionRadius() const override;
+	const char* GetKindName() const override;
 
 	void SetPlayer(Player* player) { player_ = player; }
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
@@ -42,15 +47,11 @@ public:
 	// 画面内判定
 	bool IsOnScreen() const { return isOnScreen_; }
 
-	int GetHp() const { return hp_; }
-
 	// 画面座標の更新
 	void UpdateScreenPosition();
 
 	// 発射間隔
 	static const int kFireInterval = 20;
-
-	bool isDead_ = false;
 
 	void SetParent(const KamataEngine::WorldTransform* parent);
 	void SetAssistLocked(bool isLocked) { isAssistLocked_ = isLocked; }
@@ -65,7 +66,9 @@ private:
 
 	KamataEngine::Model* modelbullet_ = nullptr;
 
-	int hp_ = 1;
+	static const int kMaxHp_ = 5;
+	int hp_ = kMaxHp_;
+	bool isDead_ = false;
 
 	// 発射タイマー
 	int32_t spawnTimer = 0;

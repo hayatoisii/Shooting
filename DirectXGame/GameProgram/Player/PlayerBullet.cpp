@@ -23,7 +23,14 @@ void PlayerBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Ve
 	}
 }
 
+// ポリモーフィズム: 自機弾の消滅処理（GameBullet::OnCollision の override）
 void PlayerBullet::OnCollision() { isDead_ = true; }
+
+bool PlayerBullet::IsDead() const { return isDead_; }
+
+float PlayerBullet::GetCollisionRadius() const { return 0.8f; }
+
+const char* PlayerBullet::GetKindName() const { return "PlayerBullet"; }
 
 // SlerpRotate関数（PlayerBullet内にも定義、あるいはヘッダーなどで共有しても良い）
 KamataEngine::Vector3 PlayerBulletSlerp(const KamataEngine::Vector3& current, const KamataEngine::Vector3& target, float maxAngle) {
@@ -157,8 +164,7 @@ void PlayerBullet::Update() {
 	worldtransfrom_.UpdateMatrix();
 }
 
-KamataEngine::Vector3 PlayerBullet::GetWorldPosition() {
-	worldtransfrom_.UpdateMatrix();
+KamataEngine::Vector3 PlayerBullet::GetWorldPosition() const {
 	KamataEngine::Vector3 worldPos;
 	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
 	worldPos.y = worldtransfrom_.matWorld_.m[3][1];

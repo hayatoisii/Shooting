@@ -1,4 +1,5 @@
 #pragma once
+#include "GameBullet.h"
 #include <3d/Camera.h>
 #include <3d/Model.h>
 #include <3d/WorldTransform.h>
@@ -11,22 +12,23 @@ struct Vector3;
 
 class Enemy;
 
-class PlayerBullet {
+// 自機弾（GameBullet を継承）
+class PlayerBullet : public GameBullet {
 public:
 	void Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity);
 
 	void Update();
 
-	KamataEngine::Vector3 GetWorldPosition();
-
 	void Draw(const KamataEngine::Camera& camera);
 
-	~PlayerBullet();
+	~PlayerBullet() override;
 
-	bool IsDead() const { return isDead_; }
-
-	// 衝突を検出したら呼び出されるコールバック関数
-	void OnCollision();
+	// --- GameBullet の仮想関数（override） ---
+	KamataEngine::Vector3 GetWorldPosition() const override;
+	bool IsDead() const override;
+	void OnCollision() override;
+	float GetCollisionRadius() const override;
+	const char* GetKindName() const override;
 
 	// 追尾設定
 	void SetHomingTarget(Enemy* target) { homingTarget_ = target; }
@@ -50,8 +52,6 @@ private:
 
 	KamataEngine::Model* model_ = nullptr;
 
-	// uint32_t textureHandle_ = 0;
-
 	KamataEngine::Vector3 velocity_;
 
 	// 追尾関連
@@ -66,14 +66,12 @@ private:
 	float pendingLockDistance_ = 0.0f;
 
 	// 寿命<frm>
-	static const int32_t kLifeTime = 60 * 2; // 増加して3000まで移動できるようにする (元は60*1)
-	// デスタイマー
+	static const int32_t kLifeTime = 60 * 2;
 	int32_t deathTimer_ = kLifeTime;
-	// デスフラグ
 	bool isDead_ = false;
 
 	// ホーミング開始後のオーバーシュートチェック遅延タイマー
-	int homingCheckDelayTimer_ = 10; // 例: 10フレーム遅延
-	
+	int homingCheckDelayTimer_ = 10;
+
 	int32_t homingDelayTimer_ = 0;
 };

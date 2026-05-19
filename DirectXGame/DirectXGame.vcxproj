@@ -107,6 +107,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="GameProgram\MT\AABB.cpp" />
+    <ClCompile Include="GameProgram\MT\GameBullet.cpp" />
+    <ClCompile Include="GameProgram\MT\GameCharacter.cpp" />
     <ClCompile Include="GameProgram\Enemy\Enemy.cpp" />
     <ClCompile Include="GameProgram\Enemy\EnemyBullet.cpp" />
     <ClCompile Include="GameProgram\scene\GaneScene.cpp" />
@@ -199,6 +201,8 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="GameProgram\MT\AABB.h" />
+    <ClInclude Include="GameProgram\MT\GameBullet.h" />
+    <ClInclude Include="GameProgram\MT\GameCharacter.h" />
     <ClInclude Include="GameProgram\Enemy\Enemy.h" />
     <ClInclude Include="GameProgram\Enemy\EnemyBullet.h" />
     <ClInclude Include="GameProgram\scene\GaneScene.h" />

@@ -19,9 +19,7 @@ public:
 	void Initialize(const KamataEngine::Vector3& pos, const KamataEngine::Vector3& rad);
 	void Update();
 
-	Player* target_ = nullptr;
-
-	void setTarget(Player* target) { target_ = target; }
+	void SetTarget(Player* target) { target_ = target; }
 	const Camera& GetViewProjection() { return camera_; }
 	const WorldTransform& GetWorldTransform() { return worldtransfrom_; }
 
@@ -38,6 +36,8 @@ public:
 	void Dodge(float direction);
 
 private:
+	Player* target_ = nullptr;
+
 	KamataEngine::WorldTransform worldtransfrom_;
 
 	KamataEngine::Vector3 initialPosition_;

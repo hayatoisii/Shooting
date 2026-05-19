@@ -1,34 +1,47 @@
 #pragma once
 #include "AABB.h"
 #include "EnemyBullet.h"
+#include "GameCharacter.h"
 #include "KamataEngine.h"
 #include "ParticleEmitter.h"
 #include "PlayerBullet.h"
 #include <list>
-#include "EnemyBullet.h"
 
 using namespace KamataEngine;
 
 class Enemy;
 class RailCamera;
 
-class Player {
+// プレイヤー（GameCharacter を継承。ポリモーフィズムの派生クラス）
+class Player : public GameCharacter {
 public:
 	Player() = default;
-	~Player();
+	~Player() override;
 
 	void Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera, const KamataEngine::Vector3& pos);
 	void Update();
 	void Draw();
 	void Attack();
-	void OnCollision();
 
-	bool IsDead() const { return isDead_; }
-	KamataEngine::WorldTransform& GetWorldTransform() { return worldtransfrom_; }
+	// --- GameCharacter の仮想関数（override） ---
+	KamataEngine::Vector3 GetWorldPosition() const override;
+	bool IsDead() const override;
+	void OnCollision() override;
+	int GetHp() const override;
+	int GetMaxHp() const override;
+	float GetCollisionRadius() const override;
+	const char* GetKindName() const override;
+
+	// 位置は setter 経由でのみ変更（内部 WorldTransform を直接公開しない）
+	void SetPosition(const KamataEngine::Vector3& position);
+	const KamataEngine::Vector3& GetLocalPosition() const { return worldtransfrom_.translation_; }
+	void RefreshWorldMatrix() { worldtransfrom_.UpdateMatrix(); }
+
+	// ゲーム再開時に HP・死亡フラグを初期化
+	void ResetStats();
 
 	void UpdateGameOver(float animationTime);
 
-	KamataEngine::Vector3 GetWorldPosition();
 	AABB GetAABB();
 	const std::list<PlayerBullet*>& GetBullets() const { return bullets_; }
 
@@ -45,7 +58,7 @@ public:
 	static inline const float kHeight = 1.0f;
 
 	void EvadeBullets(std::list<EnemyBullet*>& bullets);
-	
+
 	// 回避中かどうかを取得
 	bool IsRolling() const { return isRolling_; }
 
@@ -73,7 +86,8 @@ private:
 	KamataEngine::Model* modelParticle_ = nullptr;
 	ParticleEmitter* engineExhaust_ = nullptr;
 
-	int hp_ = 3;
+	static const int kMaxHp_ = 3;
+	int hp_ = kMaxHp_;
 	bool isDead_ = false;
 	int shotTimer_;
 

@@ -38,7 +38,7 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	engineExhaust_ = new ParticleEmitter();
 	engineExhaust_->Initialize(modelParticle_);
 
-	hp_ = 3;
+	hp_ = kMaxHp_;
 	isDead_ = false;
 	shotTimer_ = 0;
 
@@ -46,8 +46,18 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	hitShakePrevHorizontalOffset_ = 0.0f;
 }
 
+void Player::SetPosition(const KamataEngine::Vector3& position) {
+	worldtransfrom_.translation_ = position;
+}
+
+void Player::ResetStats() {
+	hp_ = kMaxHp_;
+	isDead_ = false;
+}
+
+// ポリモーフィズム: Player 固有の被弾処理（GameCharacter::OnCollision の override）
 void Player::OnCollision() {
-	// isDead_ = true; // 即死
+	// isDead_ = true; // 即死テスト用（通常は HP を減らす）
 	hp_--;
 	if (hp_ <= 0) {
 		isDead_ = true;
@@ -248,7 +258,17 @@ void Player::Attack() {
 }
 }
 
-KamataEngine::Vector3 Player::GetWorldPosition() {
+bool Player::IsDead() const { return isDead_; }
+
+int Player::GetHp() const { return hp_; }
+
+int Player::GetMaxHp() const { return kMaxHp_; }
+
+float Player::GetCollisionRadius() const { return 0.8f; }
+
+const char* Player::GetKindName() const { return "Player"; }
+
+KamataEngine::Vector3 Player::GetWorldPosition() const {
 	KamataEngine::Vector3 worldPos;
 	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
 	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
