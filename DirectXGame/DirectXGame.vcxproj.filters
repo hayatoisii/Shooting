@@ -51,7 +51,16 @@
     <ClCompile Include="GameProgram\Player\Player.cpp">
       <Filter>GameProgram\Player</Filter>
     </ClCompile>
+    <ClCompile Include="GameProgram\Player\PlayerState.cpp">
+      <Filter>GameProgram\Player</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\scene\GameSceneStateBodies.cpp">
+      <Filter>GameProgram\scene</Filter>
+    </ClCompile>
     <ClCompile Include="GameProgram\scene\GaneScene.cpp">
+      <Filter>GameProgram\scene</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\scene\SceneStates.cpp">
       <Filter>GameProgram\scene</Filter>
     </ClCompile>
     <ClCompile Include="GameProgram\Enemy\Enemy.cpp">
@@ -150,7 +159,13 @@
     <ClInclude Include="GameProgram\Player\Player.h">
       <Filter>GameProgram\Player</Filter>
     </ClInclude>
+    <ClInclude Include="GameProgram\Player\PlayerState.h">
+      <Filter>GameProgram\Player</Filter>
+    </ClInclude>
     <ClInclude Include="GameProgram\scene\GaneScene.h">
+      <Filter>GameProgram\scene</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\scene\SceneStateBase.h">
       <Filter>GameProgram\scene</Filter>
     </ClInclude>
     <ClInclude Include="GameProgram\Enemy\Enemy.h">

@@ -4,6 +4,7 @@
 #include "KamataEngine.h"
 #include "Player.h"
 #include "RailCamera.h"
+#include "SceneStateBase.h"
 #include "Skydome.h"
 #include "Meteorite.h"
 #include <sstream>
@@ -13,7 +14,24 @@ using namespace KamataEngine;
 float Distance(const Vector3& v1, const Vector3& v2);
 Vector3 Lerp(const Vector3& start, const Vector3& end, float t);
 
+// State Pattern: シーン状態クラスから GameScene の内部にアクセスする
+class SceneStateStart;
+class SceneStateTransitionToGame;
+class SceneStateTransitionFromGame;
+class SceneStateGameIntro;
+class SceneStateGame;
+class SceneStateClear;
+class SceneStateOver;
+
 class GameScene {
+	friend class SceneStateStart;
+	friend class SceneStateTransitionToGame;
+	friend class SceneStateTransitionFromGame;
+	friend class SceneStateGameIntro;
+	friend class SceneStateGame;
+	friend class SceneStateClear;
+	friend class SceneStateOver;
+
 public:
 	GameScene();
 	~GameScene();
@@ -48,6 +66,10 @@ public:
 	// Score handling (made public so other game objects can award points)
 	void AddScore(int points);
 	void UpdateScoreSprites();
+
+	// State Pattern: 状態遷移と現在状態の取得
+	void ChangeSceneState(SceneStateBase* newState);
+	SceneStateKind GetSceneStateKind() const;
 
 private:
 	DirectXCommon* dxCommon_ = nullptr;
@@ -103,8 +125,17 @@ private:
 	// 矢印グループ全体を右に移動するオフセット（ピクセル）
 	float controlGroupOffset_ = 16.0f; // 矢印と Shift を一緒に右へ移動する量
 
-	enum class SceneState { Start, TransitionToGame, TransitionFromGame, GameIntro, Game, Clear, over };
-	SceneState sceneState = SceneState::Start;
+	SceneStateBase* sceneState_ = nullptr;
+
+	// 各シーン状態の更新本体（状態クラスから呼ばれる）
+	void UpdateStateBody_Start();
+	void UpdateStateBody_TransitionToGame();
+	void UpdateStateBody_TransitionFromGame();
+	void UpdateStateBody_GameIntro();
+	void UpdateStateBody_Game();
+	void UpdateStateBody_Clear();
+	void UpdateStateBody_Over();
+	void ResetToTitle();
 
 	float DistanceSquared(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2);
 

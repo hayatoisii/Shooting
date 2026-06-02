@@ -25,7 +25,20 @@ float GameScene::DistanceSquared(const Vector3& v1, const Vector3& v2) {
 	return dx * dx + dy * dy + dz * dz;
 }
 
-GameScene::GameScene() {}
+GameScene::GameScene() { sceneState_ = SceneStateStart::Instance(); }
+
+void GameScene::ChangeSceneState(SceneStateBase* newState) {
+	if (newState != nullptr && newState != sceneState_) {
+		sceneState_ = newState;
+	}
+}
+
+SceneStateKind GameScene::GetSceneStateKind() const {
+	if (sceneState_ == nullptr) {
+		return SceneStateKind::Start;
+	}
+	return sceneState_->GetKind();
+}
 
 GameScene::~GameScene() {
 	delete modelPlayer_;
@@ -403,511 +416,13 @@ void GameScene::Update() {
 		}
 	}
 
-	switch (sceneState) {
-	case SceneState::Start: {
-		if (input_->TriggerKey(DIK_SPACE)) {
-			sceneState = SceneState::TransitionToGame;
-			transitionTimer_ = 0.0f;
-			gameSceneTimer_ = 0;
-		}
-		titleAnimationTimer_++;
-		const int32_t cycleFrames = kTitleRotateFrames + kTitlePauseFrames;
-		int32_t timeInCycle = titleAnimationTimer_ % cycleFrames;
-		if (timeInCycle < kTitleRotateFrames) {
-			float progress = static_cast<float>(timeInCycle) / kTitleRotateFrames;
-			float easedProgress = (1.0f - cosf(progress * 3.14159265f)) / 2.0f;
-			worldTransformTitleObject_.rotation_.y = easedProgress * (2.0f * 3.14159265f);
-		} else {
-			worldTransformTitleObject_.rotation_.y = 0.0f;
-		}
-		worldTransformTitleObject_.UpdateMatrix();
-		break;
-	}
-	case SceneState::TransitionToGame: {
-		transitionTimer_++;
-		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
-		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
-		float easedProgress = 1.0f - cosf(progress * 3.14159265f / 2.0f);
-		float scale = easedProgress * maxScale;
-		transitionSprite_->SetSize({scale, scale});
-		if (transitionTimer_ >= kTransitionTime) {
-			sceneState = SceneState::TransitionFromGame;
-			transitionTimer_ = 0.0f;
-		}
-		break;
-	}
-	case SceneState::TransitionFromGame: {
-		transitionTimer_++;
-		float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
-		float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
-		float easedProgress = sinf(progress * 3.14159265f / 2.0f);
-		float scale = (1.0f - easedProgress) * maxScale;
-		transitionSprite_->SetSize({scale, scale});
-
-		if (transitionTimer_ >= kTransitionTime) {
-			sceneState = SceneState::GameIntro;
-			gameIntroTimer_ = 0.0f;
-			player_->SetPosition(playerIntroStartPosition_);
-			player_->RefreshWorldMatrix();
-			isGameIntroFinished_ = false;
-			UpdateEnemyPopCommands();
-		}
-
-		if (railCamera_) {
-			railCamera_->Update();
-			// アンカー更新
-			cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-			cameraPositionAnchor_.UpdateMatrix();
-		}
-		if (player_)
-			player_->RefreshWorldMatrix();
-		camera_.matView = railCamera_->GetViewProjection().matView;
-		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-		camera_.TransferMatrix();
-		break;
-	}
-	case SceneState::GameIntro: {
-		gameIntroTimer_++;
-
-		float t = gameIntroTimer_ / kGameIntroDuration_;
-		t = 1.0f - std::pow(1.0f - t, 3.0f);
-		t = std::clamp(t, 0.0f, 1.0f);
-
-		player_->SetPosition(Lerp(playerIntroStartPosition_, playerIntroTargetPosition_, t));
-		player_->RefreshWorldMatrix();
-
-		UpdateAimAssist();
-		railCamera_->Update();
-
-		if (explosionEmitter_) {
-			explosionEmitter_->Update();
-		}
-
-		// アンカー更新
-		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-		cameraPositionAnchor_.UpdateMatrix();
-		camera_.matView = railCamera_->GetViewProjection().matView;
-		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-		camera_.TransferMatrix();
-
-		const float kArrivalThreshold = 0.1f;
-		if (gameIntroTimer_ >= kGameIntroDuration_ || Distance(player_->GetLocalPosition(), playerIntroTargetPosition_) < kArrivalThreshold) {
-			player_->SetPosition(playerIntroTargetPosition_);
-			player_->RefreshWorldMatrix();
-			sceneState = SceneState::Game;
-			isGameIntroFinished_ = true;
-			gameSceneTimer_ = 0;
-
-			// Gameが始まってから移動するようにする
-			if (railCamera_) {
-				railCamera_->SetCanMove(true);
-			}
-
-			// デバッグ10秒タイマーをリセット（ゲーム開始時にカウント開始）
-			// これにより、ゲーム開始から kDebug10Seconds 秒後に自動でタイトルへ戻る
-			debug10ElapsedSec_ = 0.0f;
-		}
-		break;
-	}
-	case SceneState::Game: {
-
-		// デバッグ: ゲーム開始から10秒でタイトルへ戻す処理
-		// 有効な場合、毎フレーム（60FPS 想定で）経過秒数を加算し、指定秒数経過後にタイトルへ遷移する
-		if (debug10 && isGameIntroFinished_) {
-			const float kDeltaSec = 1.0f / 60.0f; // フレーム毎の秒換算（概算）
-			debug10ElapsedSec_ += kDeltaSec;
-			if (debug10ElapsedSec_ >= kDebug10Seconds) {
-				// 10秒経過したのでタイトルへ戻す（リセット処理）
-				sceneState = SceneState::Start;
-				debug10ElapsedSec_ = 0.0f;
-				
-				camera_.Initialize();
-				camera_.TransferMatrix();
-				if (railCamera_) {
-					railCamera_->Reset();
-				}
-				if (player_) {
-					player_->ResetStats();
-					player_->ResetRotation();
-					player_->SetPosition(playerIntroStartPosition_);
-					player_->RefreshWorldMatrix();
-					player_->ResetParticles();
-					player_->ResetBullets();
-				}
-				
-				for (Enemy* enemy : enemies_) {
-					delete enemy;
-				}
-				enemies_.clear();
-				for (EnemyBullet* bullet : enemyBullets_) {
-					delete bullet;
-				}
-				enemyBullets_.clear();
-				
-				for (Meteorite* meteor : meteorites_) {
-					delete meteor;
-				}
-				meteorites_.clear();
-				meteoriteSpawnTimer_ = 0;
-				
-				LoadEnemyPopData();
-				hasSpawnedEnemies_ = false;
-				
-				// 処理を終えてこのフレームの残りの Game 処理をスキップ
-				break;
-			}
-		}
-
-		// --- 自動ゲームオーバー(25秒) / タイマー更新 ---
-		if (isGameIntroFinished_) {
-			const float kDeltaSecGame = 1.0f / 60.0f; // 60FPS 想定
-			gameSceneTimer_ += kDeltaSecGame;
-			const float kAutoGameOverSeconds = 40.0f; // 25秒でゲームオーバー
-			if (gameSceneTimer_ >= kAutoGameOverSeconds) {
-				// 時間切れ -> ゲームオーバー
-				TransitionToClearScene2();
-				break;
-			}
-		}
-
-		// --- デバッグ
-		//gameSceneTimer_++;
-		// --- デバッグ用: 1秒でクリア (60フレーム) ---
-		// removed old frame-based debug clear
-
-		// --- 通常のゲーム処理 ---
-		railCamera_->Update();
-		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-		cameraPositionAnchor_.UpdateMatrix();
-		camera_.matView = railCamera_->GetViewProjection().matView;
-		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-		camera_.TransferMatrix();
-
-		UpdateAimAssist();
-
-		if (explosionEmitter_) {
-			explosionEmitter_->Update();
-		}
-
-		if (isGameIntroFinished_) {
-			const int kSpawnsPerFrame = 1;
-			meteoriteSpawnTimer_--;
-			if (meteoriteSpawnTimer_ <= 0) {
-				for (int i = 0; i < kSpawnsPerFrame; ++i) {
-					 SpawnMeteorite();
-				}
-				// 隕石の数
-				meteoriteSpawnTimer_ = 1;
-			}
-
-			// Playerを先に更新して、最新の位置を取得できるようにする
-			player_->Update();
-
-			// 回避処理（Player更新後に実行）>
-			player_->EvadeBullets(enemyBullets_);
-
-			for (Enemy* enemy : enemies_) {
-				enemy->Update();
-			}
-
-			
-			for (Meteorite* meteor : meteorites_) {
-				if (meteor) {
-					// Playerの位置を渡して更新（近づくと大きくなる処理のため）>
-					meteor->Update(player_->GetWorldPosition());
-				}
-			}
-			
-
-			// 弾の更新（Player更新後なので、最新のPlayer位置を追尾できる）>
-			for (EnemyBullet* bullet : enemyBullets_) {
-				bullet->Update();
-			}
-
-			if (homingSpawnTimer_ > 0) {
-				homingSpawnTimer_--;
-			} else {
-				Enemy* shooter = nullptr;
-				KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
-				float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
-				// この距離にPlayerが近づくとEnemyが弾を撃たなくなります
-				const float kMinHomingDistance = 1000.0f;
-				float minDistSq = kMinHomingDistance * kMinHomingDistance;
-				for (Enemy* enemy : enemies_) {
-					if (!enemy || enemy->IsDead())
-						continue;
-					KamataEngine::Vector3 epos = enemy->GetWorldPosition();
-					float dx = epos.x - playerPosForHoming.x;
-					float dy = epos.y - playerPosForHoming.y;
-					float dz = epos.z - playerPosForHoming.z;
-					float distSq = dx * dx + dy * dy + dz * dz;
-					if (distSq <= maxDistSq && distSq > minDistSq) {
-						shooter = enemy;
-						break;
-					}
-				}
-
-				if (shooter) {
-
-					KamataEngine::Vector3 moveBullet = shooter->GetWorldPosition();
-					KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-					KamataEngine::Vector3 toPlayer = playerPos - moveBullet;
-					float len = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y + toPlayer.z * toPlayer.z);
-					if (len > 0.001f) {
-						toPlayer.x /= len;
-						toPlayer.y /= len;
-						toPlayer.z /= len;
-					}
-					KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
-
-					EnemyBullet* newBullet = new EnemyBullet();
-					//newBullet->Initialize(modelEnemy_, moveBullet, vel); // 生成時に enemy 弾モデルを渡す
-					newBullet->Initialize(modelEnemyBullet_, moveBullet, vel); // 敵弾用モデルで初期化
-					newBullet->SetHomingEnabled(true);
-					newBullet->SetHomingTarget(player_);
-					newBullet->SetSpeed(kHomingBulletSpeed_);
-					AddEnemyBullet(newBullet);
-
-					// reset timer
-					homingSpawnTimer_ = kHomingIntervalFrames_;
-				}
-			}
-
-			enemyBullets_.remove_if([](EnemyBullet* bullet) {
-				if (bullet && bullet->IsDead()) {
-					delete bullet;
-					return true;
-				}
-				return false;
-			});
-			CheckAllCollisions();
-
-			if (player_ && minimapPlayerSprite_) { // player_ が null でないか確認
-				KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-
-				// 1. 自機アイコンをミニマップ中央に設定
-				KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y - kMinimapSize_.y * 0.5f};
-				minimapPlayerSprite_->SetPosition(minimapCenterPos);
-
-				// Rotate the player minimap sprite to match movement direction on XZ plane.
-				// Convert player movement (world X,Z) to minimap axes: mx = dx, my = -dz (minimap Y is -world Z).
-				float dx = playerPos.x - lastPlayerPos_.x;
-				float dz = playerPos.z - lastPlayerPos_.z;
-				const float kMoveThresholdSq = 0.0001f; // squared threshold to ignore tiny jitter
-				float moveDistSq = dx * dx + dz * dz;
-				if (moveDistSq > kMoveThresholdSq) {
-					float mx = dx;
-					float my = -dz;
-					float angle = std::atan2(my, mx);
-					// Sprite's default up direction -> adjust by +90 degrees (pi/2)
-					const float kPI = 3.14159265f;
-					minimapPlayerSprite_->SetRotation(angle + kPI / 2.0f);
-					lastPlayerPos_ = playerPos;
-				}
-
-				// この処理はミニマップにＥｎｅｍｙを移すために絶対に必要だから消しちゃダメ
-				//  2. 敵アイコンの位置を更新
-				size_t activeEnemyCount = 0;
-				// 敵リスト (enemies_) を走査
-				for (Enemy* enemy : enemies_) {
-					// 生きていて、スプライトの最大数を超えていない場合
-					if (enemy && !enemy->IsDead() && activeEnemyCount < kMaxMinimapEnemies_) {
-						KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition(); //
-						KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(enemyPos, playerPos);
-						minimapEnemySprites_[activeEnemyCount]->SetPosition(minimapPos);
-						activeEnemyCount++;
-					}
-				}
-
-				// 3. 敵弾アイコンの更新
-				size_t activeBulletCount = 0;
-				for (EnemyBullet* eb : enemyBullets_) {
-					if (!eb || eb->IsDead()) continue;
-					if (activeBulletCount >= kMaxMinimapEnemyBullets_) break;
-					KamataEngine::Vector3 bpos = eb->GetWorldPosition();
-					KamataEngine::Vector2 bmin = ConvertWorldToMinimap(bpos, playerPos);
-					minimapEnemyBulletSprites_[activeBulletCount]->SetPosition(bmin);
-					activeBulletCount++;
-				}
-
-				// 4. 残りのスプライトを非表示（画面外へ）
-				for (size_t i = activeEnemyCount; i < kMaxMinimapEnemies_; ++i) {
-					minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f});
-				}
-				for (size_t i = activeBulletCount; i < kMaxMinimapEnemyBullets_; ++i) {
-					minimapEnemyBulletSprites_[i]->SetPosition({-100.0f, -100.0f});
-				}
-			}
-
-		} else { // イントロ中
-			if (player_) {
-				player_->RefreshWorldMatrix();
-			}
-		}
-
-		break;
-	}
-	case SceneState::Clear:
-		// ensure skydome drawn etc handled in Draw
-		// Start confetti when entering Clear
-		if (!confettiActive_) {
-			confettiActive_ = true;
-			confettiSpawnTimer_ = 0;
-
-		}
-
-		// spawn sprite confetti from top of screen
-		if (confettiActive_) {
-			confettiSpawnTimer_++;
-			if (confettiSpawnTimer_ >= 3) {
-				confettiSpawnTimer_ = 0;
-				// spawn a few confetti
-				for (int s = 0; s < 6; ++s) {
-					for (auto& c : confettiParticles_) {
-						if (!c.active && c.sprite) {
-							// place at very top across full screen width
-							float x = static_cast<float>(std::rand()) / RAND_MAX * (float)WinApp::kWindowWidth;
-							float y = -20.0f; // slightly above the top
-							c.pos = {x, y};
-							c.vel = {(static_cast<float>(std::rand()) / RAND_MAX - 0.5f) * 1.5f, 1.5f + static_cast<float>(std::rand()) / RAND_MAX * 2.0f};
-							c.rotation = (static_cast<float>(std::rand()) / RAND_MAX) * 6.28f;
-							c.rotVel = (static_cast<float>(std::rand()) / RAND_MAX - 0.5f) * 0.2f;
-							c.life = 120 + (MT::GetRand() % 120);
-							c.age = 0;
-							c.active = true;
-							// random bright color
-							float r, g, b;
-							int pattern = std::rand() % 6;                                  // 6パターン
-							float randomValue = static_cast<float>(std::rand()) / RAND_MAX; // 0.0f ～ 1.0f
-
-							switch (pattern) {
-							case 0:
-								r = 1.0f;
-								g = randomValue;
-								b = 0.0f;
-								break; // 赤～黄
-							case 1:
-								r = randomValue;
-								g = 1.0f;
-								b = 0.0f;
-								break; // 緑～黄
-							case 2:
-								r = 0.0f;
-								g = 1.0f;
-								b = randomValue;
-								break; // 緑～シアン
-							case 3:
-								r = 0.0f;
-								g = randomValue;
-								b = 1.0f;
-								break; // 青～シアン
-							case 4:
-								r = randomValue;
-								g = 0.0f;
-								b = 1.0f;
-								break; // 青～マゼンタ
-							default:
-								r = 1.0f;
-								g = 0.0f;
-								b = randomValue;
-								break; // 赤～マゼンタ
-							}
-							c.sprite->SetColor({r, g, b, 1.0f});
-							c.sprite->SetPosition(c.pos);
-							c.sprite->SetRotation(c.rotation);
-							break;
-						}
-					}
-				}
-			}
-		}
-
-		// update confetti particles
-		for (auto& c : confettiParticles_) {
-			if (!c.active || !c.sprite)
-				continue;
-			c.age++;
-			c.pos.x += c.vel.x;
-			c.pos.y += c.vel.y;
-			c.vel.y += 0.02f; // gravity
-			c.rotation += c.rotVel;
-			c.sprite->SetPosition(c.pos);
-			c.sprite->SetRotation(c.rotation);
-			// fade out near end
-			if (c.age > c.life) {
-				c.active = false;
-				c.sprite->SetPosition({-100.0f, -100.0f});
-			}
-		}
-
-		// allow return to title
-		if (input_->TriggerKey(DIK_SPACE)) {
-			confettiActive_ = false;
-			sceneState = SceneState::Start;
-			// reset as before...
-			// ...existing reset code omitted for brevity...
-		}
-		break;
-
-	case SceneState::over:
-		gameOverTimer_++;
-
-		if (player_) {
-			player_->UpdateGameOver(gameOverTimer_);
-		}
-
-		if (railCamera_) {
-			cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-			cameraPositionAnchor_.UpdateMatrix();
-
-			camera_.matView = railCamera_->GetViewProjection().matView;
-			camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-			camera_.TransferMatrix();
-		}
-
-		// --- リセット処理 ---
-		if (input_->TriggerKey(DIK_SPACE) || gameOverTimer_ >= 90) {
-			sceneState = SceneState::Start;
-			gameOverTimer_ = 0;
-
-			camera_.Initialize();
-			camera_.TransferMatrix();
-
-			if (railCamera_) {
-				railCamera_->Reset();
-			}
-
-			if (player_) {
-				player_->ResetStats();
-				player_->ResetRotation();
-				player_->SetPosition(playerIntroStartPosition_);
-				player_->RefreshWorldMatrix();
-				player_->ResetParticles();
-				player_->ResetBullets();
-			}
-
-			for (Enemy* enemy : enemies_) {
-				delete enemy;
-			}
-			enemies_.clear();
-			for (EnemyBullet* bullet : enemyBullets_) {
-				delete bullet;
-			}
-			enemyBullets_.clear();
-			for (Meteorite* meteor : meteorites_) {
-				delete meteor;
-			}
-			meteorites_.clear();
-			meteoriteSpawnTimer_ = 0;
-
-			LoadEnemyPopData();
-			hasSpawnedEnemies_ = false;
-		}
-		break;
+	// State Pattern: 現在のシーン状態に更新を委譲（ポリモーフィズム）
+	if (sceneState_) {
+		sceneState_->Update(*this);
 	}
 
 	// Deferred scene clear: perform transition at a safe point after game update
-	if (requestSceneClear_ && sceneState == SceneState::Game) {
+	if (requestSceneClear_ && GetSceneStateKind() == SceneStateKind::Game) {
 		requestSceneClear_ = false;
 		TransitionToClearScene();
 	}
@@ -920,9 +435,9 @@ void GameScene::Draw() {
 
 	KamataEngine::Model::PreDraw(commandList);
 
-	if (sceneState == SceneState::Start || sceneState == SceneState::TransitionToGame) {
+	if (GetSceneStateKind() == SceneStateKind::Start || GetSceneStateKind() == SceneStateKind::TransitionToGame) {
 		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
-	} else if (sceneState == SceneState::GameIntro || sceneState == SceneState::Game || sceneState == SceneState::TransitionFromGame || sceneState == SceneState::over) {
+	} else if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game || GetSceneStateKind() == SceneStateKind::TransitionFromGame || GetSceneStateKind() == SceneStateKind::Over) {
 
 		player_->Draw();
 		skydome_->Draw();
@@ -931,7 +446,7 @@ void GameScene::Draw() {
 			explosionEmitter_->Draw(camera_);
 		}
 
-		if ((sceneState == SceneState::Game && isGameIntroFinished_) || sceneState == SceneState::over) {
+		if ((GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) || GetSceneStateKind() == SceneStateKind::Over) {
 			for (Enemy* enemy : enemies_) {
 				if (enemy)
 					enemy->Draw(camera_);
@@ -947,7 +462,7 @@ void GameScene::Draw() {
 				}
 			}
 		}
-	} else if (sceneState == SceneState::Clear) {
+	} else if (GetSceneStateKind() == SceneStateKind::Clear) {
 		// draw skydome so background exists
 		skydome_->Draw();
 		// draw any particles for clear
@@ -960,17 +475,17 @@ void GameScene::Draw() {
 
 	KamataEngine::Sprite::PreDraw(commandList);
 
-	if (sceneState == SceneState::Start || sceneState == SceneState::TransitionToGame) {
+	if (GetSceneStateKind() == SceneStateKind::Start || GetSceneStateKind() == SceneStateKind::TransitionToGame) {
 		if (taitoruSprite_) {
 			taitoruSprite_->Draw();
 		}
 	}
 
-	if (sceneState == SceneState::TransitionToGame || sceneState == SceneState::TransitionFromGame) {
+	if (GetSceneStateKind() == SceneStateKind::TransitionToGame || GetSceneStateKind() == SceneStateKind::TransitionFromGame) {
 		transitionSprite_->Draw();
 	}
 
-	if (sceneState == SceneState::GameIntro || sceneState == SceneState::Game) {
+	if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game) {
 		if (reticleSprite_) {
 			reticleSprite_->Draw();
 		}
@@ -978,7 +493,7 @@ void GameScene::Draw() {
 			aimAssistCircleSprite_->Draw();
 		}
 
-		if (sceneState == SceneState::Game && isGameIntroFinished_) {
+		if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
 			for (Enemy* enemy : enemies_) {
 				if (enemy) {
 					enemy->DrawSprite();
@@ -988,7 +503,7 @@ void GameScene::Draw() {
 	}
 
 	// ミニマップと矢印キー表示はゲームシーンのみ表示
-	if (sceneState == SceneState::Game && isGameIntroFinished_) {
+	if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
 		if (minimapSprite_) {
 			minimapSprite_->Draw(); // 背景
 		}
@@ -1027,7 +542,7 @@ void GameScene::Draw() {
 		if (s) s->Draw();
 	}
 
-	if (sceneState == SceneState::Clear) {
+	if (GetSceneStateKind() == SceneStateKind::Clear) {
 		if (clearSprite_)
 			clearSprite_->Draw();
 		// draw sprite confetti on top of clear sprite
@@ -1115,7 +630,7 @@ void GameScene::CheckAllCollisions() {
 	if (!player_)
 		return;
 
-	if (sceneState == SceneState::over || sceneState == SceneState::GameIntro) {
+	if (GetSceneStateKind() == SceneStateKind::Over || GetSceneStateKind() == SceneStateKind::GameIntro) {
 		return;
 	}
 
@@ -1218,7 +733,7 @@ void GameScene::CheckAllCollisions() {
 
 void GameScene::TransitionToClearScene() {
 	// Change: go to Clear scene so player sees clear screen instead of immediately returning to title
-	sceneState = SceneState::Clear;
+	ChangeSceneState(SceneStateClear::Instance());
 
 	// reset score on clear
 	score_ = 0;
@@ -1265,7 +780,10 @@ void GameScene::TransitionToClearScene() {
 }
 
 void GameScene::TransitionToClearScene2() {
-	sceneState = SceneState::over;
+	ChangeSceneState(SceneStateOver::Instance());
+	if (player_) {
+		player_->ChangeState(PlayerStateDead::Instance());
+	}
 	// reset score on game over
 	score_ = 0;
 	UpdateScoreSprites();
@@ -1528,7 +1046,7 @@ void GameScene::AddScore(int points) {
 	UpdateScoreSprites();
 
 	// If score reaches or exceeds 200, request clear the scene at a safe point
-	if (sceneState == SceneState::Game && score_ >= 600) {
+	if (GetSceneStateKind() == SceneStateKind::Game && score_ >= 600) {
 		requestSceneClear_ = true;
 	}
 }
