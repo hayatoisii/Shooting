@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 // For window size constants
 #include "base/WinApp.h"
@@ -28,14 +29,25 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	model_ = model;
 	camera_ = camera;
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("Bullet", true);
-	worldtransfrom_.translation_ = pos;
 	input_ = KamataEngine::Input::GetInstance();
 	audio_ = KamataEngine::Audio::GetInstance();
 	if (audio_)
 		hitPlayerSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
 
-
+	// Initialize() を先に呼んでからポジションを設定（逆順だと translation_ がリセットされる）
 	worldtransfrom_.Initialize();
+	worldtransfrom_.translation_ = pos;
+	worldtransfrom_.UpdateMatrix();
+
+	// パター・矢印の初期変換を初期化
+	putterTransform_.Initialize();
+	arrowTransform_.Initialize();
+	arrowHeightTransform_.Initialize();
+	// 軌跡 Draw 用は一度だけ初期化（parent_ なし）
+	trailPointTf_.Initialize();
+	trailPointTf_.parent_ = nullptr;
+	ballTrail_.clear();
+	trailSpawnTimer_ = 0;
 
 	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true);
 	engineExhaust_ = new ParticleEmitter();
@@ -48,7 +60,10 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	hitShakePrevVerticalOffset_ = 0.0f;
 	hitShakePrevHorizontalOffset_ = 0.0f;
 
-	// 初期状態は通常飛行
+	velocity_ = {0.0f, 0.0f, 0.0f};
+	swingTimer_ = 0.0f;
+
+	// 初期状態は待機（地面に落下して止まる）
 	ChangeState(PlayerStateNormal::Instance());
 }
 
@@ -61,8 +76,246 @@ void Player::ResetStats() {
 	isDead_ = false;
 	gameOverAnimationTime_ = 0.0f;
 	rollTimer_ = 0.0f;
-	// タイトル復帰時は通常状態へ
+	velocity_          = {0.0f, 0.0f, 0.0f};
+	swingTimer_        = 0.0f;
+	gaugeTimer_        = 0.0f;
+	gaugePower_        = 0.0f;
+	aimTimer_          = 0.0f;
+	aimAngle_          = 0.0f;
+	lockedArrowAngle_  = 0.0f;
+	heightTimer_       = 0.0f;
+	heightAngle_       = 3.14159265f * 30.0f / 180.0f;
+	lockedHeightAngle_ = heightAngle_;
+	ballTrail_.clear();
+	trailSpawnTimer_   = 0;
 	ChangeState(PlayerStateNormal::Instance());
+}
+
+// ゴルフボールの物理更新: 重力・バウンド・摩擦
+void Player::UpdateGolfBall() {
+	// 下向きの重力を速度に加える
+	velocity_.y -= kGravity_;
+
+	// 速度ぶんだけ位置を動かす
+	worldtransfrom_.translation_.x += velocity_.x;
+	worldtransfrom_.translation_.y += velocity_.y;
+	worldtransfrom_.translation_.z += velocity_.z;
+
+	// 地面より下に行かないようにする（バウンド）
+	if (worldtransfrom_.translation_.y <= groundY_) {
+		worldtransfrom_.translation_.y = groundY_;
+		if (velocity_.y < -0.05f) {
+			// バウンド: 上向きに反発
+			velocity_.y = -velocity_.y * kBounceRestitution_;
+		} else {
+			// 十分小さければ完全停止
+			velocity_.y = 0.0f;
+		}
+		// 転がり摩擦（地面接触中のみ）
+		velocity_.x *= kRollFriction_;
+		velocity_.z *= kRollFriction_;
+	}
+
+	// ボールの転がりを回転に反映（Z方向に転がるのでX軸回転）
+	if (std::abs(velocity_.z) > 0.001f) {
+		worldtransfrom_.rotation_.x -= velocity_.z * 0.3f;
+	}
+
+	worldtransfrom_.UpdateMatrix();
+
+	// 飛翔中のみ軌跡ポイントを蓄積する（ランダムな散布で「軌跡が広がる」演出）
+	if (state_ == PlayerStateFlying::Instance()) {
+		--trailSpawnTimer_;
+		if (trailSpawnTimer_ <= 0) {
+			// -kSpread〜+kSpread のランダムオフセット
+			const float kSpread = 0.35f;
+			float ox = ((std::rand() % 201) - 100) * (kSpread / 100.0f);
+			float oy = ((std::rand() % 201) - 100) * (kSpread / 100.0f);
+			KamataEngine::Vector3 spawnPos = {
+			    worldtransfrom_.translation_.x + ox,
+			    worldtransfrom_.translation_.y + oy,
+			    worldtransfrom_.translation_.z
+			};
+			ballTrail_.push_back({spawnPos, TrailPoint::kMaxLife});
+			trailSpawnTimer_ = kTrailSpawnInterval_;
+		}
+	}
+
+	// 軌跡ポイントを毎フレーム老化させ、寿命切れを削除
+	for (auto& tp : ballTrail_) {
+		tp.life -= 1.0f;
+	}
+	while (!ballTrail_.empty() && ballTrail_.front().life <= 0.0f) {
+		ballTrail_.pop_front();
+	}
+}
+
+// SPACE が今フレームで押されたか
+bool Player::IsSpaceJustPressed() const {
+	return input_ && input_->TriggerKey(DIK_SPACE);
+}
+
+// 速度がほぼゼロか
+bool Player::IsVelocityNearZero() const {
+	const float kThreshold = 0.005f;
+	return std::abs(velocity_.x) < kThreshold &&
+	       std::abs(velocity_.y) < kThreshold &&
+	       std::abs(velocity_.z) < kThreshold;
+}
+
+// 照準開始: タイマーをリセットして Aiming 状態へ遷移
+void Player::BeginAiming() {
+	aimTimer_   = 0.0f;
+	aimAngle_   = 0.0f;
+	lockedArrowAngle_ = 0.0f;
+	ChangeState(PlayerStateAiming::Instance());
+}
+
+// 矢印アニメを1フレーム進める（sin で ±kAimMaxAngle_ を往復）
+void Player::UpdateAimArrow() {
+	aimTimer_ += kAimSpeed_;
+	aimAngle_ = kAimMaxAngle_ * std::sin(aimTimer_);
+
+	// 矢印はボールの正面（Z+）方向に kArrowDist 離して配置
+	const float kArrowDist = 2.5f;
+	arrowTransform_.translation_ = {
+		worldtransfrom_.translation_.x + std::sin(aimAngle_) * kArrowDist,
+		worldtransfrom_.translation_.y,
+		worldtransfrom_.translation_.z + std::cos(aimAngle_) * kArrowDist
+	};
+	// Y軸回転で方向を示す。細長く見せるため X スケールを小さく
+	arrowTransform_.rotation_  = {0.0f, aimAngle_, 0.0f};
+	arrowTransform_.scale_     = {0.3f, 0.3f, 1.8f};
+	arrowTransform_.UpdateMatrix();
+}
+
+// 現在の照準角度を打撃方向として確定する
+void Player::LockAimDirection() {
+	lockedArrowAngle_ = aimAngle_;
+}
+
+// 照準状態かどうか
+bool Player::IsAiming() const {
+	return state_ == PlayerStateAiming::Instance();
+}
+
+// 高さ照準開始: Aiming → AimingHeight 遷移
+void Player::BeginAimingHeight() {
+	heightTimer_ = 0.0f;
+	heightAngle_ = 3.14159265f * 30.0f / 180.0f; // 30° スタート
+	ChangeState(PlayerStateAimingHeight::Instance());
+}
+
+// 高さ矢印アニメ: ロフト角を kHeightMinAngle_ ↔ kHeightMaxAngle_ で往復
+void Player::UpdateAimHeight() {
+	heightTimer_ += kHeightSpeed_;
+	float mid  = (kHeightMaxAngle_ + kHeightMinAngle_) * 0.5f;
+	float half = (kHeightMaxAngle_ - kHeightMinAngle_) * 0.5f;
+	heightAngle_ = mid + half * std::sin(heightTimer_);
+
+	// 横矢印と同じ: 中心をボールから 2.5 前方に置き、長さ 1.8
+	const float kArrowLen  = 1.8f;
+	const float kCenterDist = 2.5f; // 横矢印の kArrowDist と統一
+
+	// 矢印が向く3次元方向ベクトル（Y回転=方向、X回転=仰角）
+	float yaw   = lockedArrowAngle_;
+	float pitch = heightAngle_;
+	float dirX  = std::sin(yaw) * std::cos(pitch);
+	float dirY  = std::sin(pitch);
+	float dirZ  = std::cos(yaw) * std::cos(pitch);
+
+	// 矢印の中心 = ボール位置 + 向き × kCenterDist
+	// 根元は kCenterDist-kArrowLen/2 = 1.6 でボールの外側になる
+	arrowHeightTransform_.translation_ = {
+		worldtransfrom_.translation_.x + dirX * kCenterDist,
+		worldtransfrom_.translation_.y + dirY * kCenterDist,
+		worldtransfrom_.translation_.z + dirZ * kCenterDist
+	};
+	arrowHeightTransform_.rotation_ = {-heightAngle_, lockedArrowAngle_, 0.0f};
+	arrowHeightTransform_.scale_    = {0.3f, 0.3f, kArrowLen};
+	arrowHeightTransform_.UpdateMatrix();
+}
+
+// 高さ確定: 現在のロフト角を保存
+void Player::LockAimHeight() {
+	lockedHeightAngle_ = heightAngle_;
+}
+
+// 高さ照準状態かどうか
+bool Player::IsAimingHeight() const {
+	return state_ == PlayerStateAimingHeight::Instance();
+}
+
+// ゲージ開始: タイマーをリセットして Gauging 状態へ遷移
+void Player::BeginGauging() {
+	gaugeTimer_ = 0.0f;
+	gaugePower_  = 0.0f;
+	ChangeState(PlayerStateGauging::Instance());
+}
+
+// スイング開始: スイングタイマーをリセットして Swing 状態へ遷移
+void Player::BeginSwing() {
+	swingTimer_ = 0.0f;
+	ChangeState(PlayerStateSwing::Instance());
+}
+
+// ゲージを1フレーム進める（sin で往復させる）
+void Player::UpdateGauge() {
+	gaugeTimer_ += kGaugeSpeed_;
+	// sin を 0〜1 に正規化（0=底・最弱、1=頂・最強）
+	gaugePower_ = (std::sin(gaugeTimer_) + 1.0f) * 0.5f;
+}
+
+// ゲージ状態かどうか
+bool Player::IsGauging() const {
+	return state_ == PlayerStateGauging::Instance();
+}
+
+// スイング演出の更新: パターが弧を描いてボールを打つ
+// 完了したら true を返す
+bool Player::UpdateSwingAnimation() {
+	swingTimer_ += 1.0f;
+
+	const float t = swingTimer_ / kSwingDuration_;
+
+	// パターは斜め手前に配置（打つ方向と直交する位置）
+	// lockedArrowAngle_ を使って打つ方向の左側から振り下ろす
+	const float kPutterDist  = 2.2f;   // ボールからの距離
+	const float kPutterOffsetY = 0.8f; // 少し上
+
+	// 打つ方向に直交する左側（打つ方向角度 - 90度）に配置
+	const float sideAngle = lockedArrowAngle_ - 3.14159265f * 0.5f;
+	putterTransform_.translation_ = {
+		worldtransfrom_.translation_.x + std::sin(sideAngle) * kPutterDist,
+		worldtransfrom_.translation_.y + kPutterOffsetY,
+		worldtransfrom_.translation_.z + std::cos(sideAngle) * kPutterDist
+	};
+
+	// X軸スイング + 左側からの振り下ろしY傾き
+	const float swingAngle = 3.14159265f * 0.8f * std::sin(t * 3.14159265f);
+	putterTransform_.rotation_ = {swingAngle, lockedArrowAngle_ - 3.14159265f * 0.5f, 0.0f};
+	putterTransform_.UpdateMatrix();
+
+	return t >= 1.0f;
+}
+
+// 打撃: ゲージ打力(0〜1) × ロフト角 × 水平方向角で3次元速度ベクトルを決定
+void Player::LaunchBall() {
+	float p          = gaugePower_;
+	float totalSpeed = kShotSpeedZMin_ + (kShotSpeedZ_ - kShotSpeedZMin_) * p;
+	float loft       = lockedHeightAngle_;
+
+	// 水平速度 = totalSpeed * cos(loft)、垂直速度 = totalSpeed * sin(loft)
+	float horizSpeed = totalSpeed * std::cos(loft);
+	float vertSpeed  = totalSpeed * std::sin(loft);
+
+	velocity_.x = horizSpeed * std::sin(lockedArrowAngle_);
+	velocity_.z = horizSpeed * std::cos(lockedArrowAngle_);
+	velocity_.y = vertSpeed;
+
+	// 軌跡リセット（新しいショットの軌跡を新鮮に）
+	ballTrail_.clear();
+	trailSpawnTimer_ = 0;
 }
 
 void Player::ChangeState(PlayerState* newState) {
@@ -78,6 +331,10 @@ bool Player::IsRolling() const {
 
 const char* Player::GetStateName() const {
 	return state_ ? state_->GetStateName() : "None";
+}
+
+bool Player::IsFlying() const {
+	return state_ == PlayerStateFlying::Instance();
 }
 
 // ポリモーフィズム: Player 固有の被弾処理（GameCharacter::OnCollision の override）
@@ -309,7 +566,11 @@ AABB Player::GetAABB() {
 	return aabb;
 }
 
-void Player::SetParent(const KamataEngine::WorldTransform* parent) { worldtransfrom_.parent_ = parent; }
+void Player::SetParent(const KamataEngine::WorldTransform* parent) {
+	worldtransfrom_.parent_ = parent;
+	// パターも同じ親を持たせてワールド座標系を合わせる
+	putterTransform_.parent_ = parent;
+}
 
 // State Pattern: 現在の状態オブジェクトに更新処理を委譲（ポリモーフィズム）
 void Player::Update() {
@@ -477,7 +738,38 @@ void Player::FinalizeFrameUpdate() {
 }
 
 void Player::Draw() {
+	// 軌跡パーティクル（古い点ほど小さく描画してフェードアウト演出）
+	// trailPointTf_ はメンバで一度だけ初期化済み。Draw コスト削減のため再利用する
+	for (const auto& tp : ballTrail_) {
+		float ratio = tp.life / TrailPoint::kMaxLife;
+		float s     = 0.5f * ratio;
+		trailPointTf_.translation_ = tp.pos;
+		trailPointTf_.scale_       = {s, s, s};
+		trailPointTf_.UpdateMatrix();
+		model_->Draw(trailPointTf_, *camera_);
+	}
+
+	// ゴルフボール本体
 	model_->Draw(worldtransfrom_, *camera_);
+
+	// 水平方向矢印（照準中とゲージ中に表示）
+	if (state_ == PlayerStateAiming::Instance() ||
+	    state_ == PlayerStateAimingHeight::Instance() ||
+	    state_ == PlayerStateGauging::Instance()) {
+		model_->Draw(arrowTransform_, *camera_);
+	}
+
+	// 高さ矢印（高さ照準中とゲージ中に表示）
+	if (state_ == PlayerStateAimingHeight::Instance() ||
+	    state_ == PlayerStateGauging::Instance()) {
+		model_->Draw(arrowHeightTransform_, *camera_);
+	}
+
+	// パター（スイング状態のときのみ描画）
+	if (state_ == PlayerStateSwing::Instance()) {
+		model_->Draw(putterTransform_, *camera_);
+	}
+
 	if (engineExhaust_) {
 		engineExhaust_->Draw(*camera_);
 	}

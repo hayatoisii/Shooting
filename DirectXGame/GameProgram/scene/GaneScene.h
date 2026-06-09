@@ -81,6 +81,36 @@ private:
 	Model* modelSkydome_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
 
+	// --- ゴルフ用: 地面（当たり判定のみ・描画はスカイドームで後から差し替え） ---
+	Model* modelGround_ = nullptr;
+	WorldTransform groundTransform_;
+	// 地面のワールドY（ボールのバウンド下限と一致させる）
+	const float kGroundLocalY_ = 0.0f;
+	// ゴルフコースの横幅（X方向スケール）
+	const float kGroundWidth_ = 20.0f;
+	// ゴルフコースの奥行き（Z方向スケール）。大きいほど長いコースになる
+	const float kGroundLengthZ_ = 160.0f;
+
+	// --- ゴルフ: パワーゲージ UI ---
+	// ゲージ外枠スプライト（ユーザーが "gage.png" を Resources に置く）
+	KamataEngine::Sprite* gageSprite_ = nullptr;
+	uint32_t gageTH_ = 0;
+	// ゲージバースプライト（ユーザーが "bar.png" を Resources に置く）
+	KamataEngine::Sprite* barSprite_ = nullptr;
+	uint32_t barTH_ = 0;
+	// ゲージ外枠のスクリーン位置（左上基準）
+	const float kGaugePosX_   = 600.0f;   // 画面中央やや右
+	const float kGaugePosY_   = 140.0f;   // 縦方向の開始Y
+	const float kGaugeWidth_  = 60.0f;    // 外枠の横幅
+	const float kGaugeHeight_ = 180.0f;   // 外枠の高さ（バーが動く範囲）
+	// バーのサイズ
+	const float kBarWidth_    = 60.0f;
+	const float kBarHeight_   = 30.0f;
+
+	// --- ゴルフ: 飛距離カウンター ---
+	// ゲーム開始時のボールZ座標（飛距離の基準点）
+	float ballStartZ_ = 0.0f;
+
 	KamataEngine::Sprite* reticleSprite_ = nullptr;
 	uint32_t reticleTextureHandle_ = 0;
 
@@ -89,8 +119,10 @@ private:
 	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
 	Model* modelEnemyBullet_ = nullptr;
 
-	Vector3 railcameraPos = {0, 5, -50};
-	Vector3 railcameraRad = {0, 0, 0};
+	// ゴルフ: カメラ初期位置はボール後方上方。追従カメラが起動後は上書きされる
+	Vector3 railcameraPos = {0.0f, 8.0f, -18.0f};
+	// 下向き角度を大きくするとボールが画面の下方に映る
+	Vector3 railcameraRad = {0.28f, 0.0f, 0.0f};
 
 	std::list<EnemyBullet*> enemyBullets_;
 	std::stringstream enemyPopCommands;
@@ -213,10 +245,11 @@ private:
 	std::vector<KamataEngine::Sprite*> minimapEnemyBulletSprites_;
 	uint32_t minimapEnemyBulletTextureHandle_ = 0;
 
-	// ミニマップ設定値
-	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 710.0f}; // 描画基準位置 (左下)
+	// ミニマップ設定値（左上配置）
+	// ゴルフ: ゴールまで ~120 units → 0.75 px/unit で中心から90px（半径100px内に収まる）
+	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 10.0f}; // 描画基準位置 (左上)
 	const KamataEngine::Vector2 kMinimapSize_ = {200.0f, 200.0f};    // 背景スプライトのサイズ
-	const float kMinimapScale_ = 0.03f;                              // ワールド座標 -> ミニマップ座標の縮尺
+	const float kMinimapScale_ = 0.75f;                              // ワールド座標 -> ミニマップ座標の縮尺
 
 	/// <returns>ミニマップ上のスクリーン座標</returns>
 	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);

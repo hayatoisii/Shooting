@@ -141,7 +141,8 @@ void EnemyBullet::Update() {
 			float maxTurnAngle = 0.05f; // デフォルト旋回性能
 
 			// 近づくと旋回性能アップ（シフト回避必須にするため強くする）
-			if (dist < 400.0f) {
+			if (dist < 
+				0.0f) {
 				float rate = 1.0f - (dist / 400.0f);
 				maxTurnAngle += rate * 0.3f; // 最大で +0.3rad (約20度/フレーム) 加算
 			}

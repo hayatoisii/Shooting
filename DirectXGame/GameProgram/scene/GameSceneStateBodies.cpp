@@ -83,13 +83,15 @@ void GameScene::UpdateStateBody_Game() {
 	if (isGameIntroFinished_) {
 		const float kDeltaSecGame = 1.0f / 60.0f;
 		gameSceneTimer_ += kDeltaSecGame;
-		const float kAutoGameOverSeconds = 40.0f;
+		const float kAutoGameOverSeconds = 180.0f; // 3分
 		if (gameSceneTimer_ >= kAutoGameOverSeconds) {
 			TransitionToClearScene2();
 			return;
 		}
 	}
 
+	// 飛翔状態をカメラに通知（飛翔中=水平追従、着地後=正面へ復帰）
+	railCamera_->SetBallFlying(player_->IsFlying());
 	railCamera_->Update();
 	cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 	cameraPositionAnchor_.UpdateMatrix();
@@ -104,90 +106,38 @@ void GameScene::UpdateStateBody_Game() {
 	}
 
 	if (isGameIntroFinished_) {
-		const int kSpawnsPerFrame = 1;
-		meteoriteSpawnTimer_--;
-		if (meteoriteSpawnTimer_ <= 0) {
-			for (int i = 0; i < kSpawnsPerFrame; ++i) {
-				SpawnMeteorite();
-			}
-			meteoriteSpawnTimer_ = 1;
-		}
+		// ゴルフモード: 流星・敵弾・ホーミング生成は全て無効化
+		// （敵は「ゴルフの穴」として当たり判定のみ使用）
 
 		player_->Update();
-		player_->EvadeBullets(enemyBullets_);
 
 		for (Enemy* enemy : enemies_) {
 			enemy->Update();
 		}
 
-		for (Meteorite* meteor : meteorites_) {
-			if (meteor) {
-				meteor->Update(player_->GetWorldPosition());
-			}
-		}
-
+		// 既存の敵弾があれば全て削除（残骸クリーン）
 		for (EnemyBullet* bullet : enemyBullets_) {
-			bullet->Update();
+			delete bullet;
 		}
+		enemyBullets_.clear();
 
-		if (homingSpawnTimer_ > 0) {
-			homingSpawnTimer_--;
-		} else {
-			Enemy* shooter = nullptr;
-			KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
-			float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
-			const float kMinHomingDistance = 1000.0f;
-			float minDistSq = kMinHomingDistance * kMinHomingDistance;
-			for (Enemy* enemy : enemies_) {
-				if (!enemy || enemy->IsDead())
-					continue;
-				KamataEngine::Vector3 epos = enemy->GetWorldPosition();
-				float dx = epos.x - playerPosForHoming.x;
-				float dy = epos.y - playerPosForHoming.y;
-				float dz = epos.z - playerPosForHoming.z;
-				float distSq = dx * dx + dy * dy + dz * dz;
-				if (distSq <= maxDistSq && distSq > minDistSq) {
-					shooter = enemy;
-					break;
-				}
-			}
-
-			if (shooter) {
-				KamataEngine::Vector3 moveBullet = shooter->GetWorldPosition();
-				KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-				KamataEngine::Vector3 toPlayer = playerPos - moveBullet;
-				float len = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y + toPlayer.z * toPlayer.z);
-				if (len > 0.001f) {
-					toPlayer.x /= len;
-					toPlayer.y /= len;
-					toPlayer.z /= len;
-				}
-				KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
-
-				EnemyBullet* newBullet = new EnemyBullet();
-				newBullet->Initialize(modelEnemyBullet_, moveBullet, vel);
-				newBullet->SetHomingEnabled(true);
-				newBullet->SetHomingTarget(player_);
-				newBullet->SetSpeed(kHomingBulletSpeed_);
-				AddEnemyBullet(newBullet);
-
-				homingSpawnTimer_ = kHomingIntervalFrames_;
-			}
-		}
-
-		enemyBullets_.remove_if([](EnemyBullet* bullet) {
-			if (bullet && bullet->IsDead()) {
-				delete bullet;
-				return true;
-			}
-			return false;
-		});
 		CheckAllCollisions();
+
+		// ゴルフ: ボールの Z 飛距離をスコア（メートル）として毎フレーム更新
+		if (player_) {
+			float distZ = player_->GetWorldPosition().z - ballStartZ_;
+			int distMeters = static_cast<int>(std::fmax(0.0f, distZ));
+			if (distMeters > score_) {
+				score_ = distMeters;
+				UpdateScoreSprites();
+			}
+		}
 
 		if (player_ && minimapPlayerSprite_) {
 			KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 
-			KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y - kMinimapSize_.y * 0.5f};
+			// 左上アンカー基準でミニマップ中心を計算（ゴルフ: 左上配置）
+			KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y + kMinimapSize_.y * 0.5f};
 			minimapPlayerSprite_->SetPosition(minimapCenterPos);
 
 			float dx = playerPos.x - lastPlayerPos_.x;

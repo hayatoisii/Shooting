@@ -46,6 +46,7 @@ GameScene::~GameScene() {
 	delete modelSkydome_;
 	delete modelTitleObject_;
 	delete modelMeteorite_;
+	delete modelGround_; // ゴルフ用の地面モデルを解放
 	delete modelEnemyBullet_; // 敵弾モデルを解放（追加）
 	for (Meteorite* meteor : meteorites_) {
 		delete meteor;
@@ -87,6 +88,10 @@ GameScene::~GameScene() {
 	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
 		delete s;
 	}
+
+	// ゴルフ: ゲージスプライト解放
+	delete gageSprite_;
+	delete barSprite_;
 }
 
 void GameScene::Initialize() {
@@ -97,7 +102,7 @@ void GameScene::Initialize() {
 	player_ = new Player();
 	skydome_ = new Skydome();
 
-	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly2", true);
+	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
@@ -107,6 +112,9 @@ void GameScene::Initialize() {
 
 	modelMeteorite_ = KamataEngine::Model::CreateFromOBJ("meteorite", true);
 	meteoriteSpawnTimer_ = 0;
+
+	// ゴルフ用: 地面モデル（cube を横長・薄く変形して使う）
+	modelGround_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 
 	transitionTextureHandle_ = KamataEngine::TextureManager::Load("black.png");
 	transitionSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
@@ -179,7 +187,7 @@ void GameScene::Initialize() {
 	// 1. ミニマップ背景
 	minimapSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0, 0});
 	minimapSprite_->SetPosition(kMinimapPosition_);
-	minimapSprite_->SetAnchorPoint({0.0f, 1.0f}); // 左下をアンカーに
+	minimapSprite_->SetAnchorPoint({0.0f, 0.0f}); // 左上をアンカーに（ゴルフ: 左上配置）
 	minimapSprite_->SetSize(kMinimapSize_);
 
 	// 2. ミニマップ上の自機
@@ -247,11 +255,13 @@ void GameScene::Initialize() {
 
 	camera_.Initialize();
 
-	playerIntroTargetPosition_ = {0.0f, -3.0f, 20.0f};
+	// ゴルフ: プレイヤーを地面（Y=0）に直接配置（空中から落下させない）
+	playerIntroTargetPosition_ = {0.0f, 0.0f, 0.0f};
 	playerIntroStartPosition_ = playerIntroTargetPosition_;
-	playerIntroStartPosition_.z += -50.0f;
 
 	player_->Initialize(modelPlayer_, &camera_, playerIntroStartPosition_);
+	// ゴルフ: 地面のワールドY を設定（ボールはこれより下に行かない）
+	player_->SetGroundY(kGroundLocalY_);
 	// Initialize last player position for minimap rotation tracking
 	lastPlayerPos_ = player_->GetWorldPosition();
 
@@ -264,10 +274,28 @@ void GameScene::Initialize() {
 
 	railCamera_ = new RailCamera();
 	railCamera_->Initialize(railcameraPos, railcameraRad);
+	// ゴルフ: ボール追従カメラモードに設定
+	railCamera_->SetGolfChaseMode(true);
+	// ゴルフ: プレイヤーはワールド座標で動かすので親なし
+	// （カメラ親を付けると循環依存になるため）
+	player_->SetParent(nullptr);
+	railCamera_->SetTarget(player_);
 	cameraPositionAnchor_.Initialize();
-	player_->SetParent(&railCamera_->GetWorldTransform());
 	player_->SetRailCamera(railCamera_);
 	player_->SetEnemies(&enemies_);
+
+	// ゴルフ用: 地面の見た目を設定（ワールド座標）。
+	// 地面をワールド座標で Z 方向に長く配置する。
+	// 地面の上面が Y=0 になるよう Y=-0.5 に配置（cubeは1ユニット厚なので）
+	// kGroundLengthZ_ でコース長を調整、kGroundWidth_ で横幅を調整。
+	groundTransform_.Initialize();
+	groundTransform_.translation_ = {
+		0.0f,
+		-10.0f,                       // 上面が Y=0 になるよう半分だけ沈める
+		kGroundLengthZ_ * 0.5f       // コース全体の中心（Z: 0〜kGroundLengthZ_）
+	};
+	groundTransform_.scale_ = {kGroundWidth_, 1.0f, kGroundLengthZ_};
+	groundTransform_.UpdateMatrix();
 
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
@@ -331,6 +359,20 @@ void GameScene::Initialize() {
 		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
 		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
 		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
+	}
+
+	// ゴルフ: パワーゲージスプライトを初期化（"gage.png" / "bar.png" を Resources に置く）
+	gageTH_ = KamataEngine::TextureManager::Load("gage.png");
+	barTH_  = KamataEngine::TextureManager::Load("bar.png");
+	gageSprite_ = KamataEngine::Sprite::Create(gageTH_, {kGaugePosX_, kGaugePosY_});
+	if (gageSprite_) {
+		gageSprite_->SetAnchorPoint({0.5f, 0.0f}); // 上中央アンカー
+		gageSprite_->SetSize({kGaugeWidth_, kGaugeHeight_});
+	}
+	barSprite_ = KamataEngine::Sprite::Create(barTH_, {kGaugePosX_, kGaugePosY_});
+	if (barSprite_) {
+		barSprite_->SetAnchorPoint({0.5f, 0.5f}); // 中央アンカー
+		barSprite_->SetSize({kBarWidth_, kBarHeight_});
 	}
 }
 
@@ -439,26 +481,22 @@ void GameScene::Draw() {
 		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
 	} else if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game || GetSceneStateKind() == SceneStateKind::TransitionFromGame || GetSceneStateKind() == SceneStateKind::Over) {
 
+		// スカイドームをゲーム中も描画
+		if (skydome_) { skydome_->Draw(); }
+
 		player_->Draw();
-		skydome_->Draw();
+		// ゴルフ: 地面モデルはユーザーが天球で差し替えるため非表示
+		// if (modelGround_) { modelGround_->Draw(groundTransform_, camera_); }
 
 		if (explosionEmitter_) {
 			explosionEmitter_->Draw(camera_);
 		}
 
-		if ((GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) || GetSceneStateKind() == SceneStateKind::Over) {
+		// ゴルフ: 敵はゴールの穴マーカーとして描画する（弾・隕石は非表示のまま）
+		if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
 			for (Enemy* enemy : enemies_) {
-				if (enemy)
+				if (enemy && !enemy->IsDead()) {
 					enemy->Draw(camera_);
-			}
-			for (EnemyBullet* bullet : enemyBullets_) {
-				if (bullet)
-					bullet->Draw(camera_);
-			}
-
-			for (Meteorite* meteor : meteorites_) {
-				if (meteor) {
-					meteor->Draw(camera_);
 				}
 			}
 		}
@@ -485,22 +523,10 @@ void GameScene::Draw() {
 		transitionSprite_->Draw();
 	}
 
-	if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game) {
-		if (reticleSprite_) {
-			reticleSprite_->Draw();
-		}
-		if (aimAssistCircleSprite_) {
-			aimAssistCircleSprite_->Draw();
-		}
-
-		if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
-			for (Enemy* enemy : enemies_) {
-				if (enemy) {
-					enemy->DrawSprite();
-				}
-			}
-		}
-	}
+	// ゴルフ: レティクルは使わないので描画しない
+	// if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game) {
+	//     if (reticleSprite_) reticleSprite_->Draw();
+	// }
 
 	// ミニマップと矢印キー表示はゲームシーンのみ表示
 	if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
@@ -537,9 +563,40 @@ void GameScene::Draw() {
 		}
 	}
 
-	// Draw score digits on top-right
+	// 飛距離（スコア）を右上に描画
 	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
 		if (s) s->Draw();
+	}
+
+	// ゴルフ: パワーゲージをプレイヤーがゲージ中のみ描画
+	// ゲージはボールのスクリーン座標の右横に配置する
+	if (player_ && player_->IsGauging() &&
+	    GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
+
+		// ボールのワールド座標 → NDC → スクリーン座標
+		KamataEngine::Vector3 ndc = ProjectToNDC(player_->GetWorldPosition());
+		float gaugeX = kGaugePosX_;  // デフォルト値（NDC変換失敗時）
+		float gaugeY = kGaugePosY_;
+		if (ndc.z >= 0.0f) {
+			// NDC [-1,1] → スクリーン座標 [0, W/H]
+			float bsx = (ndc.x + 1.0f) * 0.5f * static_cast<float>(WinApp::kWindowWidth);
+			float bsy = (1.0f - ndc.y) * 0.5f * static_cast<float>(WinApp::kWindowHeight);
+			gaugeX = bsx - kGaugeWidth_ - 220.0f; // ボールの左隣（余白を広げてパター・矢印と重ならないよう）
+			gaugeY = bsy - kGaugeHeight_ * 0.5f;  // 縦中央をボールに合わせる
+		}
+
+		// 外枠
+		if (gageSprite_) {
+			gageSprite_->SetPosition({gaugeX, gaugeY});
+			gageSprite_->Draw();
+		}
+		// バー: power=1.0 → 枠の上端、power=0.0 → 枠の下端
+		if (barSprite_) {
+			float power      = player_->GetGaugePower();
+			float barCenterY = gaugeY + (1.0f - power) * kGaugeHeight_;
+			barSprite_->SetPosition({gaugeX, barCenterY});
+			barSprite_->Draw();
+		}
 	}
 
 	if (GetSceneStateKind() == SceneStateKind::Clear) {
@@ -640,43 +697,45 @@ void GameScene::CheckAllCollisions() {
 	// ポリモーフィズム: プレイヤーを基底クラス（GameCharacter）として扱う
 	GameCharacter* playerCharacter = player_;
 
-	// --- 自キャラ vs 敵弾（HP制） ---
+	// ゴルフ用: ボール（自機）のワールド位置と半径
 	posA[0] = playerCharacter->GetWorldPosition();
 	const float playerRadius = playerCharacter->GetCollisionRadius();
-	
-	// 回避中は無敵時間として、当たり判定を無効にする
-	bool isPlayerRolling = player_->IsRolling();
-	
-	for (EnemyBullet* enemyBullet : enemyBullets_) {
-		if (!enemyBullet || enemyBullet->IsDead())
+
+	// ゴルフ化: 敵弾でHPが減ってゲームオーバーにならないよう、敵弾ダメージ判定は一旦無効化する
+	// （ゴルフの「穴」は弾を撃たないため）
+	// for (EnemyBullet* enemyBullet : enemyBullets_) {
+	// 	if (!enemyBullet || enemyBullet->IsDead())
+	// 		continue;
+	// 	GameBullet* bullet = enemyBullet;
+	// 	posB[0] = bullet->GetWorldPosition();
+	// 	float distanceSquared = DistanceSquared(posA[0], posB[0]);
+	// 	float combinedRadius = playerRadius + bullet->GetCollisionRadius();
+	// 	float combinedRadiusSquared = combinedRadius * combinedRadius;
+	// 	if (distanceSquared <= combinedRadiusSquared) {
+	// 		ApplyCollisionDamage(playerCharacter);
+	// 		MarkBulletDestroyed(bullet);
+	// 		if (playerCharacter->IsDead()) {
+	// 			TransitionToClearScene2();
+	// 			return;
+	// 		}
+	// 	}
+	// }
+
+	// --- ゴルフ: ボール（自機） vs 穴（敵） → ホールインワン ---
+	// 穴に当たったらホールインワン成功としてクリア演出へ
+	for (Enemy* holeObject : enemies_) {
+		if (!holeObject || holeObject->IsDead())
 			continue;
 
-		// 回避中は当たり判定を無効にする
-		if (isPlayerRolling) {
-			continue;
-		}
-
-		// ホーミングを失った弾（回避された弾）は当たり判定を無効にする
-		if (!enemyBullet->IsHoming() && enemyBullet->GetEvadedDeathTimer() >= 0) {
-			continue;
-		}
-
-		// ポリモーフィズム: 敵弾を基底クラス（GameBullet）として扱う
-		GameBullet* bullet = enemyBullet;
-		posB[0] = bullet->GetWorldPosition();
-		float distanceSquared = DistanceSquared(posA[0], posB[0]);
-		float combinedRadius = playerRadius + bullet->GetCollisionRadius();
+		// ポリモーフィズム: 穴（敵）を基底クラス（GameCharacter）として扱う
+		GameCharacter* holeCharacter = holeObject;
+		KamataEngine::Vector3 holePos = holeCharacter->GetWorldPosition();
+		float combinedRadius = playerRadius + holeCharacter->GetCollisionRadius();
 		float combinedRadiusSquared = combinedRadius * combinedRadius;
-		if (distanceSquared <= combinedRadiusSquared) {
-
-			// ポリモーフィズム: 実際の型（Player）の OnCollision が呼ばれる
-			ApplyCollisionDamage(playerCharacter);
-			MarkBulletDestroyed(bullet);
-
-			if (playerCharacter->IsDead()) {
-				TransitionToClearScene2();
-				return;
-			}
+		if (DistanceSquared(posA[0], holePos) <= combinedRadiusSquared) {
+			// ホールインワン！クリアシーンへ遷移
+			TransitionToClearScene();
+			return;
 		}
 	}
 
@@ -1017,10 +1076,10 @@ KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vecto
 	float minimapOffsetX = relativeX * kMinimapScale_;
 	float minimapOffsetY = relativeZ * kMinimapScale_ * -1.0f; // Y軸反転
 
-	// 3. ミニマップの中心座標を計算
+	// 3. ミニマップの中心座標を計算（左上アンカー基準）
 	KamataEngine::Vector2 minimapCenterPos = {
 	    kMinimapPosition_.x + kMinimapSize_.x * 0.5f,
-	    kMinimapPosition_.y - kMinimapSize_.y * 0.5f // 左下アンカー基準
+	    kMinimapPosition_.y + kMinimapSize_.y * 0.5f // 左上アンカー基準
 	};
 
 	// 4. 中心の座標にオフセットを加える
@@ -1029,8 +1088,8 @@ KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vecto
 	// 5. ミニマップの範囲内に座標をクランプ (はみ出さないように)
 	float minX = kMinimapPosition_.x;
 	float maxX = kMinimapPosition_.x + kMinimapSize_.x;
-	float minY = kMinimapPosition_.y - kMinimapSize_.y; // Yは上(小)・下(大)
-	float maxY = kMinimapPosition_.y;
+	float minY = kMinimapPosition_.y; // 左上アンカー: Y最小は position.y
+	float maxY = kMinimapPosition_.y + kMinimapSize_.y;
 
 	finalPos.x = std::clamp(finalPos.x, minX, maxX);
 	finalPos.y = std::clamp(finalPos.y, minY, maxY);

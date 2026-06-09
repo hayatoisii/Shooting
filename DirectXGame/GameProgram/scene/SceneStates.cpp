@@ -70,6 +70,12 @@ void SceneStateGameIntro::Update(GameScene& scene) {
 			scene.railCamera_->SetCanMove(true);
 		}
 		scene.debug10ElapsedSec_ = 0.0f;
+		// ゴルフ: ゲーム開始時のボールZ座標を記録（飛距離カウンターの基準点）
+		if (scene.player_) {
+			scene.ballStartZ_ = scene.player_->GetWorldPosition().z;
+			scene.score_ = 0;
+			scene.UpdateScoreSprites();
+		}
 		scene.ChangeSceneState(SceneStateGame::Instance());
 	}
 }

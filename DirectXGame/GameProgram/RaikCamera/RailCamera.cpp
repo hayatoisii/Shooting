@@ -1,4 +1,5 @@
 #include "RailCamera.h"
+#include "Player.h"
 #include "Quaternion.h"
 #include <KamataEngine.h>
 #include <algorithm>
@@ -20,11 +21,128 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 	rotation_ = Quaternion::Normalize(rotation_);
 
 	canMove_ = false;
+	currentYaw_   = 0.0f;
+	prevBallPos_  = {0.0f, 0.0f, 0.0f};
 
 	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
 }
 
 void RailCamera::Update() {
+	// ゴルフ用: ボール追従カメラ
+	if (golfChaseMode_ && target_) {
+		Vector3 ballPos = target_->GetWorldPosition();
+		const float kPI  = 3.14159265f;
+		const float k2PI = 6.28318530f;
+
+		// --- ヨー角管理 ---
+		if (isBallFlying_) {
+			// 飛翔中: 1フレーム前との差分から進行方向を追従
+			float dx = ballPos.x - prevBallPos_.x;
+			float dz = ballPos.z - prevBallPos_.z;
+			if (std::sqrt(dx * dx + dz * dz) > 0.001f) {
+				float travelYaw = std::atan2(dx, dz);
+				float diff = travelYaw - currentYaw_;
+				while (diff >  kPI) diff -= k2PI;
+				while (diff < -kPI) diff += k2PI;
+				currentYaw_ += diff * 0.35f;
+			}
+		} else {
+			// 着地後: ゴール方向にヨー角を合わせる
+			float dx = goalPosition_.x - ballPos.x;
+			float dz = goalPosition_.z - ballPos.z;
+			float goalYaw = std::atan2(dx, dz);
+			float diff = goalYaw - currentYaw_;
+			while (diff >  kPI) diff -= k2PI;
+			while (diff < -kPI) diff += k2PI;
+			currentYaw_ += diff * kReturnToForwardSpeed_;
+		}
+		prevBallPos_ = ballPos;
+
+		// カメラ位置 = ボールの進行方向（or ゴール方向）の真後ろ上方
+		const float camDist = std::abs(kGolfCamOffsetZ_);
+		Vector3 targetPos = {
+		    ballPos.x - std::sin(currentYaw_) * camDist,
+		    ballPos.y + kGolfCamOffsetY_,
+		    ballPos.z - std::cos(currentYaw_) * camDist
+		};
+
+		if (isBallFlying_) {
+			// ===== 飛翔中: 位置を即座に追従 + LookAt でボールを画面中央に =====
+			worldtransfrom_.translation_ = targetPos;
+
+			// カメラ→ボール方向ベクトル（LookAt の Z 軸）
+			Vector3 eye = worldtransfrom_.translation_;
+			Vector3 zAxis = {
+			    ballPos.x - eye.x,
+			    ballPos.y - eye.y,
+			    ballPos.z - eye.z
+			};
+			float zLen = std::sqrt(zAxis.x*zAxis.x + zAxis.y*zAxis.y + zAxis.z*zAxis.z);
+			if (zLen > 0.001f) { zAxis.x /= zLen; zAxis.y /= zLen; zAxis.z /= zLen; }
+
+			// 右軸 = (0,1,0) × zAxis
+			Vector3 worldUp = {0.0f, 1.0f, 0.0f};
+			Vector3 xAxis = {
+			    worldUp.y * zAxis.z - worldUp.z * zAxis.y,
+			    worldUp.z * zAxis.x - worldUp.x * zAxis.z,
+			    worldUp.x * zAxis.y - worldUp.y * zAxis.x
+			};
+			float xLen = std::sqrt(xAxis.x*xAxis.x + xAxis.y*xAxis.y + xAxis.z*xAxis.z);
+			if (xLen > 0.001f) { xAxis.x /= xLen; xAxis.y /= xLen; xAxis.z /= xLen; }
+			else                { xAxis = {1.0f, 0.0f, 0.0f}; }
+
+			// 上軸 = zAxis × xAxis
+			Vector3 yAxis = {
+			    zAxis.y * xAxis.z - zAxis.z * xAxis.y,
+			    zAxis.z * xAxis.x - zAxis.x * xAxis.z,
+			    zAxis.x * xAxis.y - zAxis.y * xAxis.x
+			};
+
+			// LookAt ワールド行列を構築してボールを画面中央へ
+			Matrix4x4 lookMat             = MakeIdentityMatrix();
+			lookMat.m[0][0] = xAxis.x;   lookMat.m[0][1] = xAxis.y;   lookMat.m[0][2] = xAxis.z;
+			lookMat.m[1][0] = yAxis.x;   lookMat.m[1][1] = yAxis.y;   lookMat.m[1][2] = yAxis.z;
+			lookMat.m[2][0] = zAxis.x;   lookMat.m[2][1] = zAxis.y;   lookMat.m[2][2] = zAxis.z;
+			lookMat.m[3][0] = eye.x;     lookMat.m[3][1] = eye.y;     lookMat.m[3][2] = eye.z;
+
+			worldtransfrom_.matWorld_ = lookMat;
+		} else {
+			// ===== 着地後: 滑らかにゴール方向視点へ遷移 =====
+			worldtransfrom_.translation_.x += (targetPos.x - worldtransfrom_.translation_.x) * kGolfCamLerpXZ_;
+			worldtransfrom_.translation_.y += (targetPos.y - worldtransfrom_.translation_.y) * kGolfCamLerpY_;
+			worldtransfrom_.translation_.z += (targetPos.z - worldtransfrom_.translation_.z) * kGolfCamLerpXZ_;
+
+			// ヨー + 初期ピッチ → ボールが画面下寄りに映る固定回転
+			Quaternion qPitch = Quaternion::MakeRotateAxisAngle({1.0f, 0.0f, 0.0f}, initialRotationEuler_.x);
+			Quaternion qYaw   = Quaternion::MakeRotateAxisAngle({0.0f, 1.0f, 0.0f}, currentYaw_);
+			Quaternion q      = Quaternion::Normalize(qYaw * qPitch);
+
+			Matrix4x4 rotMat = Quaternion::MakeMatrix(q);
+			worldtransfrom_.matWorld_ = rotMat;
+			worldtransfrom_.matWorld_.m[3][0] = worldtransfrom_.translation_.x;
+			worldtransfrom_.matWorld_.m[3][1] = worldtransfrom_.translation_.y;
+			worldtransfrom_.matWorld_.m[3][2] = worldtransfrom_.translation_.z;
+		}
+
+		camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
+		camera_.TransferMatrix();
+		return;
+	}
+
+	// ゴルフ用: 2D固定カメラ（後方互換）
+	if (fixedMode_) {
+		Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
+		worldtransfrom_.matWorld_ = rotationMatrix;
+		worldtransfrom_.matWorld_.m[3][0] = initialPosition_.x;
+		worldtransfrom_.matWorld_.m[3][1] = initialPosition_.y;
+		worldtransfrom_.matWorld_.m[3][2] = initialPosition_.z;
+		worldtransfrom_.translation_ = initialPosition_;
+
+		camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
+		camera_.TransferMatrix();
+		return;
+	}
+
 	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
 
 	// 自動飛行の速度

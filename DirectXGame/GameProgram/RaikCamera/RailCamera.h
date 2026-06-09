@@ -27,6 +27,20 @@ public:
 
 	void SetCanMove(bool canMove) { canMove_ = canMove; }
 
+	// ゴルフ用: 固定カメラモード（後方互換のために残す）
+	void SetFixedMode(bool fixed) { fixedMode_ = fixed; }
+	bool IsFixedMode() const { return fixedMode_; }
+
+	// ゴルフ用: ボール追従カメラモード
+	// true にするとボールを後上方から滑らかに追いかける
+	void SetGolfChaseMode(bool enabled) { golfChaseMode_ = enabled; }
+	bool IsGolfChaseMode() const { return golfChaseMode_; }
+
+	// 飛翔中フラグ（GameScene が毎フレームセット）
+	void SetBallFlying(bool flying) { isBallFlying_ = flying; }
+	// ゴール位置をセット（GameScene の Initialize 後に呼ぶ）
+	void SetGoalPosition(const KamataEngine::Vector3& pos) { goalPosition_ = pos; }
+
 	void Reset();
 
 	void ApplyAimAssist(float ndcX, float ndcY);
@@ -55,6 +69,32 @@ private:
 	Camera camera_;
 
 	bool canMove_;
+
+	// 2D固定カメラかどうか
+	bool fixedMode_ = false;
+
+	// ゴルフ追従カメラかどうか
+	bool golfChaseMode_ = false;
+
+	// ゴルフ追従カメラのオフセット（ボール位置からの相対位置）
+	// Y を大きく・Z を長くすることでボールが画面下寄りに映る
+	const float kGolfCamOffsetY_ = 10.0f;  // ボールより上（高いほどボールが下に映る）
+	const float kGolfCamOffsetZ_ = -18.0f; // ボールより手前（Z-）
+	// 追従の滑らかさ（0=瞬時, 1=動かない）
+	const float kGolfCamLerpXZ_ = 0.10f;
+	const float kGolfCamLerpY_  = 0.06f;
+
+	// ゴール位置（着地後にカメラをゴール方向へ向ける）
+	KamataEngine::Vector3 goalPosition_ = {0.0f, 0.0f, 116.0f};
+
+	// 飛翔中フラグ（外部から毎フレームセット）
+	bool isBallFlying_ = false;
+	// 着地後に正面（初期方向）へ回転を戻す速度
+	const float kReturnToForwardSpeed_ = 0.07f;
+	// 現在のヨー角（飛翔方向に追従、着地後は 0 へ戻る）
+	float currentYaw_ = 0.0f;
+	// 1フレーム前のボール位置（進行方向の計算に使用）
+	KamataEngine::Vector3 prevBallPos_ = {0.0f, 0.0f, 0.0f};
 
 	bool isDodging_ = false;
 	float dodgeTimer_ = 0.0f;
