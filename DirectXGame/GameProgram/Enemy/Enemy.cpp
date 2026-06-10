@@ -112,7 +112,7 @@ int Enemy::GetHp() const { return hp_; }
 
 int Enemy::GetMaxHp() const { return kMaxHp_; }
 
-float Enemy::GetCollisionRadius() const { return 2.0f; }
+float Enemy::GetCollisionRadius() const { return collisionRadius_; }
 
 const char* Enemy::GetKindName() const { return "Enemy"; }
 
@@ -166,6 +166,13 @@ void Enemy::Fire() {
 }
 
 void Enemy::Update() {
+
+	// Freeze() 済みの場合は行列を更新するだけで移動しない（ゴールホール用）
+	if (isFrozen_) {
+		worldtransfrom_.UpdateMatrix();
+		UpdateScreenPosition();
+		return;
+	}
 
 	// Fire();
 
@@ -287,7 +294,13 @@ void Enemy::Update() {
 	}
 }
 
-void Enemy::Draw(const KamataEngine::Camera& camera) { model_->Draw(worldtransfrom_, camera); }
+void Enemy::Draw(const KamataEngine::Camera& camera) {
+	if (isFrozen_) {
+		model_->Draw(worldtransfrom_, camera, &goalObjectColor_);
+	} else {
+		model_->Draw(worldtransfrom_, camera);
+	}
+}
 
 void Enemy::DrawSprite() {
 	if (isOnScreen_) {

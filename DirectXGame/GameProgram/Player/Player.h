@@ -49,6 +49,13 @@ public:
 
 	void SetParent(const KamataEngine::WorldTransform* parent);
 	void SetRailCamera(RailCamera* camera);
+	// カメラの現在ヨー角をセット（照準の基準方向に使用）
+	void SetCameraYaw(float yaw) { cameraYaw_ = yaw; }
+	// ゴール位置をセット（方向表示矢印の向き計算に使用）
+	void SetGoalPosition(const KamataEngine::Vector3& pos) { goalPosition_ = pos; }
+	const KamataEngine::Vector3& GetGoalPosition() const { return goalPosition_; }
+	// プレーエリア半径（ゴール中心の XZ 円。0 以下で無制限）
+	void SetPlayAreaRadius(float radius) { playAreaRadius_ = radius; }
 	void SetEnemies(std::list<Enemy*>* enemies) { enemies_ = enemies; }
 
 	void ResetRotation();
@@ -88,6 +95,16 @@ public:
 	bool IsOnGround() const { return worldtransfrom_.translation_.y <= groundY_ + 0.01f; }
 	// 速度がほぼゼロか（完全停止判定）
 	bool IsVelocityNearZero() const;
+	// 空中再照準モードのフラグ設定・取得
+	void SetAirAiming(bool v) { isAirAiming_ = v; }
+	bool IsAirAiming() const  { return isAirAiming_; }
+	// 空中打ち直し残り回数
+	void DecrementAirShots()      { if (airShotsRemaining_ > 0) --airShotsRemaining_; }
+	void ResetAirShots()          { airShotsRemaining_ = kMaxAirShots_; }
+	int  GetAirShotsRemaining() const { return airShotsRemaining_; }
+
+	// ゴールと重なったときボールを半透明にするためのアルファ値（1.0=不透明）
+	float GetBallDrawAlpha() const;
 	// SPACE が今フレームに押されたか（初回だけ true）
 	bool IsSpaceJustPressed() const;
 	// ゲージバーの現在位置（0.0 = 底・最弱、1.0 = 頂・最強）
@@ -125,6 +142,8 @@ public:
 	void FinalizeFrameUpdate();
 	void UpdateGameOverAnimation();
 	void BeginRolling(float direction);
+
+	void ClampToPlayArea();
 
 private:
 	PlayerState* state_ = nullptr;
@@ -204,31 +223,46 @@ private:
 	float gaugePower_ = 0.0f;
 
 	// 水平照準（矢印が ±90°を往復して方向を決める）
-	const float kAimMaxAngle_ = 3.14159265f * 0.5f;
-	const float kAimSpeed_    = 0.045f;
+	const float kAimMaxAngle_    = 3.14159265f * 0.5f;  // 通常: ±90°
+	const float kAimMaxAngleAir_ = 3.14159265f * 0.85f; // 空中: ±153°（より広い範囲）
+	const float kAimSpeed_       = 0.045f;
 	float aimTimer_           = 0.0f;
 	float aimAngle_           = 0.0f;
+	float aimBaseYaw_         = 0.0f; // 照準開始時のカメラヨー角（矢印の基準方向）
+	float cameraYaw_          = 0.0f; // 毎フレーム GameScene からセットされるカメラヨー
 	float lockedArrowAngle_   = 0.0f;
 	KamataEngine::WorldTransform arrowTransform_;
 
-	// 高さ照準（矢印がロフト角 10°〜65° を往復して高さを決める）
-	const float kHeightMaxAngle_ = 3.14159265f * 65.0f / 180.0f; // 65°
-	const float kHeightMinAngle_ = 3.14159265f * 10.0f / 180.0f; // 10°
-	const float kHeightSpeed_    = 0.04f;
+	// 高さ照準（矢印がロフト角を往復して高さを決める）
+	const float kHeightMaxAngle_    = 3.14159265f * 65.0f / 180.0f;  // 65° 上向き
+	const float kHeightMinAngle_    = 0.0f;                           // 0° = 水平（転がし）
+	const float kHeightAirMinAngle_ = -3.14159265f * 70.0f / 180.0f; // 空中: -70° 下向き
+	const float kHeightSpeed_       = 0.04f;
+	bool isAirAiming_ = false;           // true のとき空中で照準中（重力無効・角度範囲拡張）
+	const int kMaxAirShots_ = 4;         // 空中で打ち直せる最大回数
+	int airShotsRemaining_ = kMaxAirShots_; // 残り空中打ち直し回数（着地でリセット）
+
+	// ボール半透明描画用（ゴールと重なったとき）
+	KamataEngine::ObjectColor ballObjectColor_;
 	float heightTimer_           = 0.0f;
 	float heightAngle_           = 3.14159265f * 30.0f / 180.0f; // 現在のロフト角
 	float lockedHeightAngle_     = 3.14159265f * 30.0f / 180.0f; // 確定ロフト角
 	KamataEngine::WorldTransform arrowHeightTransform_;
 
+	// ゴール方向インジケーター矢印（常にゴールを指す）
+	KamataEngine::WorldTransform goalDirArrowTransform_;
+	KamataEngine::Vector3 goalPosition_ = {0.0f, 10.0f, 1200.0f};
+	float playAreaRadius_ = 2000.0f; // ゴール中心 XZ 円の半径
+
 	// --- 軌跡パーティクル ---
 	struct TrailPoint {
 		KamataEngine::Vector3 pos;
 		float life;            // 残りフレーム
-		static constexpr float kMaxLife = 40.0f; // 寿命（フレーム）
+		static constexpr float kMaxLife = 18.0f; // 寿命（フレーム）短くして密度を上げる
 	};
 	std::deque<TrailPoint> ballTrail_;
 	KamataEngine::WorldTransform trailPointTf_; // 軌跡 Draw 用（毎フレーム再初期化しない）
 	int trailSpawnTimer_           = 0;
-	// スポーン間隔を短く、寿命を伸ばして点数を増やしバラバラ感を出す
-	const int kTrailSpawnInterval_ = 2; // 何フレームごとに点を追加するか
+	// 毎フレーム生成して連続した軌跡ラインを作る
+	const int kTrailSpawnInterval_ = 1; // 何フレームごとに点を追加するか
 };

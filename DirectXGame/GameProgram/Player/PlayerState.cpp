@@ -19,11 +19,12 @@ PlayerStateFlying*   PlayerStateFlying::Instance()   { return &instance_; }
 PlayerStateRolling*  PlayerStateRolling::Instance()  { return &instance_; }
 PlayerStateDead*     PlayerStateDead::Instance()     { return &instance_; }
 
-// 待機: 重力で地面に止まる。SPACE 第1打 → 照準状態へ
+// 待機: 重力で地面に止まる。停止したら自動で照準状態へ（SPACE 不要）
 void PlayerStateNormal::Update(Player& player) {
 	player.UpdateGolfBall();
 
-	if (player.IsOnGround() && player.IsSpaceJustPressed()) {
+	// 地面に接地＆ほぼ停止したら即座に照準開始（毎回 SPACE を押す手間を省く）
+	if (player.IsOnGround() && player.IsVelocityNearZero()) {
 		player.BeginAiming();
 	}
 }
@@ -70,10 +71,20 @@ void PlayerStateSwing::Update(Player& player) {
 }
 
 // 飛翔中: 重力・バウンド・摩擦。止まったら待機状態へ
+// SPACE を押すと空中でボールを停止して方向・高さを打ち直せる
 void PlayerStateFlying::Update(Player& player) {
 	player.UpdateGolfBall();
 
+	// 空中で SPACE → 残り回数があれば静止して再照準
+	if (player.IsSpaceJustPressed() && player.GetAirShotsRemaining() > 0) {
+		player.DecrementAirShots();
+		player.SetAirAiming(true);
+		player.BeginAiming();
+		return;
+	}
+
 	if (player.IsOnGround() && player.IsVelocityNearZero()) {
+		player.ResetAirShots(); // 着地したら回数リセット
 		player.ChangeState(PlayerStateNormal::Instance());
 	}
 }

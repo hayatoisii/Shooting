@@ -40,6 +40,11 @@ public:
 	void SetBallFlying(bool flying) { isBallFlying_ = flying; }
 	// ゴール位置をセット（GameScene の Initialize 後に呼ぶ）
 	void SetGoalPosition(const KamataEngine::Vector3& pos) { goalPosition_ = pos; }
+	const KamataEngine::Vector3& GetGoalPosition() const { return goalPosition_; }
+	// 現在のヨー角を取得（Player の照準方向に使用）
+	float GetCurrentYaw() const { return currentYaw_; }
+	// ホイールズーム倍率（1.0=標準, 2.0=最大引き）
+	float GetOrbitZoom() const { return orbitZoom_; }
 
 	void Reset();
 
@@ -57,8 +62,8 @@ private:
 	KamataEngine::Vector3 initialPosition_;
 	KamataEngine::Vector3 initialRotationEuler_;
 	
-	// Playerの移動範囲制限（円状、半径15000）
-	const float kMaxMoveRadius_ = 8000.0f;
+	// Playerの移動範囲制限（円状。旧シューティング用・ゴルフは Player 側で制限）
+	const float kMaxMoveRadius_ = 2000.0f;
 
 	KamataEngine::Quaternion rotation_;
 
@@ -78,21 +83,34 @@ private:
 
 	// ゴルフ追従カメラのオフセット（ボール位置からの相対位置）
 	// Y を大きく・Z を長くすることでボールが画面下寄りに映る
-	const float kGolfCamOffsetY_ = 10.0f;  // ボールより上（高いほどボールが下に映る）
-	const float kGolfCamOffsetZ_ = -18.0f; // ボールより手前（Z-）
+	const float kGolfCamOffsetY_ = 20.0f;  // ボールより上（高いほどボールが下に映る）
+	const float kGolfCamOffsetZ_ = -36.0f; // ボールより手前（Z-）
 	// 追従の滑らかさ（0=瞬時, 1=動かない）
 	const float kGolfCamLerpXZ_ = 0.10f;
 	const float kGolfCamLerpY_  = 0.06f;
 
 	// ゴール位置（着地後にカメラをゴール方向へ向ける）
-	KamataEngine::Vector3 goalPosition_ = {0.0f, 0.0f, 116.0f};
+	KamataEngine::Vector3 goalPosition_ = {0.0f, 10.0f, 1200.0f};
 
 	// 飛翔中フラグ（外部から毎フレームセット）
 	bool isBallFlying_ = false;
-	// 着地後に正面（初期方向）へ回転を戻す速度
-	const float kReturnToForwardSpeed_ = 0.07f;
-	// 現在のヨー角（飛翔方向に追従、着地後は 0 へ戻る）
-	float currentYaw_ = 0.0f;
+	// 飛翔中は進行方向へ、着地後は WASD でボール周りを円運動
+	const float kReturnToForwardSpeed_ = 0.07f; // 飛翔開始直後のフォールバック用
+	// 着地後: WASD でボール中心に球面軌道（即時追従 + 離したときだけ微慣性）
+	const float kOrbitYawSpeed_      = 0.0168f; // 0.021 × 0.8
+	const float kOrbitInertiaDecay_  = 0.78f;
+	const float kOrbitStopThreshold_ = 0.0004f;
+	const float kMouseOrbitSens_     = 0.0012f; // 0.0015 × 0.8
+	const float kWheelZoomStep_      = 0.1f;   // ホイール1ノッチあたり
+	const float kOrbitZoomMin_       = 1.0f;   // 現在距離（デフォルト）
+	const float kOrbitZoomMax_       = 2.0f;   // 最大2倍引き
+	float orbitZoom_         = 1.0f;
+	const float kGroundLevel_        = 0.0f;
+	const float kMinCamClearance_    = 2.5f;
+	float orbitYawVelocity_  = 0.0f;
+	float orbitElevVelocity_ = 0.0f;
+	float currentYaw_      = 0.0f;
+	float orbitElevation_  = 0.28f;
 	// 1フレーム前のボール位置（進行方向の計算に使用）
 	KamataEngine::Vector3 prevBallPos_ = {0.0f, 0.0f, 0.0f};
 

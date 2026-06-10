@@ -42,6 +42,7 @@ void SceneStateTransitionFromGame::Update(GameScene& scene) {
 	if (scene.transitionTimer_ >= scene.kTransitionTime) {
 		scene.gameIntroTimer_ = 0.0f;
 		if (scene.player_) {
+			scene.player_->ResetStats();
 			scene.player_->SetPosition(scene.playerIntroStartPosition_);
 			scene.player_->RefreshWorldMatrix();
 		}
@@ -100,6 +101,7 @@ void SceneStateClear::Update(GameScene& scene) {
 	scene.UpdateStateBody_Clear();
 	if (scene.input_->TriggerKey(DIK_SPACE)) {
 		scene.confettiActive_ = false;
+		scene.ResetToTitle();
 		scene.ChangeSceneState(SceneStateStart::Instance());
 	}
 }

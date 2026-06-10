@@ -5,6 +5,7 @@
 #include "Player.h"
 #include "RailCamera.h"
 #include "SceneStateBase.h"
+#include "WaterPond.h"
 #include "Skydome.h"
 #include "Meteorite.h"
 #include <sstream>
@@ -51,6 +52,12 @@ public:
 
 	void LoadEnemyPopData();
 	void UpdateEnemyPopCommands();
+	void SpawnWaterPonds(const KamataEngine::Vector3& goalCenter);
+	void InitMinimapPondSprites();
+	void UpdateMinimapPonds(const KamataEngine::Vector3& playerPos);
+	void SetPlayAreaCenter(const KamataEngine::Vector3& center);
+	void DrawBoundaryWalls();
+	void UpdateBoundaryWall();
 	void EnemySpawn(const Vector3& position);
 
 	void UpdateAimAssist();
@@ -89,7 +96,21 @@ private:
 	// ゴルフコースの横幅（X方向スケール）
 	const float kGroundWidth_ = 20.0f;
 	// ゴルフコースの奥行き（Z方向スケール）。大きいほど長いコースになる
-	const float kGroundLengthZ_ = 160.0f;
+	const float kGroundLengthZ_ = 1500.0f;
+	// プレーエリア（ゴール中心・XZ 円）の半径
+	const float kPlayAreaRadius_ = 2000.0f;
+	// 池配置: ゴール中心からこの半径以内（移動上限より少し狭い）
+	const float kPondSpawnRadius_ = 1900.0f;
+	const float kPondGlobalScale_ = 20.0f;
+	// 空中打ち直し回数表示（標準サイズ、ホイール引き時のみ縮小）
+	const float kAirShotBaseSize_ = 64.0f;
+	// プレーエリア境界壁（境界100以内で3Dパネル1枚を表示）
+	const float kWallShowDistance_ = 150.0f;
+	const float kBoundaryWallPanelSize_ = 42.0f;
+	const float kBoundaryWallThickness_ = 0.8f;
+	const float kBoundaryBallRadius_ = 0.5f;
+	// 池の描画距離（移動制限半径と同じ＝プレーエリア内は常に表示）
+	const float kPondDrawDistance_ = kPlayAreaRadius_;
 
 	// --- ゴルフ: パワーゲージ UI ---
 	// ゲージ外枠スプライト（ユーザーが "gage.png" を Resources に置く）
@@ -116,6 +137,19 @@ private:
 
 	Model* modelPlayer_ = nullptr;
 	Model* modelEnemy_ = nullptr;
+	Model* modelGoal_  = nullptr; // ゴール専用モデル（ボールと同じ OBJ を使用）
+	KamataEngine::Sprite* airShotCountSprite_ = nullptr; // 空中打ち直し残り回数（ボール上に表示）
+
+	// --- ゴルフ: 池（落ちるとゲームオーバー） ---
+	Model* modelWaterPond_ = nullptr;
+	std::vector<WaterPond*> waterPonds_;
+	// --- ゴルフ: プレーエリア境界壁 ---
+	KamataEngine::Vector3 playAreaCenter_ = {0.0f, 10.0f, 1200.0f};
+	KamataEngine::WorldTransform boundaryWallTransform_;
+	KamataEngine::ObjectColor boundaryWallColor_;
+	bool boundaryWallVisible_ = false;
+	KamataEngine::Vector3 boundaryWallPos_ = {0.0f, 0.0f, 0.0f};
+	float boundaryWallYaw_ = 0.0f;
 	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
 	Model* modelEnemyBullet_ = nullptr;
 
@@ -170,6 +204,7 @@ private:
 	void ResetToTitle();
 
 	float DistanceSquared(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2);
+	bool IsBoundaryWallNear(const KamataEngine::Vector3& ball, float* outDistToWall) const;
 
 	KamataEngine::Sprite* transitionSprite_ = nullptr;
 	uint32_t transitionTextureHandle_ = 0;
@@ -240,6 +275,9 @@ private:
 	static const size_t kMaxMinimapEnemies_ = 100; // 例: 最大100体
 	std::vector<KamataEngine::Sprite*> minimapEnemySprites_;
 
+	// ミニマップ上の池アイコン（各パーツ1つ）
+	std::vector<KamataEngine::Sprite*> minimapPondSprites_;
+
 	// ミニマップの敵弾アイコン
 	static const size_t kMaxMinimapEnemyBullets_ = 100;
 	std::vector<KamataEngine::Sprite*> minimapEnemyBulletSprites_;
@@ -248,8 +286,8 @@ private:
 	// ミニマップ設定値（左上配置）
 	// ゴルフ: ゴールまで ~120 units → 0.75 px/unit で中心から90px（半径100px内に収まる）
 	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 10.0f}; // 描画基準位置 (左上)
-	const KamataEngine::Vector2 kMinimapSize_ = {200.0f, 200.0f};    // 背景スプライトのサイズ
-	const float kMinimapScale_ = 0.75f;                              // ワールド座標 -> ミニマップ座標の縮尺
+	const KamataEngine::Vector2 kMinimapSize_ = {250.0f, 250.0f};   // 背景スプライトのサイズ
+	const float kMinimapScale_ = 0.10f; // ワールド座標 -> ミニマップ座標の縮尺（小さいほど広範囲を表示）
 
 	/// <returns>ミニマップ上のスクリーン座標</returns>
 	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);

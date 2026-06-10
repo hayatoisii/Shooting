@@ -114,6 +114,7 @@
     <ClCompile Include="GameProgram\scene\GameSceneStateBodies.cpp" />
     <ClCompile Include="GameProgram\scene\GaneScene.cpp" />
     <ClCompile Include="GameProgram\scene\SceneStates.cpp" />
+    <ClCompile Include="GameProgram\scene\WaterPond.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="GameProgram\MT\MT.cpp" />
     <ClCompile Include="GameProgram\Particle\Particle.cpp" />
@@ -210,6 +211,7 @@
     <ClInclude Include="GameProgram\Enemy\EnemyBullet.h" />
     <ClInclude Include="GameProgram\scene\GaneScene.h" />
     <ClInclude Include="GameProgram\scene\SceneStateBase.h" />
+    <ClInclude Include="GameProgram\scene\WaterPond.h" />
     <ClInclude Include="GameProgram\MT\MT.h" />
     <ClInclude Include="GameProgram\Particle\Particle.h" />
     <ClInclude Include="GameProgram\Particle\ParticleEmitter.h" />

@@ -90,9 +90,13 @@ void GameScene::UpdateStateBody_Game() {
 		}
 	}
 
-	// 飛翔状態をカメラに通知（飛翔中=水平追従、着地後=正面へ復帰）
+	// 飛翔状態をカメラに通知（飛翔中=水平追従、着地後=ゴール方向へ復帰）
 	railCamera_->SetBallFlying(player_->IsFlying());
 	railCamera_->Update();
+	// カメラの現在ヨー角をプレイヤーに渡す（照準矢印の基準方向に使用）
+	player_->SetCameraYaw(railCamera_->GetCurrentYaw());
+	// ゴール位置をプレイヤーに渡す（ゴール方向インジケーター矢印に使用）
+	player_->SetGoalPosition(railCamera_->GetGoalPosition());
 	cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 	cameraPositionAnchor_.UpdateMatrix();
 	camera_.matView = railCamera_->GetViewProjection().matView;
@@ -123,12 +127,18 @@ void GameScene::UpdateStateBody_Game() {
 
 		CheckAllCollisions();
 
-		// ゴルフ: ボールの Z 飛距離をスコア（メートル）として毎フレーム更新
+		UpdateBoundaryWall();
+
+		// ゴルフ: ゴールまでの残り距離（メートル）を毎フレーム更新
 		if (player_) {
-			float distZ = player_->GetWorldPosition().z - ballStartZ_;
-			int distMeters = static_cast<int>(std::fmax(0.0f, distZ));
-			if (distMeters > score_) {
-				score_ = distMeters;
+			KamataEngine::Vector3 ballPos = player_->GetWorldPosition();
+			KamataEngine::Vector3 goalPos = railCamera_->GetGoalPosition();
+			float dx = goalPos.x - ballPos.x;
+			float dz = goalPos.z - ballPos.z;
+			int remaining = static_cast<int>(std::sqrtf(dx * dx + dz * dz));
+			if (remaining < 0) remaining = 0;
+			if (remaining != score_) {
+				score_ = remaining;
 				UpdateScoreSprites();
 			}
 		}
@@ -140,25 +150,31 @@ void GameScene::UpdateStateBody_Game() {
 			KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y + kMinimapSize_.y * 0.5f};
 			minimapPlayerSprite_->SetPosition(minimapCenterPos);
 
-			float dx = playerPos.x - lastPlayerPos_.x;
-			float dz = playerPos.z - lastPlayerPos_.z;
-			const float kMoveThresholdSq = 0.0001f;
-			float moveDistSq = dx * dx + dz * dz;
-			if (moveDistSq > kMoveThresholdSq) {
-				float mx = dx;
-				float my = -dz;
-				float angle = std::atan2(my, mx);
-				const float kPI = 3.14159265f;
-				minimapPlayerSprite_->SetRotation(angle + kPI / 2.0f);
-				lastPlayerPos_ = playerPos;
-			}
+			// ミニマップ矢印: ボール→ゴールの方向を直接計算
+			// ミニマップ座標系: +Z → 上方向, +X → 右方向
+			// atan2(-dgz, dgx) がミニマップ上の角度、+π/2 でスプライトのデフォルト上向きに補正
+			const float kPI = 3.14159265f;
+			KamataEngine::Vector3 goalPos = railCamera_->GetGoalPosition();
+			float dgx = goalPos.x - playerPos.x;
+			float dgz = goalPos.z - playerPos.z;
+			float goalAngle = std::atan2(-dgz, dgx);
+			minimapPlayerSprite_->SetRotation(goalAngle + kPI * 0.5f);
+			lastPlayerPos_ = playerPos;
+
+			UpdateMinimapPonds(playerPos);
 
 			size_t activeEnemyCount = 0;
 			for (Enemy* enemy : enemies_) {
 				if (enemy && !enemy->IsDead() && activeEnemyCount < kMaxMinimapEnemies_) {
 					KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
 					KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(enemyPos, playerPos);
-					minimapEnemySprites_[activeEnemyCount]->SetPosition(minimapPos);
+					KamataEngine::Sprite* goalIcon = minimapEnemySprites_[activeEnemyCount];
+					goalIcon->SetPosition(minimapPos);
+					// greenBox は緑チャンネルのみなので (1,0,0) 乗算では黒になる → 赤テクスチャを使用
+					if (minimapEnemyBulletTextureHandle_ != 0) {
+						goalIcon->SetTextureHandle(minimapEnemyBulletTextureHandle_);
+					}
+					goalIcon->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
 					activeEnemyCount++;
 				}
 			}

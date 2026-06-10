@@ -1,5 +1,6 @@
 #pragma once
 #include <3d/Model.h>
+#include <3d/ObjectColor.h>
 #include <3d/WorldTransform.h>
 #include "GameCharacter.h"
 #include "KamataEngine.h"
@@ -44,6 +45,20 @@ public:
 	void SetPlayer(Player* player) { player_ = player; }
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
 	void SetCamera(const KamataEngine::Camera* camera) { camera_ = camera; }
+	// ゴルフホールとして使う場合は Freeze() で完全に静止させる
+	void Freeze() {
+		isFrozen_ = true;
+		if (!goalColorReady_) {
+			goalObjectColor_.Initialize();
+			goalObjectColor_.SetColor({0.0f, 0.0f, 0.0f, 1.0f}); // 穴っぽく真っ黒
+			goalColorReady_ = true;
+		}
+	}
+	// モデルスケールと当たり判定半径をまとめて設定（可視化用）
+	void SetGoalScale(float radius) {
+		collisionRadius_ = radius;
+		worldtransfrom_.scale_ = {radius, radius, radius};
+	}
 	// 画面内判定
 	bool IsOnScreen() const { return isOnScreen_; }
 
@@ -68,7 +83,11 @@ private:
 
 	static const int kMaxHp_ = 5;
 	int hp_ = kMaxHp_;
-	bool isDead_ = false;
+	bool isDead_    = false;
+	bool isFrozen_  = false;   // true のとき移動を一切行わない（ゴールホール用）
+	float collisionRadius_ = 2.0f; // 当たり判定半径（SetGoalScale で更新）
+	KamataEngine::ObjectColor goalObjectColor_;
+	bool goalColorReady_ = false;
 
 	// 発射タイマー
 	int32_t spawnTimer = 0;

@@ -8,6 +8,23 @@
 #include <cstdlib>
 #include <fstream>
 
+namespace {
+float PondSpawnRand01(int& seed) {
+	seed = seed * 1103515245 + 12345;
+	return static_cast<float>((seed / 65536) % 32768) / 32768.0f;
+}
+float EstimatePondExtent(const std::vector<WaterPond::PondPart>& parts) {
+	float extent = 0.0f;
+	for (const WaterPond::PondPart& part : parts) {
+		const float e = std::sqrtf(part.offsetX * part.offsetX + part.offsetZ * part.offsetZ) + part.radius;
+		if (e > extent) {
+			extent = e;
+		}
+	}
+	return extent;
+}
+} // namespace
+
 KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine:: Vector3& end, float t) {
 	t = std::clamp(t, 0.0f, 1.0f);
 	return start + (end - start) * t;
@@ -43,6 +60,8 @@ SceneStateKind GameScene::GetSceneStateKind() const {
 GameScene::~GameScene() {
 	delete modelPlayer_;
 	delete modelEnemy_;
+	delete modelGoal_;
+	delete airShotCountSprite_;
 	delete modelSkydome_;
 	delete modelTitleObject_;
 	delete modelMeteorite_;
@@ -73,6 +92,10 @@ GameScene::~GameScene() {
 		delete sprite;
 	}
 	minimapEnemySprites_.clear();
+	for (KamataEngine::Sprite* sprite : minimapPondSprites_) {
+		delete sprite;
+	}
+	minimapPondSprites_.clear();
 	for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
 		delete sprite;
 	}
@@ -83,6 +106,11 @@ GameScene::~GameScene() {
 	for (Enemy* enemy : enemies_) {
 		delete enemy;
 	}
+	for (WaterPond* pond : waterPonds_) {
+		delete pond;
+	}
+	waterPonds_.clear();
+	delete modelWaterPond_;
 
 	// delete score digit sprites
 	for (KamataEngine::Sprite* s : scoreDigitSprites_) {
@@ -104,6 +132,9 @@ void GameScene::Initialize() {
 
 	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
+	// ゴール専用モデル: ボールと同じ OBJ を使ってサイズ・当たり判定を一致させる
+	// ゴール専用モデル: ボールと同じ cube を使用して当たり判定を可視化
+	modelGoal_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
 
@@ -234,6 +265,16 @@ void GameScene::Initialize() {
         digitTextureHandles_[0] = h0;
     }
 
+	// 空中打ち直し残り回数（数字テクスチャを使用）
+	{
+		uint32_t defaultDigit = digitTextureHandles_[4] != 0 ? digitTextureHandles_[4] : digitTextureHandles_[1];
+		airShotCountSprite_ = KamataEngine::Sprite::Create(defaultDigit, {-200.0f, -200.0f});
+		if (airShotCountSprite_) {
+			airShotCountSprite_->SetAnchorPoint({0.5f, 0.5f});
+			airShotCountSprite_->SetSize({64.0f, 64.0f});
+		}
+	}
+
 	// Create 4 digit sprites (thousands, hundreds, tens, ones)
 	scoreDigitSprites_.resize(4);
 	for (int i = 0; i < 4; ++i) {
@@ -296,6 +337,16 @@ void GameScene::Initialize() {
 	};
 	groundTransform_.scale_ = {kGroundWidth_, 1.0f, kGroundLengthZ_};
 	groundTransform_.UpdateMatrix();
+
+	// ゴルフ: 池（落ちるとゲームオーバー）
+	modelWaterPond_ = KamataEngine::Model::CreateFromOBJ("cube", true);
+	modelWaterPond_->SetAlpha(0.80f);
+
+	boundaryWallColor_.Initialize();
+	boundaryWallColor_.SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+	boundaryWallTransform_.Initialize();
+	playAreaCenter_ = {0.0f, 10.0f, 1200.0f};
+	player_->SetPlayAreaRadius(kPlayAreaRadius_);
 
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
@@ -378,6 +429,11 @@ void GameScene::Initialize() {
 
 void GameScene::Update() {
 
+	// 天球をボールの XZ に追従（Y は固定して地面が浮かないようにする）
+	if (skydome_ && player_) {
+		KamataEngine::Vector3 ballPos = player_->GetWorldPosition();
+		skydome_->SetPositionXZ(ballPos.x, ballPos.z);
+	}
 	skydome_->Update();
 
 	// 右／左キーの押下状態に応じてスプライトの明るさを切替
@@ -484,21 +540,51 @@ void GameScene::Draw() {
 		// スカイドームをゲーム中も描画
 		if (skydome_) { skydome_->Draw(); }
 
-		player_->Draw();
-		// ゴルフ: 地面モデルはユーザーが天球で差し替えるため非表示
-		// if (modelGround_) { modelGround_->Draw(groundTransform_, camera_); }
-
-		if (explosionEmitter_) {
-			explosionEmitter_->Draw(camera_);
-		}
-
-		// ゴルフ: 敵はゴールの穴マーカーとして描画する（弾・隕石は非表示のまま）
+		// ゴール（敵）と池を先に描画 → 半透明ボールの下に見えるようにする
 		if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
 			for (Enemy* enemy : enemies_) {
 				if (enemy && !enemy->IsDead()) {
 					enemy->Draw(camera_);
 				}
 			}
+			const KamataEngine::Vector3 camPos = railCamera_->GetWorldTransform().translation_;
+			struct PondDrawEntry {
+				float distSq;
+				WaterPond* pond;
+			};
+			std::vector<PondDrawEntry> pondDrawList;
+			pondDrawList.reserve(waterPonds_.size());
+			for (WaterPond* pond : waterPonds_) {
+				if (!pond) {
+					continue;
+				}
+				const KamataEngine::Vector3 pondCenter = pond->GetCenter();
+				const float cdx = pondCenter.x - camPos.x;
+				const float cdy = pondCenter.y - camPos.y;
+				const float cdz = pondCenter.z - camPos.z;
+				pondDrawList.push_back({cdx * cdx + cdy * cdy + cdz * cdz, pond});
+			}
+			for (size_t i = 0; i < pondDrawList.size(); ++i) {
+				for (size_t j = i + 1; j < pondDrawList.size(); ++j) {
+					if (pondDrawList[j].distSq > pondDrawList[i].distSq) {
+						PondDrawEntry tmp = pondDrawList[i];
+						pondDrawList[i] = pondDrawList[j];
+						pondDrawList[j] = tmp;
+					}
+				}
+			}
+			for (const PondDrawEntry& entry : pondDrawList) {
+				entry.pond->Draw(camera_);
+			}
+			DrawBoundaryWalls();
+		}
+
+		player_->Draw();
+		// ゴルフ: 地面モデルはユーザーが天球で差し替えるため非表示
+		// if (modelGround_) { modelGround_->Draw(groundTransform_, camera_); }
+
+		if (explosionEmitter_) {
+			explosionEmitter_->Draw(camera_);
 		}
 	} else if (GetSceneStateKind() == SceneStateKind::Clear) {
 		// draw skydome so background exists
@@ -539,6 +625,11 @@ void GameScene::Draw() {
 				sprite->Draw();
 			}
 		}
+		for (KamataEngine::Sprite* sprite : minimapPondSprites_) {
+			if (sprite) {
+				sprite->Draw();
+			}
+		}
 		// 敵弾アイコン (背景より手前、自機より奥)
 		for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
 			if (sprite) {
@@ -550,17 +641,8 @@ void GameScene::Draw() {
 			minimapPlayerSprite_->Draw();
 		}
 
-		// 追加: 右/左キー表示を最前面に描画（ゲームシーンのみ表示）
-		if (leftSprite_) {
-			leftSprite_->Draw();
-		}
-		if (lightSprite_) {
-			lightSprite_->Draw();
-		}
-		// Shift を最前面に描画
-		if (shiftSprite_) {
-			shiftSprite_->Draw();
-		}
+		// 右下操作ガイドスプライト: ゴルフゲームでは不要のため描画しない
+		// (lightSprite_, leftSprite_, shiftSprite_)
 	}
 
 	// 飛距離（スコア）を右上に描画
@@ -599,6 +681,35 @@ void GameScene::Draw() {
 		}
 	}
 
+	// 空中打ち直し残り回数: 打った瞬間から着地するまでボール中心に表示
+	if (player_ && airShotCountSprite_ &&
+	    GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
+		bool showCounter = player_->IsFlying() || player_->IsAirAiming();
+		int remaining    = player_->GetAirShotsRemaining();
+		if (showCounter && remaining >= 0 && remaining <= 9) {
+			uint32_t handle = (remaining < (int)digitTextureHandles_.size()) ? digitTextureHandles_[remaining] : 0;
+			if (handle != 0) {
+				const KamataEngine::Vector3 ballPos = player_->GetWorldPosition();
+				KamataEngine::Vector3 ndc = ProjectToNDC(ballPos);
+				if (ndc.z >= 0.0f) {
+					// 標準64px。ホイールで引いたときだけ小さく（視点回転では変えない）
+					float zoom = railCamera_ ? railCamera_->GetOrbitZoom() : 1.0f;
+					if (zoom < 1.0f) {
+						zoom = 1.0f;
+					}
+					float spriteSize = kAirShotBaseSize_ / zoom;
+
+					float bsx = (ndc.x + 1.0f) * 0.5f * static_cast<float>(WinApp::kWindowWidth);
+					float bsy = (1.0f - ndc.y) * 0.5f * static_cast<float>(WinApp::kWindowHeight);
+					airShotCountSprite_->SetTextureHandle(handle);
+					airShotCountSprite_->SetPosition({bsx, bsy});
+					airShotCountSprite_->SetSize({spriteSize, spriteSize});
+					airShotCountSprite_->Draw();
+				}
+			}
+		}
+	}
+
 	if (GetSceneStateKind() == SceneStateKind::Clear) {
 		if (clearSprite_)
 			clearSprite_->Draw();
@@ -617,6 +728,211 @@ void GameScene::AddEnemyBullet(EnemyBullet* bullet) {
 		enemyBullets_.push_back(bullet);
 }
 
+void GameScene::SpawnWaterPonds(const Vector3& goalCenter) {
+	for (WaterPond* pond : waterPonds_) {
+		delete pond;
+	}
+	waterPonds_.clear();
+
+	struct PlacedPond {
+		float x = 0.0f;
+		float z = 0.0f;
+		float radius = 0.0f;
+	};
+
+	const float kMinCenterDist = 400.0f * (kPondGlobalScale_ / 10.0f);
+	const int kTargetCount = 10;
+	const float pondY = -0.40f;
+	const float k2PI = 6.2831853f;
+
+	std::vector<PlacedPond> placed;
+	placed.reserve(static_cast<size_t>(kTargetCount));
+
+	int seed = 481516;
+	int pondIndex = 0;
+	int attempts = 0;
+	while (static_cast<int>(placed.size()) < kTargetCount && attempts < 600) {
+		++attempts;
+
+		const float angle = PondSpawnRand01(seed) * k2PI;
+		const float dist = 150.0f + PondSpawnRand01(seed) * (kPondSpawnRadius_ - 150.0f);
+		const float x = goalCenter.x + std::sinf(angle) * dist;
+		const float z = goalCenter.z + std::cosf(angle) * dist;
+
+		const float tierRoll = PondSpawnRand01(seed);
+		float sizeMul = 1.0f;
+		if (tierRoll < 0.10f) {
+			sizeMul = 0.35f + PondSpawnRand01(seed) * 0.25f;
+		} else if (tierRoll < 0.28f) {
+			sizeMul = 0.60f + PondSpawnRand01(seed) * 0.35f;
+		} else if (tierRoll < 0.52f) {
+			sizeMul = 0.95f + PondSpawnRand01(seed) * 0.55f;
+		} else if (tierRoll < 0.78f) {
+			sizeMul = 1.55f + PondSpawnRand01(seed) * 0.95f;
+		} else {
+			sizeMul = 2.5f + PondSpawnRand01(seed) * 1.8f;
+		}
+
+		const int shapeSeed = seed;
+		std::vector<WaterPond::PondPart> parts = WaterPond::GenerateRandomShape(shapeSeed, sizeMul * kPondGlobalScale_);
+		const float estRadius = EstimatePondExtent(parts);
+
+		const bool allowCluster = PondSpawnRand01(seed) < 0.50f;
+		float minDist = kMinCenterDist;
+		if (allowCluster) {
+			minDist *= 0.06f;
+		}
+
+		bool tooClose = false;
+		for (const PlacedPond& other : placed) {
+			const float dx = x - other.x;
+			const float dz = z - other.z;
+			const float need = minDist + other.radius * 0.12f + estRadius * 0.12f;
+			if (dx * dx + dz * dz < need * need) {
+				tooClose = true;
+				break;
+			}
+		}
+		if (tooClose) {
+			continue;
+		}
+
+		WaterPond* pond = new WaterPond();
+		pond->Initialize(modelWaterPond_, {x, pondY, z}, parts, pondIndex);
+		waterPonds_.push_back(pond);
+		placed.push_back({x, z, estRadius});
+		++pondIndex;
+	}
+
+	InitMinimapPondSprites();
+}
+
+void GameScene::InitMinimapPondSprites() {
+	for (KamataEngine::Sprite* sprite : minimapPondSprites_) {
+		delete sprite;
+	}
+	minimapPondSprites_.clear();
+
+	size_t totalPonds = waterPonds_.size();
+	minimapPondSprites_.resize(totalPonds);
+	for (size_t i = 0; i < totalPonds; ++i) {
+		KamataEngine::Sprite* sprite = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0, 0});
+		if (sprite) {
+			sprite->SetAnchorPoint({0.5f, 0.5f});
+			sprite->SetSize({8.0f, 8.0f});
+			sprite->SetColor({0.15f, 0.45f, 0.95f, 0.95f});
+			sprite->SetPosition({-100.0f, -100.0f});
+		}
+		minimapPondSprites_[i] = sprite;
+	}
+}
+
+void GameScene::UpdateMinimapPonds(const KamataEngine::Vector3& playerPos) {
+	size_t spriteIndex = 0;
+	for (WaterPond* pond : waterPonds_) {
+		if (!pond) {
+			continue;
+		}
+		if (spriteIndex >= minimapPondSprites_.size()) {
+			break;
+		}
+		KamataEngine::Sprite* sprite = minimapPondSprites_[spriteIndex];
+		if (!sprite) {
+			++spriteIndex;
+			continue;
+		}
+		const KamataEngine::Vector3 pondCenter = pond->GetCenter();
+		KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(pondCenter, playerPos);
+		sprite->SetPosition(minimapPos);
+		float dotSize = pond->GetBoundingRadius() * 2.0f * kMinimapScale_;
+		if (dotSize < 2.0f) {
+			dotSize = 2.0f;
+		}
+		sprite->SetSize({dotSize, dotSize});
+		++spriteIndex;
+	}
+	for (size_t i = spriteIndex; i < minimapPondSprites_.size(); ++i) {
+		if (minimapPondSprites_[i]) {
+			minimapPondSprites_[i]->SetPosition({-100.0f, -100.0f});
+		}
+	}
+}
+
+void GameScene::SetPlayAreaCenter(const Vector3& center) {
+	playAreaCenter_ = center;
+}
+
+bool GameScene::IsBoundaryWallNear(const KamataEngine::Vector3& ball, float* outDistToWall) const {
+	if (!player_) {
+		return false;
+	}
+
+	const Vector3 center = player_->GetGoalPosition();
+	const float dx = ball.x - center.x;
+	const float dz = ball.z - center.z;
+	const float dist = std::sqrtf(dx * dx + dz * dz);
+	if (dist < 0.001f) {
+		return false;
+	}
+
+	const float collisionRadius = kPlayAreaRadius_ - kBoundaryBallRadius_;
+	const float distToWall = collisionRadius - dist;
+	if (outDistToWall) {
+		*outDistToWall = distToWall;
+	}
+	return distToWall <= kWallShowDistance_;
+}
+
+void GameScene::UpdateBoundaryWall() {
+	boundaryWallVisible_ = false;
+	if (!player_) {
+		return;
+	}
+
+	const Vector3 ball = player_->GetWorldPosition();
+	if (!IsBoundaryWallNear(ball, nullptr)) {
+		return;
+	}
+
+	const Vector3 center = player_->GetGoalPosition();
+	const float dx = ball.x - center.x;
+	const float dz = ball.z - center.z;
+	const float dist = std::sqrtf(dx * dx + dz * dz);
+	if (dist < 0.001f) {
+		return;
+	}
+
+	const float nx = dx / dist;
+	const float nz = dz / dist;
+	const float collisionRadius = kPlayAreaRadius_ - kBoundaryBallRadius_;
+	const float wallCenterRadius = collisionRadius + kBoundaryWallThickness_ * 0.5f;
+
+	boundaryWallVisible_ = true;
+	boundaryWallYaw_ = std::atan2f(nx, nz);
+	// XZは移動上限の円周上（跳ね返りライン）。Yだけボール高さに合わせる
+	boundaryWallPos_ = {
+	    center.x + nx * wallCenterRadius,
+	    ball.y,
+	    center.z + nz * wallCenterRadius
+	};
+}
+
+void GameScene::DrawBoundaryWalls() {
+	if (!boundaryWallVisible_ || !modelGround_) {
+		return;
+	}
+
+	boundaryWallColor_.SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+	boundaryWallTransform_.translation_ = boundaryWallPos_;
+	boundaryWallTransform_.rotation_ = {0.0f, boundaryWallYaw_, 0.0f};
+	boundaryWallTransform_.scale_ = {kBoundaryWallPanelSize_, kBoundaryWallPanelSize_, kBoundaryWallThickness_};
+	boundaryWallTransform_.UpdateMatrix();
+	modelGround_->Draw(boundaryWallTransform_, camera_, &boundaryWallColor_);
+	boundaryWallTransform_.rotation_ = {0.0f, boundaryWallYaw_ + 3.14159265f, 0.0f};
+	boundaryWallTransform_.UpdateMatrix();
+	modelGround_->Draw(boundaryWallTransform_, camera_, &boundaryWallColor_);
+}
+
 void GameScene::EnemySpawn(const Vector3& position) {
 	Enemy* newEnemy = new Enemy();
 
@@ -632,7 +948,20 @@ void GameScene::EnemySpawn(const Vector3& position) {
 	newEnemy->SetGameScene(this);
 	newEnemy->SetCamera(&camera_);
 
-	newEnemy->Initialize(modelEnemy_, spawnPosWorld);
+	// ゴール用モデル（ボールと同じ）で初期化し完全停止させる
+	newEnemy->Initialize(modelGoal_ ? modelGoal_ : modelEnemy_, spawnPosWorld);
+	newEnemy->Freeze();
+	// 当たり判定半径 3.0 でスケールも同じにして可視化
+	// → ボールモデルがそのまま「当たる範囲の球」として機能する
+	newEnemy->SetGoalScale(3.0f);
+
+	// カメラとプレイヤーが「正確なゴール位置」を常に参照できるよう同期
+	railCamera_->SetGoalPosition(spawnPosWorld);
+	if (player_) {
+		player_->SetGoalPosition(spawnPosWorld);
+	}
+	SetPlayAreaCenter(spawnPosWorld);
+	SpawnWaterPonds(spawnPosWorld);
 
 	enemies_.push_back(newEnemy);
 }
@@ -720,6 +1049,24 @@ void GameScene::CheckAllCollisions() {
 	// 		}
 	// 	}
 	// }
+
+	// --- ゴルフ: 池に落ちたらゲームオーバー ---
+	for (WaterPond* pond : waterPonds_) {
+		if (!pond) {
+			continue;
+		}
+		const KamataEngine::Vector3 pondCenter = pond->GetCenter();
+		const float pdx = posA[0].x - pondCenter.x;
+		const float pdz = posA[0].z - pondCenter.z;
+		const float checkRadius = pond->GetBoundingRadius() + playerRadius;
+		if (pdx * pdx + pdz * pdz > checkRadius * checkRadius) {
+			continue;
+		}
+		if (pond->CheckBallFallIn(posA[0], playerRadius)) {
+			TransitionToClearScene2();
+			return;
+		}
+	}
 
 	// --- ゴルフ: ボール（自機） vs 穴（敵） → ホールインワン ---
 	// 穴に当たったらホールインワン成功としてクリア演出へ
