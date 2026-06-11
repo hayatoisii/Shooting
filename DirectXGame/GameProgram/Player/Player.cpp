@@ -13,9 +13,34 @@
 #include <cstdio>
 #include <vector>
 
+namespace {
+constexpr float kClubScale      = 1.85f;
+constexpr float kClubHeadLocalY = 2.2f; // モデル原点→ヘッド（-Y）の距離
+// \ の基本傾き（この符号域のまま振る。π/2 を跨ぐと / に反転する）
+constexpr float kClubLieImpact = -1.02f;
+constexpr float kClubLieBack   = -1.50f;
+
+KamataEngine::Vector3 RotateClubLocal(float yaw, float rz, const KamataEngine::Vector3& local) {
+	const float cz = std::cosf(rz);
+	const float sz = std::sinf(rz);
+	const float x1 = cz * local.x - sz * local.y;
+	const float y1 = sz * local.x + cz * local.y;
+	const float z1 = local.z;
+	const float cy = std::cosf(yaw);
+	const float sy = std::sinf(yaw);
+	return {cy * x1 + sy * z1, y1, -sy * x1 + cy * z1};
+}
+
+KamataEngine::Vector3 ClubHeadOffset(float yaw, float rz) {
+	return RotateClubLocal(yaw, rz, {0.0f, -kClubHeadLocalY * kClubScale, 0.0f});
+}
+} // namespace
+
 Player::Player() { state_ = PlayerStateNormal::Instance(); }
 
 Player::~Player() {
+	delete modelArrow_;
+	delete modelPutter_;
 	delete modelbullet_;
 	delete modelParticle_;
 	delete engineExhaust_;
@@ -28,11 +53,15 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	assert(model);
 	model_ = model;
 	camera_ = camera;
+	modelArrow_ = KamataEngine::Model::CreateFromOBJ("yazirusi", true);
+	modelPutter_ = KamataEngine::Model::CreateFromOBJ("goruhukurabu", true);
 	modelbullet_ = KamataEngine::Model::CreateFromOBJ("Bullet", true);
 	input_ = KamataEngine::Input::GetInstance();
 	audio_ = KamataEngine::Audio::GetInstance();
-	if (audio_)
+	if (audio_) {
 		hitPlayerSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
+		ballRestSoundHandle_  = audio_->LoadWave("./sound/Attack.wav");
+	}
 
 	// Initialize() を先に呼んでからポジションを設定（逆順だと translation_ がリセットされる）
 	worldtransfrom_.Initialize();
@@ -235,14 +264,18 @@ void Player::UpdateAimArrow() {
 		angle = cameraYaw_ + aimAngle_;
 	}
 
-	const float kArrowDist = 2.5f;
+	const float kArrowDist = 3.4f;
+	const float kArrowMeshLen = 1.85f;
+	const float kArrowVisualLen = 1.8f;
+	const float kArrowScaleXZ = 0.35f;
+	const float kArrowScaleY = kArrowVisualLen / kArrowMeshLen;
 	arrowTransform_.translation_ = {
 		worldtransfrom_.translation_.x + std::sin(angle) * kArrowDist,
 		worldtransfrom_.translation_.y,
 		worldtransfrom_.translation_.z + std::cos(angle) * kArrowDist
 	};
 	arrowTransform_.rotation_  = {0.0f, angle, 0.0f};
-	arrowTransform_.scale_     = {0.3f, 0.3f, 1.8f};
+	arrowTransform_.scale_     = {kArrowScaleXZ, kArrowScaleXZ, -kArrowScaleY};
 	arrowTransform_.UpdateMatrix();
 }
 
@@ -268,18 +301,26 @@ void Player::BeginAimingHeight() {
 	ChangeState(PlayerStateAimingHeight::Instance());
 }
 
-// 高さ矢印アニメ: ロフト角を min ↔ max で往復（空中なら下向きも許容）
+// 高さ矢印アニメ: 地面=ロフト角往復、空中=左右照準と同様に360°回転
 void Player::UpdateAimHeight() {
-	float minAngle = isAirAiming_ ? kHeightAirMinAngle_ : kHeightMinAngle_;
-	float speed    = isAirAiming_ ? kHeightSpeed_ * 0.5f * 1.3f : kHeightSpeed_;
-	heightTimer_ += speed;
-	float mid  = (kHeightMaxAngle_ + minAngle) * 0.5f;
-	float half = (kHeightMaxAngle_ - minAngle) * 0.5f;
-	heightAngle_ = mid + half * std::sin(heightTimer_);
+	if (isAirAiming_) {
+		float speed = kHeightSpeed_ * 0.5f * 1.3f;
+		heightTimer_ += speed;
+		const float kPI2 = 3.14159265f * 2.0f;
+		heightAngle_ = std::fmod(heightTimer_, kPI2);
+	} else {
+		heightTimer_ += kHeightSpeed_;
+		float mid  = (kHeightMaxAngle_ + kHeightMinAngle_) * 0.5f;
+		float half = (kHeightMaxAngle_ - kHeightMinAngle_) * 0.5f;
+		heightAngle_ = mid + half * std::sin(heightTimer_);
+	}
 
-	// 横矢印と同じ: 中心をボールから 2.5 前方に置き、長さ 1.8
+	// 横矢印と同じ: 中心をボールから前方に置き、長さ 1.8
 	const float kArrowLen  = 1.8f;
-	const float kCenterDist = 2.5f; // 横矢印の kArrowDist と統一
+	const float kArrowMeshLen = 1.85f;
+	const float kCenterDist = 3.4f;
+	const float kArrowScaleXZ = 0.35f;
+	const float kArrowScaleY = kArrowLen / kArrowMeshLen;
 
 	// 矢印が向く3次元方向ベクトル（Y回転=方向、X回転=仰角）
 	float yaw   = lockedArrowAngle_;
@@ -289,14 +330,13 @@ void Player::UpdateAimHeight() {
 	float dirZ  = std::cos(yaw) * std::cos(pitch);
 
 	// 矢印の中心 = ボール位置 + 向き × kCenterDist
-	// 根元は kCenterDist-kArrowLen/2 = 1.6 でボールの外側になる
 	arrowHeightTransform_.translation_ = {
 		worldtransfrom_.translation_.x + dirX * kCenterDist,
 		worldtransfrom_.translation_.y + dirY * kCenterDist,
 		worldtransfrom_.translation_.z + dirZ * kCenterDist
 	};
 	arrowHeightTransform_.rotation_ = {-heightAngle_, lockedArrowAngle_, 0.0f};
-	arrowHeightTransform_.scale_    = {0.3f, 0.3f, kArrowLen};
+	arrowHeightTransform_.scale_    = {kArrowScaleXZ, kArrowScaleXZ, -kArrowScaleY};
 	arrowHeightTransform_.UpdateMatrix();
 }
 
@@ -335,29 +375,49 @@ bool Player::IsGauging() const {
 	return state_ == PlayerStateGauging::Instance();
 }
 
-// スイング演出の更新: パターが弧を描いてボールを打つ
-// 完了したら true を返す
+// スイング: rotY=打ち方向, rotZ=\+振り下ろしのみ（rotX は使わない）
 bool Player::UpdateSwingAnimation() {
 	swingTimer_ += 1.0f;
 
 	const float t = swingTimer_ / kSwingDuration_;
 
-	// パターは斜め手前に配置（打つ方向と直交する位置）
-	// lockedArrowAngle_ を使って打つ方向の左側から振り下ろす
-	const float kPutterDist  = 2.2f;   // ボールからの距離
-	const float kPutterOffsetY = 0.8f; // 少し上
+	const float yaw      = lockedArrowAngle_;
+	const float flatFwdX = std::sinf(yaw);
+	const float flatFwdZ = std::cosf(yaw);
 
-	// 打つ方向に直交する左側（打つ方向角度 - 90度）に配置
-	const float sideAngle = lockedArrowAngle_ - 3.14159265f * 0.5f;
+	// Z 回転だけで \ をテイクバック → インパクト
+	float swingRz = kClubLieImpact;
+	if (t < 0.30f) {
+		const float u = t / 0.30f;
+		swingRz = kClubLieImpact + (kClubLieBack - kClubLieImpact) * (0.5f - 0.5f * std::cosf(u * 3.14159265f));
+	} else {
+		const float u = (t - 0.30f) / 0.70f;
+		const float eased = 0.5f - 0.5f * std::cosf(u * 3.14159265f);
+		swingRz = kClubLieBack + (kClubLieImpact - kClubLieBack) * eased;
+	}
+
+	const KamataEngine::Vector3 ball = worldtransfrom_.translation_;
+
+	float pullBack = 0.0f;
+	if (t < 0.30f) {
+		const float u = t / 0.30f;
+		pullBack = 1.15f * (0.5f - 0.5f * std::cosf(u * 3.14159265f));
+	} else {
+		const float u = (t - 0.30f) / 0.70f;
+		pullBack = 1.15f * (0.5f + 0.5f * std::cosf(u * 3.14159265f));
+	}
+
+	// 棒の中心（モデル原点）をピボットに固定。インパクト時にヘッドがボールへ届く位置を逆算
+	const KamataEngine::Vector3 headAtImpact = ClubHeadOffset(yaw, kClubLieImpact);
+	constexpr float kCenterLift     = 0.35f;
+	constexpr float kClubExtraFront = 0.55f;
 	putterTransform_.translation_ = {
-		worldtransfrom_.translation_.x + std::sin(sideAngle) * kPutterDist,
-		worldtransfrom_.translation_.y + kPutterOffsetY,
-		worldtransfrom_.translation_.z + std::cos(sideAngle) * kPutterDist
+	    ball.x - headAtImpact.x - flatFwdX * (kClubExtraFront + pullBack),
+	    ball.y - headAtImpact.y + kCenterLift,
+	    ball.z - headAtImpact.z - flatFwdZ * (kClubExtraFront + pullBack)
 	};
-
-	// X軸スイング + 左側からの振り下ろしY傾き
-	const float swingAngle = 3.14159265f * 0.8f * std::sin(t * 3.14159265f);
-	putterTransform_.rotation_ = {swingAngle, lockedArrowAngle_ - 3.14159265f * 0.5f, 0.0f};
+	putterTransform_.rotation_ = {0.0f, yaw, swingRz};
+	putterTransform_.scale_    = {kClubScale, kClubScale, kClubScale};
 	putterTransform_.UpdateMatrix();
 
 	return t >= 1.0f;
@@ -381,6 +441,16 @@ void Player::LaunchBall() {
 	// 軌跡リセット（新しいショットの軌跡を新鮮に）
 	ballTrail_.clear();
 	trailSpawnTimer_ = 0;
+
+	if (audio_) {
+		audio_->playAudio(hitPlayerSound_, hitPlayerSoundHandle_, false, 0.5f);
+	}
+}
+
+void Player::PlayBallRestSe() {
+	if (audio_) {
+		audio_->playAudio(ballRestSound_, ballRestSoundHandle_, false, 0.5f);
+	}
 }
 
 void Player::ChangeState(PlayerState* newState) {
@@ -614,7 +684,7 @@ int Player::GetMaxHp() const { return kMaxHp_; }
 float Player::GetCollisionRadius() const { return 0.8f; }
 
 float Player::GetBallDrawAlpha() const {
-	const float kGoalRadius = 3.0f;
+	const float kGoalRadius = 4.5f;
 	const float kMinAlpha = 0.30f; // 重なったときの最小透明度
 
 	float dgx = goalPosition_.x - worldtransfrom_.translation_.x;
@@ -866,9 +936,11 @@ void Player::Draw() {
 			float yaw   = std::atan2(dirX, dirZ);
 			float pitch = std::atan2(dirY, horiz);
 			goalDirArrowTransform_.rotation_ = {-pitch, yaw, 0.0f};
-			goalDirArrowTransform_.scale_    = {0.3f, 0.3f, kArrowLen};
+			goalDirArrowTransform_.scale_    = {0.35f, 0.35f, -(kArrowLen / 1.85f)};
 			goalDirArrowTransform_.UpdateMatrix();
-			model_->Draw(goalDirArrowTransform_, *camera_);
+			if (modelArrow_) {
+				modelArrow_->Draw(goalDirArrowTransform_, *camera_);
+			}
 		}
 	}
 
@@ -889,18 +961,24 @@ void Player::Draw() {
 	if (state_ == PlayerStateAiming::Instance() ||
 	    state_ == PlayerStateAimingHeight::Instance() ||
 	    state_ == PlayerStateGauging::Instance()) {
-		model_->Draw(arrowTransform_, *camera_);
+		if (modelArrow_) {
+			modelArrow_->Draw(arrowTransform_, *camera_);
+		}
 	}
 
 	// 高さ矢印（高さ照準中とゲージ中に表示）
 	if (state_ == PlayerStateAimingHeight::Instance() ||
 	    state_ == PlayerStateGauging::Instance()) {
-		model_->Draw(arrowHeightTransform_, *camera_);
+		if (modelArrow_) {
+			modelArrow_->Draw(arrowHeightTransform_, *camera_);
+		}
 	}
 
 	// パター（スイング状態のときのみ描画）
 	if (state_ == PlayerStateSwing::Instance()) {
-		model_->Draw(putterTransform_, *camera_);
+		if (modelPutter_) {
+			modelPutter_->Draw(putterTransform_, *camera_);
+		}
 	}
 
 	if (engineExhaust_) {

@@ -25,6 +25,7 @@ void PlayerStateNormal::Update(Player& player) {
 
 	// 地面に接地＆ほぼ停止したら即座に照準開始（毎回 SPACE を押す手間を省く）
 	if (player.IsOnGround() && player.IsVelocityNearZero()) {
+		player.PlayBallRestSe();
 		player.BeginAiming();
 	}
 }

@@ -91,6 +91,8 @@ public:
 	void BeginSwing();
 	// 打撃: ボールにZ＋Y の初速を与える
 	void LaunchBall();
+	// ボールが地面で静止したときの SE
+	void PlayBallRestSe();
 	// 地面に接地しているか
 	bool IsOnGround() const { return worldtransfrom_.translation_.y <= groundY_ + 0.01f; }
 	// 速度がほぼゼロか（完全停止判定）
@@ -150,6 +152,8 @@ private:
 
 	KamataEngine::WorldTransform worldtransfrom_;
 	KamataEngine::Model* model_ = nullptr;
+	KamataEngine::Model* modelArrow_ = nullptr;
+	KamataEngine::Model* modelPutter_ = nullptr;
 	KamataEngine::Camera* camera_ = nullptr;
 	KamataEngine::Input* input_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
@@ -166,6 +170,8 @@ private:
 
 	int hitPlayerSoundHandle_ = 0;
 	int hitPlayerSound_ = -1;
+	int ballRestSoundHandle_ = 0;
+	int ballRestSound_ = -1;
 
 	KamataEngine::Model* modelParticle_ = nullptr;
 	ParticleEmitter* engineExhaust_ = nullptr;

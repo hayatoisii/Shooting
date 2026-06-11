@@ -3,6 +3,11 @@
 #include <cstdlib>
 
 namespace {
+// ike.obj の XZ 直径（単位スケール時）。cube は 1.0 だったためスケール補正が必要
+constexpr float kPondModelDiameter = 2.85285f;
+// 地面との Z ファイト防止（描画のみ少し浮かせる）
+constexpr float kPondDrawFloatY = 1.2f;
+
 float Rand01(int& seed) {
 	seed = seed * 1103515245 + 12345;
 	return static_cast<float>((seed / 65536) % 32768) / 32768.0f;
@@ -147,7 +152,7 @@ void WaterPond::Initialize(KamataEngine::Model* model, const KamataEngine::Vecto
 	boundingRadius_ = 0.0f;
 
 	objectColor_.Initialize();
-	objectColor_.SetColor({0.15f, 0.50f, 0.95f, 0.90f});
+	objectColor_.SetColor({1.0f, 1.0f, 1.0f, 1.0f});
 
 	for (const PondPart& part : parts_) {
 		const float extent = std::sqrtf(part.offsetX * part.offsetX + part.offsetZ * part.offsetZ) + part.radius;
@@ -167,33 +172,33 @@ void WaterPond::Draw(const KamataEngine::Camera& camera) {
 		return;
 	}
 	const float kThickness = 0.15f;
-	// 複数パーツも外接円1枚で描画（重なりによる半透明のギザギザを防ぐ）
 	const float diameter = boundingRadius_ * 2.0f;
+	const float modelScaleXZ = diameter / kPondModelDiameter;
+	const float modelScaleY  = kThickness / kPondModelDiameter;
+	// 複数パーツも外接円1枚で描画（重なりによる半透明のギザギザを防ぐ）
 	drawTransform_->translation_ = {
 	    center_.x,
-	    center_.y + drawLayerOffsetY_,
+	    center_.y + drawLayerOffsetY_ + kPondDrawFloatY,
 	    center_.z
 	};
-	drawTransform_->scale_ = {diameter, kThickness, diameter};
+	drawTransform_->scale_ = {modelScaleXZ, modelScaleY, modelScaleXZ};
 	drawTransform_->UpdateMatrix();
 	model_->Draw(*drawTransform_, camera, &objectColor_);
 }
 
 bool WaterPond::CheckBallFallIn(const KamataEngine::Vector3& ballPos, float ballRadius) const {
-	// 高い位置を通過中は除外（低い位置で池に入ったらアウト）
-	const float kMaxHeightAboveGround = ballRadius + 2.5f;
-	if (ballPos.y > kMaxHeightAboveGround) {
+	// 水面より十分高い位置を通過中は除外
+	const float kMaxHeightAboveSurface = ballRadius + 3.0f;
+	if (ballPos.y > surfaceY_ + kMaxHeightAboveSurface) {
 		return false;
 	}
 
-	// 見た目（外接円）と一致する判定
 	const float dx = ballPos.x - center_.x;
 	const float dz = ballPos.z - center_.z;
-	float innerRadius = boundingRadius_ - ballRadius * 0.2f;
-	if (innerRadius < 0.0f) {
-		innerRadius = 0.0f;
-	}
-	return (dx * dx + dz * dz) <= (innerRadius * innerRadius);
+
+	// 見た目（外接円1枚）と一致: ボール半径分だけ広げて判定
+	const float hitRadius = boundingRadius_ + ballRadius;
+	return (dx * dx + dz * dz) <= (hitRadius * hitRadius);
 }
 
 KamataEngine::Vector3 WaterPond::GetCenter() const {

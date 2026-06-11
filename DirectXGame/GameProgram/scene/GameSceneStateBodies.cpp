@@ -4,17 +4,6 @@
 
 // タイトル画面の更新本体
 void GameScene::UpdateStateBody_Start() {
-	titleAnimationTimer_++;
-	const int32_t cycleFrames = kTitleRotateFrames + kTitlePauseFrames;
-	int32_t timeInCycle = titleAnimationTimer_ % cycleFrames;
-	if (timeInCycle < kTitleRotateFrames) {
-		float progress = static_cast<float>(timeInCycle) / kTitleRotateFrames;
-		float easedProgress = (1.0f - cosf(progress * 3.14159265f)) / 2.0f;
-		worldTransformTitleObject_.rotation_.y = easedProgress * (2.0f * 3.14159265f);
-	} else {
-		worldTransformTitleObject_.rotation_.y = 0.0f;
-	}
-	worldTransformTitleObject_.UpdateMatrix();
 }
 
 // 画面遷移（拡大）の更新本体
@@ -127,16 +116,14 @@ void GameScene::UpdateStateBody_Game() {
 
 		CheckAllCollisions();
 
-		UpdateBoundaryWall();
-
 		// ゴルフ: ゴールまでの残り距離（メートル）を毎フレーム更新
-		if (player_) {
-			KamataEngine::Vector3 ballPos = player_->GetWorldPosition();
-			KamataEngine::Vector3 goalPos = railCamera_->GetGoalPosition();
-			float dx = goalPos.x - ballPos.x;
-			float dz = goalPos.z - ballPos.z;
+		if (player_ && railCamera_) {
+			const KamataEngine::Vector3 ballPos = player_->GetWorldPosition();
+			const KamataEngine::Vector3 goalPos = railCamera_->GetGoalPosition();
+			const float dx = goalPos.x - ballPos.x;
+			const float dz = goalPos.z - ballPos.z;
 			int remaining = static_cast<int>(std::sqrtf(dx * dx + dz * dz));
-			if (remaining < 0) remaining = 0;
+			remaining = (std::max)(0, remaining);
 			if (remaining != score_) {
 				score_ = remaining;
 				UpdateScoreSprites();
@@ -168,8 +155,11 @@ void GameScene::UpdateStateBody_Game() {
 				if (enemy && !enemy->IsDead() && activeEnemyCount < kMaxMinimapEnemies_) {
 					KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
 					KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(enemyPos, playerPos);
+					float goalMarkerSize = 8.0f;
+					ClampMinimapSpriteMarker(minimapPos, goalMarkerSize);
 					KamataEngine::Sprite* goalIcon = minimapEnemySprites_[activeEnemyCount];
 					goalIcon->SetPosition(minimapPos);
+					goalIcon->SetSize({goalMarkerSize, goalMarkerSize});
 					// greenBox は緑チャンネルのみなので (1,0,0) 乗算では黒になる → 赤テクスチャを使用
 					if (minimapEnemyBulletTextureHandle_ != 0) {
 						goalIcon->SetTextureHandle(minimapEnemyBulletTextureHandle_);
@@ -187,7 +177,10 @@ void GameScene::UpdateStateBody_Game() {
 					break;
 				KamataEngine::Vector3 bpos = eb->GetWorldPosition();
 				KamataEngine::Vector2 bmin = ConvertWorldToMinimap(bpos, playerPos);
+				float bulletMarkerSize = 6.0f;
+				ClampMinimapSpriteMarker(bmin, bulletMarkerSize);
 				minimapEnemyBulletSprites_[activeBulletCount]->SetPosition(bmin);
+				minimapEnemyBulletSprites_[activeBulletCount]->SetSize({bulletMarkerSize, bulletMarkerSize});
 				activeBulletCount++;
 			}
 
@@ -291,23 +284,11 @@ void GameScene::UpdateStateBody_Clear() {
 	}
 }
 
-// ゲームオーバー演出の更新本体
+// ゲームオーバー（演出なし・スプライト表示のみ）
 void GameScene::UpdateStateBody_Over() {
-	gameOverTimer_++;
-
-	if (player_) {
-		// ゲームオーバー演出は Dead 状態が担当
-		if (player_->GetState() != PlayerStateDead::Instance()) {
-			player_->ChangeState(PlayerStateDead::Instance());
-		}
-		player_->SetGameOverAnimationTime(static_cast<float>(gameOverTimer_));
-		player_->Update();
-	}
-
 	if (railCamera_) {
 		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 		cameraPositionAnchor_.UpdateMatrix();
-
 		camera_.matView = railCamera_->GetViewProjection().matView;
 		camera_.matProjection = railCamera_->GetViewProjection().matProjection;
 		camera_.TransferMatrix();
@@ -318,6 +299,8 @@ void GameScene::UpdateStateBody_Over() {
 void GameScene::ResetToTitle() {
 	debug10ElapsedSec_ = 0.0f;
 	gameOverTimer_ = 0;
+	currentStage_ = 1;
+	confettiActive_ = false;
 
 	camera_.Initialize();
 	camera_.TransferMatrix();
@@ -348,6 +331,11 @@ void GameScene::ResetToTitle() {
 	}
 	meteorites_.clear();
 	meteoriteSpawnTimer_ = 0;
+
+	for (WaterPond* pond : waterPonds_) {
+		delete pond;
+	}
+	waterPonds_.clear();
 
 	LoadEnemyPopData();
 	hasSpawnedEnemies_ = false;

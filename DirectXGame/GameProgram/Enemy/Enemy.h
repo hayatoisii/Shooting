@@ -54,10 +54,10 @@ public:
 			goalColorReady_ = true;
 		}
 	}
-	// モデルスケールと当たり判定半径をまとめて設定（可視化用）
-	void SetGoalScale(float radius) {
-		collisionRadius_ = radius;
-		worldtransfrom_.scale_ = {radius, radius, radius};
+	// モデルスケール（見た目）と当たり判定半径を別々に設定
+	void SetGoalScale(float visualRadius, float collisionScale = 1.0f) {
+		collisionRadius_ = visualRadius * collisionScale;
+		worldtransfrom_.scale_ = {visualRadius, visualRadius, visualRadius};
 	}
 	// 画面内判定
 	bool IsOnScreen() const { return isOnScreen_; }

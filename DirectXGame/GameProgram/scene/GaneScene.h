@@ -47,6 +47,17 @@ public:
 
 	void TransitionToClearScene2();
 
+	void LoadStage(int stage);
+	void AdvanceToNextStage();
+	void SpawnGoalAt(const Vector3& worldPos);
+	static Vector3 GetStageGoalPosition(int stage);
+
+	static const int kMaxStage_ = 2;
+	static inline const float kGoalScaleRadius_ = 4.5f;
+	// 見た目より当たり判定だけ広げる（ホールインの取りこぼし防止）
+	static inline const float kGoalCollisionScale_ = 1.3f;
+	int currentStage_ = 1;
+
 	void AddEnemyBullet(EnemyBullet* enemyBullet);
 	const std::list<EnemyBullet*>& GetEnemyBullets() const { return enemyBullets_; }
 
@@ -86,6 +97,8 @@ private:
 	Player* player_ = nullptr;
 	Skydome* skydome_ = nullptr;
 	Model* modelSkydome_ = nullptr;
+	Skydome* zimenn_ = nullptr;
+	Model* modelZimenn_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
 
 	// --- ゴルフ用: 地面（当たり判定のみ・描画はスカイドームで後から差し替え） ---
@@ -101,7 +114,7 @@ private:
 	const float kPlayAreaRadius_ = 2000.0f;
 	// 池配置: ゴール中心からこの半径以内（移動上限より少し狭い）
 	const float kPondSpawnRadius_ = 1900.0f;
-	const float kPondGlobalScale_ = 20.0f;
+	const float kPondGlobalScale_ = 40.0f;
 	// 空中打ち直し回数表示（標準サイズ、ホイール引き時のみ縮小）
 	const float kAirShotBaseSize_ = 64.0f;
 	// プレーエリア境界壁（境界100以内で3Dパネル1枚を表示）
@@ -162,15 +175,14 @@ private:
 	std::stringstream enemyPopCommands;
 	std::list<Enemy*> enemies_;
 
-	int32_t titleAnimationTimer_ = 0;
-	const int32_t kTitleRotateFrames = 60;
-	const int32_t kTitlePauseFrames = 60;
+	int32_t hitCount = 0;
+	int32_t hitCount2 = 0;
 
-	int hitCount = 0;
-	int hitCount2 = 0;
+	KamataEngine::Sprite* titleScreenSprite_ = nullptr;
+	uint32_t titleScreenTextureHandle_ = 0;
 
-	Model* modelTitleObject_ = nullptr;
-	WorldTransform worldTransformTitleObject_;
+	KamataEngine::Sprite* wasdSprite_ = nullptr;
+	uint32_t wasdTextureHandle_ = 0;
 
 	// 右／左キーを示すスプライト
 	KamataEngine::Sprite* lightSprite_ = nullptr; // 右キー用（表示名: light）
@@ -246,6 +258,8 @@ private:
 
 	KamataEngine::Sprite* clearSprite_ = nullptr;
 	uint32_t clearTextureHandle_ = 0;
+	KamataEngine::Sprite* gameOverSprite_ = nullptr;
+	uint32_t gameOverTextureHandle_ = 0;
 	ParticleEmitter* clearEmitter_ = nullptr;
 	int confettiSpawnTimer_ = 0;
 	bool confettiActive_ = false;
@@ -266,6 +280,7 @@ private:
 
 	uint32_t minimapTextureHandle_ = 0;
 	uint32_t greenBoxTextureHandle_ = 0;
+	uint32_t minimapPondTextureHandle_ = 0;
 	KamataEngine::Sprite* minimapSprite_ = nullptr;       // ミニマップ背景
 	KamataEngine::Sprite* minimapPlayerSprite_ = nullptr; // ミニマップ上の自機アイコン
 
@@ -291,6 +306,13 @@ private:
 
 	/// <returns>ミニマップ上のスクリーン座標</returns>
 	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);
+	// ミニマップに映るワールド範囲内か（XZ のみ）
+	bool IsWithinMinimapWorldRange(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos) const;
+	// マーカー中心とサイズをミニマップ矩形内に収める（ゴールなど小さいアイコン用）
+	void ClampMinimapSpriteMarker(KamataEngine::Vector2& pos, float& size) const;
+	// 池マーカー: 位置をずらさず、全体がミニマップ内に収まるときだけ表示
+	bool IsMinimapMarkerFullyInside(const KamataEngine::Vector2& pos, float size) const;
+	void CapMinimapMarkerSize(float& size) const;
 
 	// 最後に記録したプレイヤー位置（ミニマップ回転の判定用）
 	KamataEngine::Vector3 lastPlayerPos_ = {0.0f, 0.0f, 0.0f};

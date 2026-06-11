@@ -41,13 +41,14 @@ void SceneStateTransitionFromGame::Update(GameScene& scene) {
 	scene.UpdateStateBody_TransitionFromGame();
 	if (scene.transitionTimer_ >= scene.kTransitionTime) {
 		scene.gameIntroTimer_ = 0.0f;
+		scene.currentStage_ = 1;
 		if (scene.player_) {
 			scene.player_->ResetStats();
 			scene.player_->SetPosition(scene.playerIntroStartPosition_);
 			scene.player_->RefreshWorldMatrix();
 		}
 		scene.isGameIntroFinished_ = false;
-		scene.UpdateEnemyPopCommands();
+		scene.LoadStage(1);
 		scene.ChangeSceneState(SceneStateGameIntro::Instance());
 	}
 }
@@ -101,15 +102,20 @@ void SceneStateClear::Update(GameScene& scene) {
 	scene.UpdateStateBody_Clear();
 	if (scene.input_->TriggerKey(DIK_SPACE)) {
 		scene.confettiActive_ = false;
-		scene.ResetToTitle();
-		scene.ChangeSceneState(SceneStateStart::Instance());
+		if (scene.currentStage_ < scene.kMaxStage_) {
+			scene.AdvanceToNextStage();
+			scene.ChangeSceneState(SceneStateGameIntro::Instance());
+		} else {
+			scene.ResetToTitle();
+			scene.ChangeSceneState(SceneStateStart::Instance());
+		}
 	}
 }
 
 // ゲームオーバー
 void SceneStateOver::Update(GameScene& scene) {
 	scene.UpdateStateBody_Over();
-	if (scene.input_->TriggerKey(DIK_SPACE) || scene.gameOverTimer_ >= 90) {
+	if (scene.input_->TriggerKey(DIK_SPACE)) {
 		scene.ResetToTitle();
 		scene.ChangeSceneState(SceneStateStart::Instance());
 	}
