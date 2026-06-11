@@ -5,8 +5,8 @@
 namespace {
 // ike.obj の XZ 直径（単位スケール時）。cube は 1.0 だったためスケール補正が必要
 constexpr float kPondModelDiameter = 2.85285f;
-// 地面との Z ファイト防止（描画のみ少し浮かせる）
-constexpr float kPondDrawFloatY = 1.2f;
+// 地面との Z ファイト防止（描画のみ浮かせる）
+constexpr float kPondDrawFloatY = 3.0f;
 
 float Rand01(int& seed) {
 	seed = seed * 1103515245 + 12345;

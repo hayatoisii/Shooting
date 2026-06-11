@@ -149,6 +149,10 @@ void Player::UpdateGolfBall() {
 		if (velocity_.y < -0.05f) {
 			// バウンド: 上向きに反発
 			velocity_.y = -velocity_.y * kBounceRestitution_;
+			// 着地・バウンドのたびに SE（飛翔中のみ。完全停止は Normal で別途）
+			if (state_ == PlayerStateFlying::Instance()) {
+				PlayBallRestSe();
+			}
 		} else {
 			// 十分小さければ完全停止
 			velocity_.y = 0.0f;
