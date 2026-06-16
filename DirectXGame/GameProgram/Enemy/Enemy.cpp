@@ -1,6 +1,7 @@
 #include "Enemy.h"
 #include "2d/Sprite.h"
 #include "EntityFactory.h"
+#include "GameBalanceAccess.h"
 #include "GaneScene.h"
 #include "KamataEngine.h"
 #include "Player.h"
@@ -70,18 +71,22 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	// 大航海のような広範囲移動の初期化（X軸とZ軸に散らばる）
 	baseX_ = pos.x;
 	baseZ_ = pos.z;
-	// 初期にランダムにスポーンする処理
-	const float kInitMaxOffset = 4000.0f;
-	currentOffsetX_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
-	currentOffsetZ_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset; // 初期位置をランダムに散らす
-	moveSpeedX_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f; // X軸方向の速度
-	moveSpeedZ_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f; // Z軸方向の速度
-	directionX_ = (rand() % 2 == 0) ? 1.0f : -1.0f; // ランダムな初期X方向
-	directionZ_ = (rand() % 2 == 0) ? 1.0f : -1.0f; // ランダムな初期Z方向
-	directionChangeIntervalX_ = static_cast<float>(rand() % 180 + 90); // 90-270フレームのランダムな間隔
-	directionChangeIntervalZ_ = static_cast<float>(rand() % 200 + 100); // 100-300フレームのランダムな間隔
+	// 初期にランダムにスポーンする処理（データドリブン: gameBalance.csv から範囲を取得）
+	const GameBalanceTable& balance = GameBalanceAccess::Get();
+	const float kInitMaxOffset = balance.GetFloat("enemyInitMaxOffset", 4000.0f);
+	currentOffsetX_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset;
+	currentOffsetZ_ = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * kInitMaxOffset;
+	moveSpeedX_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 1.0f;
+	moveSpeedZ_ = 1.0f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f;
+	directionX_ = (rand() % 2 == 0) ? 1.0f : -1.0f;
+	directionZ_ = (rand() % 2 == 0) ? 1.0f : -1.0f;
+	directionChangeIntervalX_ = balance.SampleRange("enemyDirChangeXMin", "enemyDirChangeXMax");
+	directionChangeIntervalZ_ = balance.SampleRange("enemyDirChangeZMin", "enemyDirChangeZMax");
 	directionChangeTimerX_ = 0.0f;
 	directionChangeTimerZ_ = 0.0f;
+
+	directionAxes_[0] = {&directionChangeTimerX_, &directionChangeIntervalX_, &directionX_, "enemyDirChangeXMin", "enemyDirChangeXMax"};
+	directionAxes_[1] = {&directionChangeTimerZ_, &directionChangeIntervalZ_, &directionZ_, "enemyDirChangeZMin", "enemyDirChangeZMax"};
 
 	prevRenderedX_ = baseX_ + currentOffsetX_;
 	prevRenderedZ_ = baseZ_ + currentOffsetZ_;
@@ -96,13 +101,13 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	movementState_.smoothedForward = smoothedForward_;
 	movementState_.smoothedVelocity = {0.0f, 0.0f, 0.0f};
 	movementState_.wanderAngle = (static_cast<float>(rand()) / RAND_MAX) * (2.0f * 3.14159265f);
-	movementState_.wanderJitter = 0.02f + (static_cast<float>(rand()) / RAND_MAX) * 0.03f;
-	movementState_.wanderRadius = 1200.0f + (static_cast<float>(rand()) / RAND_MAX) * 800.0f;
-	movementState_.wanderDistance = 900.0f + (static_cast<float>(rand()) / RAND_MAX) * 600.0f;
-	movementState_.desiredSpeed = (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f) * 3.0f;
-	movementState_.posSmoothFactor = 0.06f;
-	movementState_.facingSmoothFactor = 0.04f;
-	movementState_.turnSmoothFactor = 0.04f;
+	movementState_.wanderJitter = balance.SampleRange("enemyWanderJitterMin", "enemyWanderJitterMax");
+	movementState_.wanderRadius = balance.SampleRange("enemyWanderRadiusMin", "enemyWanderRadiusMax");
+	movementState_.wanderDistance = balance.SampleRange("enemyWanderDistanceMin", "enemyWanderDistanceMax");
+	movementState_.desiredSpeed = balance.SampleRange("enemyDesiredSpeedMin", "enemyDesiredSpeedMax") * balance.GetFloat("enemyDesiredSpeedMultiplier", 3.0f);
+	movementState_.posSmoothFactor = balance.GetFloat("enemyPosSmoothFactor", 0.06f);
+	movementState_.facingSmoothFactor = balance.GetFloat("enemyFacingSmoothFactor", 0.04f);
+	movementState_.turnSmoothFactor = balance.GetFloat("enemyTurnSmoothFactor", 0.04f);
 }
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() const {
@@ -137,7 +142,7 @@ void Enemy::OnCollision() {
 			GameEvent scoreEvent;
 			scoreEvent.type = GameEventType::EnemyDestroyed;
 			scoreEvent.position = GetWorldPosition();
-			scoreEvent.scoreDelta = 100;
+			scoreEvent.scoreDelta = GameBalanceAccess::Get().GetInt("enemyScore", 100);
 			eventSubject_->Notify(scoreEvent);
 		}
 	}
@@ -183,26 +188,15 @@ void Enemy::Update() {
 
 	// Fire();
 
-	// 大航海のような広範囲移動処理（X軸とZ軸に散らばって移動し続ける）
-	directionChangeTimerX_++;
-	directionChangeTimerZ_++;
-	
-	// X軸方向の変更処理
-	if (directionChangeTimerX_ >= directionChangeIntervalX_) {
-		// ランダムに方向を変更（-1.0f または 1.0f）
-		directionX_ = (rand() % 2 == 0) ? 1.0f : -1.0f;
-		// 次の方向変更までの時間をランダムに設定（90-270フレーム）
-		directionChangeTimerX_ = 0.0f;
-		directionChangeIntervalX_ = static_cast<float>(rand() % 180 + 90);
-	}
-
-	// Z軸方向の変更処理
-	if (directionChangeTimerZ_ >= directionChangeIntervalZ_) {
-		// ランダムに方向を変更（-1.0f または 1.0f）
-		directionZ_ = (rand() % 2 == 0) ? 1.0f : -1.0f;
-		// 次の方向変更までの時間をランダムに設定（100-300フレーム）
-		directionChangeTimerZ_ = 0.0f;
-		directionChangeIntervalZ_ = static_cast<float>(rand() % 200 + 100);
+	// データドリブン: X/Z 軸の方向変更を同一ループで処理
+	const GameBalanceTable& balance = GameBalanceAccess::Get();
+	for (const DirectionAxisState& axis : directionAxes_) {
+		(*axis.timer)++;
+		if (*axis.timer >= *axis.interval) {
+			*axis.direction = (rand() % 2 == 0) ? 1.0f : -1.0f;
+			*axis.timer = 0.0f;
+			*axis.interval = balance.SampleRange(axis.intervalMinKey, axis.intervalMaxKey);
+		}
 	}
 
 	// Strategy Pattern: ワンダー移動で大きな滑らかな曲線移動を実現

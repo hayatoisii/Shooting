@@ -1,6 +1,8 @@
 #pragma once
 #include "EntityFactory.h"
+#include "GameBalanceTable.h"
 #include "GameEvent.h"
+#include "SpawnCommandTable.h"
 #include "Enemy.h"
 #include "KamataEngine.h"
 #include "Player.h"
@@ -66,12 +68,14 @@ public:
 
 	// Score handling (made public so other game objects can award points)
 	void AddScore(int points);
+	void SetScoreValue(int value);
 	void UpdateScoreSprites();
 
 	// Observer Pattern: ゲームイベントの受信
 	void OnGameEvent(const GameEvent& event) override;
 
 	EntityFactory& GetEntityFactory() { return entityFactory_; }
+	const GameBalanceTable& GetBalanceTable() const { return balanceTable_; }
 
 	// State Pattern: 状態遷移と現在状態の取得
 	void ChangeSceneState(SceneStateBase* newState);
@@ -260,4 +264,8 @@ private:
 	// Factory Method + Object Pool: エンティティ生成
 	EntityFactory entityFactory_;
 	GameEventSubject gameEventSubject_;
+
+	// データドリブン: バランス値・スポーンコマンド
+	GameBalanceTable balanceTable_;
+	SpawnCommandTable spawnCommandTable_;
 };

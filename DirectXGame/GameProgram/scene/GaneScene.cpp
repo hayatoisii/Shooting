@@ -1,12 +1,15 @@
 #include "GaneScene.h"
+#include "GameBalanceAccess.h"
 #include "GameBullet.h"
 #include "GameCharacter.h"
+#include "SpawnCommandTable.h"
 #include "3d/AxisIndicator.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
+#include <unordered_map>
 
 KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine:: Vector3& end, float t) {
 	t = std::clamp(t, 0.0f, 1.0f);
@@ -25,7 +28,10 @@ float GameScene::DistanceSquared(const Vector3& v1, const Vector3& v2) {
 	return dx * dx + dy * dy + dz * dz;
 }
 
-GameScene::GameScene() { sceneState_ = SceneStateStart::Instance(); }
+GameScene::GameScene() {
+	sceneState_ = SceneStateStart::Instance();
+	RegisterDefaultSpawnCommands(spawnCommandTable_);
+}
 
 void GameScene::ChangeSceneState(SceneStateBase* newState) {
 	if (newState != nullptr && newState != sceneState_) {
@@ -97,6 +103,9 @@ void GameScene::Initialize() {
 
 	player_ = new Player();
 	gameEventSubject_.Subscribe(this);
+
+	balanceTable_.LoadFromFile("Resources/gameBalance.csv");
+	GameBalanceAccess::SetTable(&balanceTable_);
 	skydome_ = new Skydome();
 
 	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly2", true);
@@ -276,7 +285,7 @@ void GameScene::Initialize() {
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
 
 	// ホーミング弾生成タイマー初期化
-	homingSpawnTimer_ = kHomingIntervalFrames_; // 最初のショットが間隔後に発生するようタイマー初期化
+	homingSpawnTimer_ = balanceTable_.GetInt("homingIntervalFrames", kHomingIntervalFrames_);
 
 	// ミニマップ用テクスチャ等の初期化を行った後に、右/左キー表示用スプライトを初期化
 	// テクスチャ名は Resources に配置した "light.png" と "left.png" を想定
@@ -598,24 +607,14 @@ void GameScene::UpdateEnemyPopCommands() {
 	std::string line;
 	while (getline(enemyPopCommands, line)) {
 		std::istringstream line_stream(line);
-		std::string word;
-		getline(line_stream, word, ',');
+		std::string command;
+		getline(line_stream, command, ',');
 
-		if (word.find("//") == 0) {
+		if (command.empty() || command[0] == '/' || command.find("//") == 0) {
 			continue;
 		}
 
-		if (word.find("POP") == 0) {
-			getline(line_stream, word, ',');
-			float x = (float)std::atof(word.c_str());
-			getline(line_stream, word, ',');
-			float y = (float)std::atof(word.c_str());
-			getline(line_stream, word, ',');
-			float z = (float)std::atof(word.c_str());
-			EnemySpawn(Vector3(x, y, z));
-		} else if (word.find("WAIT") == 0) {
-			continue;
-		}
+		spawnCommandTable_.Execute(*this, command, line_stream);
 	}
 
 	hasSpawnedEnemies_ = true;
@@ -807,15 +806,14 @@ void GameScene::SpawnMeteorite() {
 	randomDir = KamataEngine::MathUtility::Normalize(randomDir);
 
 	// この距離に隕石が発生する
-	const float kSpawnDistance = 800.0f;
+	const float kSpawnDistance = balanceTable_.GetFloat("meteoriteSpawnDistance", 800.0f);
 
 	KamataEngine::Vector3 offset = randomDir * kSpawnDistance;
 	KamataEngine::Vector3 spawnPos = cameraPos + offset;
 
-	// スケールと半径をランダム
-	const float kBaseRadius = 2.0f;
-	const float kMinScale = 1.0f;
-	const float kMaxScale = 5.0f;
+	const float kBaseRadius = balanceTable_.GetFloat("meteoriteBaseRadius", 2.0f);
+	const float kMinScale = balanceTable_.GetFloat("meteoriteMinScale", 1.0f);
+	const float kMaxScale = balanceTable_.GetFloat("meteoriteMaxScale", 5.0f);
 
 	float randFactor = static_cast<float>(std::rand()) / RAND_MAX;
 	float randomBaseScale = kMinScale + (randFactor * (kMaxScale - kMinScale));
@@ -1035,31 +1033,55 @@ KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vecto
 	return finalPos;
 }
 
+// データドリブン: イベント種別ごとの処理テーブル（switch 分岐の代替）
+namespace {
+using GameEventHandlerFn = void (*)(GameScene&, const GameEvent&);
+
+void HandleExplosionRequested(GameScene& scene, const GameEvent& event) { scene.RequestExplosion(event.position); }
+
+void HandleEnemyDestroyed(GameScene& scene, const GameEvent& event) { scene.AddScore(event.scoreDelta); }
+
+void HandleScoreChanged(GameScene& scene, const GameEvent& event) { scene.SetScoreValue(event.totalScore); }
+
+const std::unordered_map<GameEventType, GameEventHandlerFn>& GetGameEventHandlerTable() {
+	static const std::unordered_map<GameEventType, GameEventHandlerFn> table = {
+	    {GameEventType::ExplosionRequested, HandleExplosionRequested},
+	    {GameEventType::EnemyDestroyed, HandleEnemyDestroyed},
+	    {GameEventType::ScoreChanged, HandleScoreChanged},
+	};
+	return table;
+}
+} // namespace
+
 // Observer Pattern: 衝突応答などのゲームイベントを処理
 void GameScene::OnGameEvent(const GameEvent& event) {
-	switch (event.type) {
-	case GameEventType::ExplosionRequested:
-		RequestExplosion(event.position);
-		break;
-	case GameEventType::EnemyDestroyed:
-		AddScore(event.scoreDelta);
-		break;
-	case GameEventType::ScoreChanged:
-		score_ = event.totalScore;
-		UpdateScoreSprites();
-		break;
+	const auto& table = GetGameEventHandlerTable();
+	auto it = table.find(event.type);
+	if (it != table.end()) {
+		it->second(*this, event);
 	}
 }
 
 // Score handling
+void GameScene::SetScoreValue(int value) {
+	score_ = value;
+	if (score_ < 0) {
+		score_ = 0;
+	}
+	if (score_ > kMaxScore_) {
+		score_ = kMaxScore_;
+	}
+	UpdateScoreSprites();
+}
+
 void GameScene::AddScore(int points) {
 	if (points <= 0) return;
 	score_ += points;
 	if (score_ > kMaxScore_) score_ = kMaxScore_;
 	UpdateScoreSprites();
 
-	// If score reaches or exceeds 200, request clear the scene at a safe point
-	if (GetSceneStateKind() == SceneStateKind::Game && score_ >= 600) {
+	// If score reaches threshold, request clear the scene at a safe point
+	if (GetSceneStateKind() == SceneStateKind::Game && score_ >= balanceTable_.GetInt("clearScoreThreshold", 600)) {
 		requestSceneClear_ = true;
 	}
 }

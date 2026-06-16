@@ -106,6 +106,9 @@
     </FxCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="GameProgram\Pattern\GameBalanceAccess.cpp" />
+    <ClCompile Include="GameProgram\Pattern\GameBalanceTable.cpp" />
+    <ClCompile Include="GameProgram\Pattern\SpawnCommandTable.cpp" />
     <ClCompile Include="GameProgram\Pattern\BulletMovementStrategy.cpp" />
     <ClCompile Include="GameProgram\Pattern\EnemyMovementStrategy.cpp" />
     <ClCompile Include="GameProgram\Pattern\EntityFactory.cpp" />
@@ -207,6 +210,10 @@
     <None Include="Resources\shaders\Sprite.hlsli" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="GameProgram\Pattern\ConfettiColorTable.h" />
+    <ClInclude Include="GameProgram\Pattern\GameBalanceAccess.h" />
+    <ClInclude Include="GameProgram\Pattern\GameBalanceTable.h" />
+    <ClInclude Include="GameProgram\Pattern\SpawnCommandTable.h" />
     <ClInclude Include="GameProgram\Pattern\BulletMovementStrategy.h" />
     <ClInclude Include="GameProgram\Pattern\EnemyMovementStrategy.h" />
     <ClInclude Include="GameProgram\Pattern\EntityFactory.h" />

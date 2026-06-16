@@ -1,4 +1,5 @@
 #include "GaneScene.h"
+#include "ConfettiColorTable.h"
 #include "PlayerState.h"
 #include <algorithm>
 
@@ -135,8 +136,8 @@ void GameScene::UpdateStateBody_Game() {
 		} else {
 			Enemy* shooter = nullptr;
 			KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
-			float maxDistSq = kHomingMaxDistance_ * kHomingMaxDistance_;
-			const float kMinHomingDistance = 1000.0f;
+			float maxDistSq = balanceTable_.GetFloat("homingMaxDistance", kHomingMaxDistance_) * balanceTable_.GetFloat("homingMaxDistance", kHomingMaxDistance_);
+			const float kMinHomingDistance = balanceTable_.GetFloat("homingMinDistance", 1000.0f);
 			float minDistSq = kMinHomingDistance * kMinHomingDistance;
 			for (Enemy* enemy : enemies_) {
 				if (!enemy || enemy->IsDead())
@@ -162,12 +163,13 @@ void GameScene::UpdateStateBody_Game() {
 					toPlayer.y /= len;
 					toPlayer.z /= len;
 				}
-				KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
+				const float homingSpeed = balanceTable_.GetFloat("enemyHomingBulletSpeed", kHomingBulletSpeed_);
+				KamataEngine::Vector3 vel = {toPlayer.x * homingSpeed, toPlayer.y * homingSpeed, toPlayer.z * homingSpeed};
 
-				EnemyBullet* newBullet = GetEntityFactory().CreateEnemyHomingBullet(modelEnemyBullet_, moveBullet, vel, player_, kHomingBulletSpeed_);
+				EnemyBullet* newBullet = GetEntityFactory().CreateEnemyHomingBullet(modelEnemyBullet_, moveBullet, vel, player_, homingSpeed);
 				AddEnemyBullet(newBullet);
 
-				homingSpawnTimer_ = kHomingIntervalFrames_;
+				homingSpawnTimer_ = balanceTable_.GetInt("homingIntervalFrames", kHomingIntervalFrames_);
 			}
 		}
 
@@ -244,9 +246,11 @@ void GameScene::UpdateStateBody_Clear() {
 
 	if (confettiActive_) {
 		confettiSpawnTimer_++;
-		if (confettiSpawnTimer_ >= 3) {
+		const int spawnInterval = balanceTable_.GetInt("confettiSpawnInterval", 3);
+		const int batchCount = balanceTable_.GetInt("confettiBatchCount", 6);
+		if (confettiSpawnTimer_ >= spawnInterval) {
 			confettiSpawnTimer_ = 0;
-			for (int s = 0; s < 6; ++s) {
+			for (int s = 0; s < batchCount; ++s) {
 				for (auto& c : confettiParticles_) {
 					if (!c.active && c.sprite) {
 						float x = static_cast<float>(std::rand()) / RAND_MAX * (float)WinApp::kWindowWidth;
@@ -255,46 +259,16 @@ void GameScene::UpdateStateBody_Clear() {
 						c.vel = {(static_cast<float>(std::rand()) / RAND_MAX - 0.5f) * 1.5f, 1.5f + static_cast<float>(std::rand()) / RAND_MAX * 2.0f};
 						c.rotation = (static_cast<float>(std::rand()) / RAND_MAX) * 6.28f;
 						c.rotVel = (static_cast<float>(std::rand()) / RAND_MAX - 0.5f) * 0.2f;
-						c.life = 120 + (MT::GetRand() % 120);
+						const int lifeMin = balanceTable_.GetInt("confettiLifeMin", 120);
+						const int lifeRange = balanceTable_.GetInt("confettiLifeRange", 120);
+						c.life = lifeMin + (MT::GetRand() % lifeRange);
 						c.age = 0;
 						c.active = true;
 
-						float r, g, b;
-						int pattern = std::rand() % 6;
+						const ConfettiColorPattern& pattern = PickConfettiColorPattern(std::rand() % static_cast<int>(kConfettiColorPatterns.size()));
 						float randomValue = static_cast<float>(std::rand()) / RAND_MAX;
-						switch (pattern) {
-						case 0:
-							r = 1.0f;
-							g = randomValue;
-							b = 0.0f;
-							break;
-						case 1:
-							r = randomValue;
-							g = 1.0f;
-							b = 0.0f;
-							break;
-						case 2:
-							r = 0.0f;
-							g = 1.0f;
-							b = randomValue;
-							break;
-						case 3:
-							r = 0.0f;
-							g = randomValue;
-							b = 1.0f;
-							break;
-						case 4:
-							r = randomValue;
-							g = 0.0f;
-							b = 1.0f;
-							break;
-						default:
-							r = 1.0f;
-							g = 0.0f;
-							b = randomValue;
-							break;
-						}
-						c.sprite->SetColor({r, g, b, 1.0f});
+						KamataEngine::Vector4 color = MakeConfettiColor(pattern, randomValue);
+						c.sprite->SetColor(color);
 						c.sprite->SetPosition(c.pos);
 						c.sprite->SetRotation(c.rotation);
 						break;

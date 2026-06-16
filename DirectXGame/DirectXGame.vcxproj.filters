@@ -93,6 +93,15 @@
     <ClCompile Include="GameProgram\MT\worldTransformEx.cpp">
       <Filter>GameProgram\MT</Filter>
     </ClCompile>
+    <ClCompile Include="GameProgram\Pattern\GameBalanceAccess.cpp">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Pattern\GameBalanceTable.cpp">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Pattern\SpawnCommandTable.cpp">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClCompile>
     <ClCompile Include="GameProgram\Pattern\BulletMovementStrategy.cpp">
       <Filter>GameProgram\Pattern</Filter>
     </ClCompile>
@@ -209,6 +218,18 @@
     </ClInclude>
     <ClInclude Include="GameProgram\MT\worldTransformEx.h">
       <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\ConfettiColorTable.h">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\GameBalanceAccess.h">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\GameBalanceTable.h">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\SpawnCommandTable.h">
+      <Filter>GameProgram\Pattern</Filter>
     </ClInclude>
     <ClInclude Include="GameProgram\Pattern\BulletMovementStrategy.h">
       <Filter>GameProgram\Pattern</Filter>

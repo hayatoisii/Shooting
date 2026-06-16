@@ -10,6 +10,7 @@
 #include "GaneScene.h"
 #include "GameEvent.h"
 #include "EnemyMovementStrategy.h"
+#include <array>
 
 // 前方宣言
 namespace KamataEngine { class Sprite; }
@@ -127,10 +128,21 @@ private:
 	float moveSpeedZ_ = 1.5f; // Z軸方向の移動速度
 	float directionX_ = 1.0f; // X軸移動方向（1.0f = 右、-1.0f = 左）
 	float directionZ_ = 1.0f; // Z軸移動方向（1.0f = 前、-1.0f = 後）
-	float directionChangeTimerX_ = 0.0f; // X軸方向変更タイマー
-	float directionChangeTimerZ_ = 0.0f; // Z軸方向変更タイマー
-	float directionChangeIntervalX_ = 120.0f; // X軸方向を変更する間隔（フレーム、ランダムに変動）
-	float directionChangeIntervalZ_ = 150.0f; // Z軸方向を変更する間隔（フレーム、ランダムに変動）
+
+	// データドリブン: X/Z 軸で同じ処理・異なるパラメータをテーブル化
+	struct DirectionAxisState {
+		float* timer = nullptr;
+		float* interval = nullptr;
+		float* direction = nullptr;
+		const char* intervalMinKey = nullptr;
+		const char* intervalMaxKey = nullptr;
+	};
+
+	std::array<DirectionAxisState, 2> directionAxes_;
+	float directionChangeTimerX_ = 0.0f;
+	float directionChangeTimerZ_ = 0.0f;
+	float directionChangeIntervalX_ = 120.0f;
+	float directionChangeIntervalZ_ = 150.0f;
 	const float kMaxOffsetX_ = 4500.0f; // X軸方向の最大オフセット（大航海範囲）
 	const float kMaxOffsetZ_ = 4500.0f; // Z軸方向の最大オフセット（大航海範囲）
 

@@ -1,4 +1,5 @@
 #include "BulletMovementStrategy.h"
+#include "GameBalanceAccess.h"
 
 #include "Enemy.h"
 #include "EnemyBullet.h"
@@ -59,7 +60,7 @@ BulletMovementResult HomingToEnemyMovementStrategy::Apply(PlayerBullet& bullet, 
 	KamataEngine::Vector3 toTarget = {targetPos.x - position.x, targetPos.y - position.y, targetPos.z - position.z};
 	float distance = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y + toTarget.z * toTarget.z);
 
-	const float kHitRadius = 15.0f;
+	const float kHitRadius = GameBalanceAccess::Get().GetFloat("playerBulletHomingHitRadius", 15.0f);
 	if (distance <= kHitRadius) {
 		homingTarget->OnCollision();
 		result.shouldDestroy = true;
@@ -125,7 +126,7 @@ BulletMovementResult HomingToPlayerMovementStrategy::Apply(EnemyBullet& bullet, 
 	KamataEngine::Vector3 toTarget = {targetPos.x - position.x, targetPos.y - position.y, targetPos.z - position.z};
 	float dist = std::sqrt(toTarget.x * toTarget.x + toTarget.y * toTarget.y + toTarget.z * toTarget.z);
 
-	const float kHitRange = 15.0f;
+	const float kHitRange = GameBalanceAccess::Get().GetFloat("enemyBulletHomingHitRadius", 15.0f);
 	if (dist <= kHitRange) {
 		ApplyCollisionDamage(homingTarget);
 		result.shouldDestroy = true;

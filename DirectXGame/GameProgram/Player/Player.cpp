@@ -1,5 +1,6 @@
 #include "Player.h"
 #include "EntityFactory.h"
+#include "GameBalanceAccess.h"
 #include "Enemy.h"
 #include "PlayerState.h"
 #include "RailCamera.h"
@@ -165,7 +166,7 @@ void Player::Attack() {
 
 			// --- ここまで弾発生位置の計算 ---
 
-			const float kBulletSpeed = 60.0f; // 弾速
+			const float kBulletSpeed = GameBalanceAccess::Get().GetFloat("playerBulletSpeed", 60.0f);
 			KamataEngine::Vector3 velocity;
 
 			float minDistanceSq = FLT_MAX;
@@ -278,7 +279,7 @@ void Player::Attack() {
 		}
 
 		// 連射の速度
-		shotTimer_ = 5;
+		shotTimer_ = GameBalanceAccess::Get().GetInt("shotCooldownFrames", 5);
 		isParry_ = false;
 	}
 }
