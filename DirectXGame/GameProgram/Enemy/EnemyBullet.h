@@ -32,8 +32,10 @@ public:
 
 	// ホーミング（ターゲットは GameCharacter* で保持し、Player を指す）
 	void SetHomingTarget(Player* target);
+	GameCharacter* GetHomingTarget() const { return homingTarget_; }
 	void SetHomingEnabled(bool enabled) { isHoming_ = enabled; }
 	void SetSpeed(float s) { speed_ = s; }
+	float GetSpeed() const { return speed_; }
 	bool IsHoming() const { return isHoming_; }
 
 	// 回避後のタイマーを取得（-1は未回避、0以上は残りフレーム数）
@@ -46,6 +48,11 @@ public:
 
 	void SetInvulnerableFrames(int frames) { invulnerableFrames_ = frames; }
 
+protected:
+	bool UpdateLifetime() override;
+	void ApplyMovement() override;
+	void UpdateTransform() override;
+
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
 	KamataEngine::Model* model_ = nullptr;
@@ -53,7 +60,6 @@ private:
 
 	static const int32_t kLifeTime = 60 * 10;
 	int32_t deathTimer_ = kLifeTime;
-	bool isDead_ = false;
 
 	static inline const float kWidth = 1.0f;
 	static inline const float kHeight = 1.0f;

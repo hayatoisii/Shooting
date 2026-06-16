@@ -1,5 +1,6 @@
 #include "Enemy.h"
 #include "2d/Sprite.h"
+#include "EntityFactory.h"
 #include "GaneScene.h"
 #include "KamataEngine.h"
 #include "Player.h"
@@ -86,16 +87,22 @@ void Enemy::Initialize(KamataEngine::Model* model, const KamataEngine::Vector3& 
 	prevRenderedZ_ = baseZ_ + currentOffsetZ_;
 	smoothedForward_ = {0.0f, 0.0f, 1.0f};
 
-	// ゆっくり大きく曲がる
-	wanderAngle_ = (static_cast<float>(rand()) / RAND_MAX) * (2.0f * 3.14159265f);
-	wanderJitter_ = 0.02f + (static_cast<float>(rand()) / RAND_MAX) * 0.03f;
-	wanderRadius_ = 1200.0f + (static_cast<float>(rand()) / RAND_MAX) * 800.0f;
-	wanderDistance_ = 900.0f + (static_cast<float>(rand()) / RAND_MAX) * 600.0f;
-	desiredSpeed_ = (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f) * 3.0f;
-
-	posSmoothFactor_ = 0.06f;    //  小さくすると遅れて滑らか
-	facingSmoothFactor_ = 0.04f; // 小さくするとゆっくり回る
-	turnSmoothFactor_ = 0.04f;   // 方向変化の滑らかさ
+	movementState_.baseX = baseX_;
+	movementState_.baseZ = baseZ_;
+	movementState_.currentOffsetX = currentOffsetX_;
+	movementState_.currentOffsetZ = currentOffsetZ_;
+	movementState_.prevRenderedX = prevRenderedX_;
+	movementState_.prevRenderedZ = prevRenderedZ_;
+	movementState_.smoothedForward = smoothedForward_;
+	movementState_.smoothedVelocity = {0.0f, 0.0f, 0.0f};
+	movementState_.wanderAngle = (static_cast<float>(rand()) / RAND_MAX) * (2.0f * 3.14159265f);
+	movementState_.wanderJitter = 0.02f + (static_cast<float>(rand()) / RAND_MAX) * 0.03f;
+	movementState_.wanderRadius = 1200.0f + (static_cast<float>(rand()) / RAND_MAX) * 800.0f;
+	movementState_.wanderDistance = 900.0f + (static_cast<float>(rand()) / RAND_MAX) * 600.0f;
+	movementState_.desiredSpeed = (0.6f + (static_cast<float>(rand()) / RAND_MAX) * 0.8f) * 3.0f;
+	movementState_.posSmoothFactor = 0.06f;
+	movementState_.facingSmoothFactor = 0.04f;
+	movementState_.turnSmoothFactor = 0.04f;
 }
 
 KamataEngine::Vector3 Enemy::GetWorldPosition() const {
@@ -116,17 +123,24 @@ float Enemy::GetCollisionRadius() const { return 2.0f; }
 
 const char* Enemy::GetKindName() const { return "Enemy"; }
 
-// ポリモーフィズム: Enemy 固有の被弾処理（撃破時は爆発・スコア加算）
+// ポリモーフィズム: Enemy 固有の被弾処理（撃破時は Observer 経由で爆発・スコア加算）
 void Enemy::OnCollision() {
 	hp_--;
 	if (hp_ <= 0) {
 		isDead_ = true;
-		if (gameScene_) {
-			gameScene_->RequestExplosion(GetWorldPosition());
-			// Award score for enemy death
-			gameScene_->AddScore(100);
+		if (eventSubject_ != nullptr) {
+			GameEvent explosionEvent;
+			explosionEvent.type = GameEventType::ExplosionRequested;
+			explosionEvent.position = GetWorldPosition();
+			eventSubject_->Notify(explosionEvent);
+
+			GameEvent scoreEvent;
+			scoreEvent.type = GameEventType::EnemyDestroyed;
+			scoreEvent.position = GetWorldPosition();
+			scoreEvent.scoreDelta = 100;
+			eventSubject_->Notify(scoreEvent);
 		}
-	};
+	}
 }
 
 void Enemy::Fire() {
@@ -191,34 +205,16 @@ void Enemy::Update() {
 		directionChangeIntervalZ_ = static_cast<float>(rand() % 200 + 100);
 	}
 
-	// 滑らかに補間
-	float targetX = baseX_ + currentOffsetX_;
-	float targetZ = baseZ_ + currentOffsetZ_;
-
-	// 位置を滑らかに補間
-	float renderX = prevRenderedX_ + (targetX - prevRenderedX_) * posSmoothFactor_;
-	float renderZ = prevRenderedZ_ + (targetZ - prevRenderedZ_) * posSmoothFactor_;
-
-	worldtransfrom_.translation_.x = renderX;
-	worldtransfrom_.translation_.z = renderZ;
-
-	// 現在のレンダリング位置の移動ベクトル
-	KamataEngine::Vector3 moveDir = { renderX - prevRenderedX_, 0.0f, renderZ - prevRenderedZ_ };
-	float lenMove = std::sqrt(moveDir.x * moveDir.x + moveDir.z * moveDir.z);
-	if (lenMove > 0.0001f) {
-		moveDir.x /= lenMove;
-		moveDir.z /= lenMove;
-
-		smoothedForward_.x += (moveDir.x - smoothedForward_.x) * facingSmoothFactor_;
-		smoothedForward_.z += (moveDir.z - smoothedForward_.z) * facingSmoothFactor_;
-
-		// 計算した前方ベクトルからヨー角を求めてモデルに適用（モデル前方が Z+ の場合）
-		float yaw = std::atan2(smoothedForward_.x, smoothedForward_.z);
-		worldtransfrom_.rotation_.y = yaw;
-	}
-
-	prevRenderedX_ = renderX;
-	prevRenderedZ_ = renderZ;
+	// Strategy Pattern: ワンダー移動で大きな滑らかな曲線移動を実現
+	EnemyMovementResult movementResult = movementStrategy_.Update(movementState_);
+	worldtransfrom_.translation_.x = movementResult.renderX;
+	worldtransfrom_.translation_.z = movementResult.renderZ;
+	worldtransfrom_.rotation_.y = movementResult.yaw;
+	prevRenderedX_ = movementState_.prevRenderedX;
+	prevRenderedZ_ = movementState_.prevRenderedZ;
+	smoothedForward_ = movementState_.smoothedForward;
+	currentOffsetX_ = movementState_.currentOffsetX;
+	currentOffsetZ_ = movementState_.currentOffsetZ;
 
 	// Y座標は固定
 
@@ -226,64 +222,6 @@ void Enemy::Update() {
 
 	if (camera_ && targetSprite_) {
 		UpdateScreenPosition();
-	}
-
-	// ウォーカーステアリングによる大きな滑らかな曲線移動の実現
-	KamataEngine::Vector3 currentVelocity = { smoothedVelocity_.x, 0.0f, smoothedVelocity_.z };
-
-	KamataEngine::Vector3 forward = { smoothedForward_.x, 0.0f, smoothedForward_.z };
-	KamataEngine::Vector3 wanderCenter = forward;
-	{
-		float lv = wanderCenter.x * wanderCenter.x + wanderCenter.z * wanderCenter.z;
-		if (lv > 0.0001f) {
-			float inv = 1.0f / std::sqrt(lv);
-			wanderCenter.x *= inv;
-			wanderCenter.z *= inv;
-		}
-	}
-	wanderCenter.x *= wanderDistance_;
-	wanderCenter.z *= wanderDistance_;
-	wanderAngle_ += ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * wanderJitter_;
-
-	KamataEngine::Vector3 wanderPoint = { std::sin(wanderAngle_) * wanderRadius_, 0.0f, std::cos(wanderAngle_) * wanderRadius_ };
-
-	KamataEngine::Vector3 targetVelocity = { wanderCenter.x + wanderPoint.x, 0.0f, wanderCenter.z + wanderPoint.z };
-	{
-		float lv = targetVelocity.x * targetVelocity.x + targetVelocity.z * targetVelocity.z;
-		if (lv > 0.0001f) {
-			float inv = 1.0f / std::sqrt(lv);
-			targetVelocity.x *= inv * desiredSpeed_;
-			targetVelocity.z *= inv * desiredSpeed_;
-		}
-	}
-
-	smoothedVelocity_.x += (targetVelocity.x - smoothedVelocity_.x) * turnSmoothFactor_;
-	smoothedVelocity_.z += (targetVelocity.z - smoothedVelocity_.z) * turnSmoothFactor_;
-
-	{
-		float lv = smoothedVelocity_.x * smoothedVelocity_.x + smoothedVelocity_.z * smoothedVelocity_.z;
-		if (lv > 0.0001f) {
-			float inv = 1.0f / std::sqrt(lv);
-			float vx = smoothedVelocity_.x * inv;
-			float vz = smoothedVelocity_.z * inv;
-			currentOffsetX_ += vx * desiredSpeed_;
-			currentOffsetZ_ += vz * desiredSpeed_;
-			smoothedForward_.x += (vx - smoothedForward_.x) * facingSmoothFactor_;
-			smoothedForward_.z += (vz - smoothedForward_.z) * facingSmoothFactor_;
-			float yaw = std::atan2(smoothedForward_.x, smoothedForward_.z);
-			worldtransfrom_.rotation_.y = yaw;
-		}
-	}
-
-	// オフセットの値が大きくなりすぎないように制限
-	const float kMaxOffsetRadius = 4000.0f;
-	float distSq = currentOffsetX_ * currentOffsetX_ + currentOffsetZ_ * currentOffsetZ_;
-	if (distSq > kMaxOffsetRadius * kMaxOffsetRadius) {
-		float r = std::sqrt(distSq);
-		if (r > 0.0001f) {
-			currentOffsetX_ = (currentOffsetX_ / r) * kMaxOffsetRadius;
-			currentOffsetZ_ = (currentOffsetZ_ / r) * kMaxOffsetRadius;
-		}
 	}
 }
 

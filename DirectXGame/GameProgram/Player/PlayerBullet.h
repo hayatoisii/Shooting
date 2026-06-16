@@ -32,9 +32,11 @@ public:
 
 	// 追尾設定
 	void SetHomingTarget(Enemy* target) { homingTarget_ = target; }
+	Enemy* GetHomingTarget() const { return homingTarget_; }
 	void SetHomingEnabled(bool enabled) { isHomingEnabled_ = enabled; }
 	void SetHomingStrength(float strength) { homingStrength_ = strength; }
 	bool IsHomingEnabled() const { return isHomingEnabled_; }
+	float GetHomingStrength() const { return homingStrength_; }
 
 	// UpdateAimAssistで設定されたホーミングかどうかを区別するフラグ
 	void SetAimAssistHoming(bool isAimAssist) { isAimAssistHoming_ = isAimAssist; }
@@ -46,6 +48,12 @@ public:
 
 	// ロックオン済みの敵に対して、"ロックオン距離" に入ったらホーミングを開始するための保留設定
 	void SetPendingHomingTarget(Enemy* target, float lockDistance) { pendingHomingTarget_ = target; pendingLockDistance_ = lockDistance; }
+
+protected:
+	bool UpdateLifetime() override;
+	void UpdatePreMovement() override;
+	void ApplyMovement() override;
+	void UpdateTransform() override;
 
 private:
 	KamataEngine::WorldTransform worldtransfrom_;
@@ -68,7 +76,6 @@ private:
 	// 寿命<frm>
 	static const int32_t kLifeTime = 60 * 2;
 	int32_t deathTimer_ = kLifeTime;
-	bool isDead_ = false;
 
 	// ホーミング開始後のオーバーシュートチェック遅延タイマー
 	int homingCheckDelayTimer_ = 10;

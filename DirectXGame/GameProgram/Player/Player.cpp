@@ -1,4 +1,5 @@
 #include "Player.h"
+#include "EntityFactory.h"
 #include "Enemy.h"
 #include "PlayerState.h"
 #include "RailCamera.h"
@@ -205,8 +206,8 @@ void Player::Attack() {
 			velocity = KamataEngine::MathUtility::Normalize(velocity);
 			velocity = velocity * kBulletSpeed;
 
-			PlayerBullet* newBullet = new PlayerBullet();
-			newBullet->Initialize(modelbullet_, moveBullet, velocity);
+			assert(entityFactory_);
+			PlayerBullet* newBullet = entityFactory_->CreatePlayerBullet(modelbullet_, moveBullet, velocity);
 
 			// ホーミング強度
 			newBullet->SetHomingStrength(1.0f);
@@ -332,11 +333,13 @@ void Player::UpdateBullets() {
 			b->Update();
 	}
 
-	bullets_.remove_if([](PlayerBullet* bullet) {
+	bullets_.remove_if([this](PlayerBullet* bullet) {
 		if (!bullet)
 			return true;
 		if (bullet->IsDead()) {
-			delete bullet;
+			if (entityFactory_) {
+				entityFactory_->ReleasePlayerBullet(bullet);
+			}
 			return true;
 		}
 		return false;
@@ -532,8 +535,10 @@ void Player::UpdateGameOverAnimation() {
 }
 
 void Player::ResetBullets() {
-	for (PlayerBullet* bullet : bullets_) {
-		delete bullet;
+	if (entityFactory_) {
+		for (PlayerBullet* bullet : bullets_) {
+			entityFactory_->ReleasePlayerBullet(bullet);
+		}
 	}
 	bullets_.clear();
 }

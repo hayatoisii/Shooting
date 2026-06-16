@@ -11,6 +11,7 @@
 using namespace KamataEngine;
 
 class Enemy;
+class EntityFactory;
 class RailCamera;
 
 // プレイヤー（GameCharacter を継承。行動は State Pattern で切り替え）
@@ -49,6 +50,7 @@ public:
 	void SetParent(const KamataEngine::WorldTransform* parent);
 	void SetRailCamera(RailCamera* camera);
 	void SetEnemies(std::list<Enemy*>* enemies) { enemies_ = enemies; }
+	void SetEntityFactory(EntityFactory* factory) { entityFactory_ = factory; }
 
 	void ResetRotation();
 	void ResetParticles();
@@ -92,6 +94,7 @@ private:
 	std::list<PlayerBullet*> bullets_;
 
 	std::list<Enemy*>* enemies_ = nullptr;
+	EntityFactory* entityFactory_ = nullptr;
 
 	int specialTimer = 20;
 	bool isParry_ = false;

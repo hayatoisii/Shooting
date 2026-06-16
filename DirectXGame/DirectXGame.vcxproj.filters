@@ -43,6 +43,9 @@
     <Filter Include="GameProgram\MathUtility">
       <UniqueIdentifier>{f1379ecc-de4e-49ea-abd2-a99503adb3a8}</UniqueIdentifier>
     </Filter>
+    <Filter Include="GameProgram\Pattern">
+      <UniqueIdentifier>{a1b2c3d4-e5f6-7890-abcd-ef1234567890}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -89,6 +92,18 @@
     </ClCompile>
     <ClCompile Include="GameProgram\MT\worldTransformEx.cpp">
       <Filter>GameProgram\MT</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Pattern\BulletMovementStrategy.cpp">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Pattern\EnemyMovementStrategy.cpp">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Pattern\EntityFactory.cpp">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Pattern\GameEvent.cpp">
+      <Filter>GameProgram\Pattern</Filter>
     </ClCompile>
     <ClCompile Include="GameProgram\MT\AABB.cpp">
       <Filter>GameProgram\MT</Filter>
@@ -194,6 +209,21 @@
     </ClInclude>
     <ClInclude Include="GameProgram\MT\worldTransformEx.h">
       <Filter>GameProgram\MT</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\BulletMovementStrategy.h">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\EnemyMovementStrategy.h">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\EntityFactory.h">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\GameEvent.h">
+      <Filter>GameProgram\Pattern</Filter>
+    </ClInclude>
+    <ClInclude Include="GameProgram\Pattern\ObjectPool.h">
+      <Filter>GameProgram\Pattern</Filter>
     </ClInclude>
     <ClInclude Include="GameProgram\MT\AABB.h">
       <Filter>GameProgram\MT</Filter>

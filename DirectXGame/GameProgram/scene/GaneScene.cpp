@@ -77,8 +77,9 @@ GameScene::~GameScene() {
 	}
 	minimapEnemyBulletSprites_.clear();
 	for (EnemyBullet* bullet : enemyBullets_) {
-		delete bullet;
+		entityFactory_.ReleaseEnemyBullet(bullet);
 	}
+	enemyBullets_.clear();
 	for (Enemy* enemy : enemies_) {
 		delete enemy;
 	}
@@ -95,6 +96,7 @@ void GameScene::Initialize() {
 	audio_ = Audio::GetInstance();
 
 	player_ = new Player();
+	gameEventSubject_.Subscribe(this);
 	skydome_ = new Skydome();
 
 	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly2", true);
@@ -268,6 +270,7 @@ void GameScene::Initialize() {
 	player_->SetParent(&railCamera_->GetWorldTransform());
 	player_->SetRailCamera(railCamera_);
 	player_->SetEnemies(&enemies_);
+	player_->SetEntityFactory(&entityFactory_);
 
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
@@ -561,8 +564,6 @@ void GameScene::AddEnemyBullet(EnemyBullet* bullet) {
 }
 
 void GameScene::EnemySpawn(const Vector3& position) {
-	Enemy* newEnemy = new Enemy();
-
 	assert(railCamera_ && "EnemySpawn: railCamera_ が null です");
 	KamataEngine::Vector3 playerPos = railCamera_->GetWorldTransform().translation_;
 
@@ -571,12 +572,8 @@ void GameScene::EnemySpawn(const Vector3& position) {
 	spawnPosWorld.y = playerPos.y + position.y;
 	spawnPosWorld.z = playerPos.z + position.z;
 
-	newEnemy->SetPlayer(player_);
-	newEnemy->SetGameScene(this);
-	newEnemy->SetCamera(&camera_);
-
-	newEnemy->Initialize(modelEnemy_, spawnPosWorld);
-
+	Enemy* newEnemy = entityFactory_.CreateEnemy(modelEnemy_, spawnPosWorld, player_, this, &camera_);
+	newEnemy->SetEventSubject(&gameEventSubject_);
 	enemies_.push_back(newEnemy);
 }
 
@@ -765,7 +762,7 @@ void GameScene::TransitionToClearScene() {
 	}
 	enemies_.clear();
 	for (EnemyBullet* bullet : enemyBullets_) {
-		delete bullet;
+		entityFactory_.ReleaseEnemyBullet(bullet);
 	}
 	enemyBullets_.clear();
 
@@ -1036,6 +1033,22 @@ KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vecto
 	finalPos.y = std::clamp(finalPos.y, minY, maxY);
 
 	return finalPos;
+}
+
+// Observer Pattern: 衝突応答などのゲームイベントを処理
+void GameScene::OnGameEvent(const GameEvent& event) {
+	switch (event.type) {
+	case GameEventType::ExplosionRequested:
+		RequestExplosion(event.position);
+		break;
+	case GameEventType::EnemyDestroyed:
+		AddScore(event.scoreDelta);
+		break;
+	case GameEventType::ScoreChanged:
+		score_ = event.totalScore;
+		UpdateScoreSprites();
+		break;
+	}
 }
 
 // Score handling

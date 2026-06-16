@@ -1,9 +1,15 @@
 #include "PlayerBullet.h"
+#include "BulletMovementStrategy.h"
 #include "Enemy.h"
 #include "base/TextureManager.h"
 #include <algorithm>
 #include <cassert>
 #include <math.h>
+
+namespace {
+StraightBulletMovementStrategy kStraightMovement;
+HomingToEnemyMovementStrategy kHomingToEnemyMovement;
+} // namespace
 
 PlayerBullet::~PlayerBullet() { model_ = nullptr; }
 
@@ -13,6 +19,15 @@ void PlayerBullet::Initialize(KamataEngine::Model* model, const KamataEngine::Ve
 	worldtransfrom_.translation_ = position;
 	worldtransfrom_.Initialize();
 	velocity_ = velocity;
+	isDead_ = false;
+
+	homingTarget_ = nullptr;
+	isHomingEnabled_ = false;
+	isAimAssistHoming_ = false;
+	assistLockId_ = 0;
+	pendingHomingTarget_ = nullptr;
+	pendingLockDistance_ = 0.0f;
+	deathTimer_ = kLifeTime;
 
 	const float kDesiredRange = 5000.0f;
 	float speed = sqrtf(velocity_.x * velocity_.x + velocity_.y * velocity_.y + velocity_.z * velocity_.z);
@@ -32,32 +47,15 @@ float PlayerBullet::GetCollisionRadius() const { return 0.8f; }
 
 const char* PlayerBullet::GetKindName() const { return "PlayerBullet"; }
 
-// SlerpRotate関数（PlayerBullet内にも定義、あるいはヘッダーなどで共有しても良い）
-KamataEngine::Vector3 PlayerBulletSlerp(const KamataEngine::Vector3& current, const KamataEngine::Vector3& target, float maxAngle) {
-	float dot = current.x * target.x + current.y * target.y + current.z * target.z;
-	dot = std::clamp(dot, -1.0f, 1.0f);
-	float angle = std::acos(dot);
-	if (std::abs(angle) < 0.001f || std::abs(angle - 3.14159f) < 0.001f)
-		return target;
-	float t = 1.0f;
-	if (angle > maxAngle)
-		t = maxAngle / angle;
-	float sinTheta = std::sin(angle);
-	float ps = std::sin(angle * (1.0f - t)) / sinTheta;
-	float pt = std::sin(angle * t) / sinTheta;
-	KamataEngine::Vector3 result;
-	result.x = current.x * ps + target.x * pt;
-	result.y = current.y * ps + target.y * pt;
-	result.z = current.z * ps + target.z * pt;
-	return result;
-}
-
-void PlayerBullet::Update() {
+bool PlayerBullet::UpdateLifetime() {
 	if (--deathTimer_ <= 0) {
 		isDead_ = true;
-		return;
+		return false;
 	}
+	return true;
+}
 
+void PlayerBullet::UpdatePreMovement() {
 	// Pending Homing
 	if (pendingHomingTarget_ && !isHomingEnabled_) {
 		if (pendingHomingTarget_->GetAssistLockId() != assistLockId_) {
@@ -82,86 +80,30 @@ void PlayerBullet::Update() {
 			pendingLockDistance_ = 0.0f;
 		}
 	}
+}
 
-	// --- ホーミング本処理 (刷新) ---
-	if (isHomingEnabled_ && homingTarget_ && !homingTarget_->IsDead()) {
-		if (!homingTarget_->IsOnScreen()) {
-			isHomingEnabled_ = false;
-			homingTarget_ = nullptr;
-		} else {
-			KamataEngine::Vector3 targetPos = homingTarget_->GetWorldPosition();
-			KamataEngine::Vector3 bulletPos = GetWorldPosition();
-			KamataEngine::Vector3 toTarget = {targetPos.x - bulletPos.x, targetPos.y - bulletPos.y, targetPos.z - bulletPos.z};
-			float distance = sqrtf(toTarget.x * toTarget.x + toTarget.y * toTarget.y + toTarget.z * toTarget.z);
-
-			// ヒット確定距離
-			const float kHitRadius = 15.0f;
-			if (distance <= kHitRadius) {
-				homingTarget_->OnCollision();
-				isDead_ = true;
-				return;
-			}
-
-			if (distance > 0.001f) {
-				// 現在の速度（大きさ）
-				float currentSpeed = sqrtf(velocity_.x * velocity_.x + velocity_.y * velocity_.y + velocity_.z * velocity_.z);
-
-				// 正規化ベクトル
-				KamataEngine::Vector3 currentDir = velocity_;
-				if (currentSpeed > 0.001f) {
-					currentDir.x /= currentSpeed;
-					currentDir.y /= currentSpeed;
-					currentDir.z /= currentSpeed;
-				}
-
-				KamataEngine::Vector3 targetDir = toTarget;
-				targetDir.x /= distance;
-				targetDir.y /= distance;
-				targetDir.z /= distance;
-
-				// 通り過ぎ判定
-				float dot = currentDir.x * targetDir.x + currentDir.y * targetDir.y + currentDir.z * targetDir.z;
-				if (dot < -0.2f) {
-					// 通り過ぎたらホーミング終了
-					isHomingEnabled_ = false;
-				} else {
-					// ■ 回転角度制限
-					// homingStrength_ をベースに、1フレームあたりの回転角度を決める
-					// 1.0f なら 3度(0.05rad) 程度、近距離なら増やす
-
-					float baseTurn = 0.05f * homingStrength_;
-
-					// 近距離ブースト
-					if (distance < 500.0f) {
-						float rate = 1.0f - (distance / 500.0f);
-						baseTurn += rate * 0.2f * homingStrength_;
-					}
-
-					// Slerpで向きを変える
-					KamataEngine::Vector3 newDir = PlayerBulletSlerp(currentDir, targetDir, baseTurn);
-
-					// 長さを整えて速度適用
-					float len = sqrtf(newDir.x * newDir.x + newDir.y * newDir.y + newDir.z * newDir.z);
-					if (len > 0.001f) {
-						newDir.x /= len;
-						newDir.y /= len;
-						newDir.z /= len;
-					}
-					velocity_.x = newDir.x * currentSpeed;
-					velocity_.y = newDir.y * currentSpeed;
-					velocity_.z = newDir.z * currentSpeed;
-				}
-			}
-		}
-	} else if (isHomingEnabled_ && (!homingTarget_ || homingTarget_->IsDead())) {
-		isHomingEnabled_ = false;
-		homingTarget_ = nullptr;
+void PlayerBullet::ApplyMovement() {
+	KamataEngine::Vector3 position = GetWorldPosition();
+	BulletMovementResult result;
+	if (isHomingEnabled_) {
+		result = kHomingToEnemyMovement.Apply(*this, velocity_, position);
+	} else {
+		result = kStraightMovement.Apply(velocity_, position);
 	}
+	if (result.shouldDestroy) {
+		isDead_ = true;
+	}
+}
 
+void PlayerBullet::UpdateTransform() {
 	worldtransfrom_.translation_.x += velocity_.x;
 	worldtransfrom_.translation_.y += velocity_.y;
 	worldtransfrom_.translation_.z += velocity_.z;
 	worldtransfrom_.UpdateMatrix();
+}
+
+void PlayerBullet::Update() {
+	UpdateFrame();
 }
 
 KamataEngine::Vector3 PlayerBullet::GetWorldPosition() const {

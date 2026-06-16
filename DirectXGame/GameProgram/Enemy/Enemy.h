@@ -8,6 +8,8 @@
 #include <cassert>
 #include "MT.h"
 #include "GaneScene.h"
+#include "GameEvent.h"
+#include "EnemyMovementStrategy.h"
 
 // 前方宣言
 namespace KamataEngine { class Sprite; }
@@ -43,6 +45,7 @@ public:
 
 	void SetPlayer(Player* player) { player_ = player; }
 	void SetGameScene(GameScene* gameScene) { gameScene_ = gameScene; }
+	void SetEventSubject(GameEventSubject* subject) { eventSubject_ = subject; }
 	void SetCamera(const KamataEngine::Camera* camera) { camera_ = camera; }
 	// 画面内判定
 	bool IsOnScreen() const { return isOnScreen_; }
@@ -75,7 +78,12 @@ private:
 
 	Player* player_ = nullptr;
 	GameScene* gameScene_ = nullptr;
+	GameEventSubject* eventSubject_ = nullptr;
 	const KamataEngine::Camera* camera_ = nullptr;
+
+	// Strategy Pattern: 敵の移動行動
+	EnemyMovementState movementState_;
+	WanderEnemyMovementStrategy movementStrategy_;
 
 	Phase phase_ = Phase::Approach;
 
@@ -130,17 +138,4 @@ private:
 	KamataEngine::Vector3 smoothedForward_ = {0.0f, 0.0f, 1.0f};
 	float prevRenderedX_ = 0.0f;
 	float prevRenderedZ_ = 0.0f;
-	float facingSmoothFactor_ = 0.08f; // 回転補間係数（小さいほど滑らか）
-	float posSmoothFactor_ = 0.18f;    // 位置補間係数
-
-	// カーブ移動用（目標速度に滑らかに追従する）
-	KamataEngine::Vector3 smoothedVelocity_ = {0.0f, 0.0f, 0.0f};
-	float turnSmoothFactor_ = 0.06f; // 方向変化の滑らかさ（小さいほどゆっくり曲がる）
-
-	// 大きな滑らかなカーブのためのワンダーパラメータ
-	float wanderAngle_ = 0.0f; // current wander angle on circle
-	float wanderJitter_ = 0.6f; // jitter per frame (radians)
-	float wanderRadius_ = 800.0f; // radius of the wander circle
-	float wanderDistance_ = 600.0f; // distance ahead of the agent
-	float desiredSpeed_ = 2.0f; // typical forward speed for wander
 };

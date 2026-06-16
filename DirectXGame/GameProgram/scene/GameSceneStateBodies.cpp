@@ -164,20 +164,16 @@ void GameScene::UpdateStateBody_Game() {
 				}
 				KamataEngine::Vector3 vel = {toPlayer.x * kHomingBulletSpeed_, toPlayer.y * kHomingBulletSpeed_, toPlayer.z * kHomingBulletSpeed_};
 
-				EnemyBullet* newBullet = new EnemyBullet();
-				newBullet->Initialize(modelEnemyBullet_, moveBullet, vel);
-				newBullet->SetHomingEnabled(true);
-				newBullet->SetHomingTarget(player_);
-				newBullet->SetSpeed(kHomingBulletSpeed_);
+				EnemyBullet* newBullet = GetEntityFactory().CreateEnemyHomingBullet(modelEnemyBullet_, moveBullet, vel, player_, kHomingBulletSpeed_);
 				AddEnemyBullet(newBullet);
 
 				homingSpawnTimer_ = kHomingIntervalFrames_;
 			}
 		}
 
-		enemyBullets_.remove_if([](EnemyBullet* bullet) {
+		enemyBullets_.remove_if([this](EnemyBullet* bullet) {
 			if (bullet && bullet->IsDead()) {
-				delete bullet;
+				entityFactory_.ReleaseEnemyBullet(bullet);
 				return true;
 			}
 			return false;

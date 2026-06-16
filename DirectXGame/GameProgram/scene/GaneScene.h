@@ -1,5 +1,6 @@
 #pragma once
-#include "AABB.h"
+#include "EntityFactory.h"
+#include "GameEvent.h"
 #include "Enemy.h"
 #include "KamataEngine.h"
 #include "Player.h"
@@ -23,7 +24,7 @@ class SceneStateGame;
 class SceneStateClear;
 class SceneStateOver;
 
-class GameScene {
+class GameScene : public IGameEventListener {
 	friend class SceneStateStart;
 	friend class SceneStateTransitionToGame;
 	friend class SceneStateTransitionFromGame;
@@ -66,6 +67,11 @@ public:
 	// Score handling (made public so other game objects can award points)
 	void AddScore(int points);
 	void UpdateScoreSprites();
+
+	// Observer Pattern: ゲームイベントの受信
+	void OnGameEvent(const GameEvent& event) override;
+
+	EntityFactory& GetEntityFactory() { return entityFactory_; }
 
 	// State Pattern: 状態遷移と現在状態の取得
 	void ChangeSceneState(SceneStateBase* newState);
@@ -250,4 +256,8 @@ private:
 	std::vector<uint32_t> digitTextureHandles_;
 	// 表示用スプライト (4桁)
 	std::vector<KamataEngine::Sprite*> scoreDigitSprites_;
+
+	// Factory Method + Object Pool: エンティティ生成
+	EntityFactory entityFactory_;
+	GameEventSubject gameEventSubject_;
 };
