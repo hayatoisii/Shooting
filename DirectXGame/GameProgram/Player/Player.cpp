@@ -44,6 +44,8 @@ Player::~Player() {
 	delete modelbullet_;
 	delete modelParticle_;
 	delete engineExhaust_;
+	delete landingEmitter_;
+	delete trailEmitter_;
 	for (PlayerBullet* bullet : bullets_) {
 		delete bullet;
 	}
@@ -73,15 +75,16 @@ void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera
 	arrowTransform_.Initialize();
 	arrowHeightTransform_.Initialize();
 	goalDirArrowTransform_.Initialize();
-	// 軌跡 Draw 用は一度だけ初期化（parent_ なし）
-	trailPointTf_.Initialize();
-	trailPointTf_.parent_ = nullptr;
-	ballTrail_.clear();
-	trailSpawnTimer_ = 0;
 
 	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true);
 	engineExhaust_ = new ParticleEmitter();
 	engineExhaust_->Initialize(modelParticle_);
+
+	landingEmitter_ = new ParticleEmitter();
+	landingEmitter_->Initialize(model_);
+
+	trailEmitter_ = new ParticleEmitter();
+	trailEmitter_->Initialize(model_, 96, kTrailDrawAlpha_);
 
 	hp_ = kMaxHp_;
 	isDead_ = false;
@@ -119,8 +122,6 @@ void Player::ResetStats() {
 	heightTimer_       = 0.0f;
 	heightAngle_       = 3.14159265f * 30.0f / 180.0f;
 	lockedHeightAngle_ = heightAngle_;
-	ballTrail_.clear();
-	trailSpawnTimer_   = 0;
 	ResetAirShots();
 	isAirAiming_       = false;
 	ChangeState(PlayerStateNormal::Instance());
@@ -147,11 +148,12 @@ void Player::UpdateGolfBall() {
 	if (worldtransfrom_.translation_.y <= groundY_) {
 		worldtransfrom_.translation_.y = groundY_;
 		if (velocity_.y < -0.05f) {
+			const float impactSpeed = -velocity_.y;
 			// バウンド: 上向きに反発
 			velocity_.y = -velocity_.y * kBounceRestitution_;
-			// 着地・バウンドのたびに SE（飛翔中のみ。完全停止は Normal で別途）
 			if (state_ == PlayerStateFlying::Instance()) {
 				PlayBallRestSe();
+				PlayLandingBurst(impactSpeed);
 			}
 		} else {
 			// 十分小さければ完全停止
@@ -171,21 +173,96 @@ void Player::UpdateGolfBall() {
 
 	worldtransfrom_.UpdateMatrix();
 
-	// 飛翔中のみ軌跡ポイントをボールの正確な位置に積む（スプレッドなし→直線的な軌跡）
+	// 飛翔中のみ軌跡パーティクルを生成（1フレーム1本・移動方向に伸ばす）
 	if (state_ == PlayerStateFlying::Instance()) {
-		--trailSpawnTimer_;
-		if (trailSpawnTimer_ <= 0) {
-			ballTrail_.push_back({worldtransfrom_.translation_, TrailPoint::kMaxLife});
-			trailSpawnTimer_ = kTrailSpawnInterval_;
+		const float speedSq = velocity_.x * velocity_.x + velocity_.y * velocity_.y + velocity_.z * velocity_.z;
+		if (trailEmitter_ && speedSq > 0.01f) {
+			const KamataEngine::Vector3 curr = GetWorldPosition();
+			const float speed = std::sqrtf(speedSq);
+			const float invSpeed = 1.0f / speed;
+			const KamataEngine::Vector3 velDir = {
+			    velocity_.x * invSpeed, velocity_.y * invSpeed, velocity_.z * invSpeed};
+			float frontInset = kTrailInsetMin_ + speed * kTrailInsetSpeedMul_;
+			if (frontInset > kTrailInsetMax_) {
+				frontInset = kTrailInsetMax_;
+			}
+			if (frontInset < kTrailInsetMin_) {
+				frontInset = kTrailInsetMin_;
+			}
+			if (!trailHasPrevPos_) {
+				trailSmoothedInset_ = frontInset;
+			} else {
+				trailSmoothedInset_ += (frontInset - trailSmoothedInset_) * 0.35f;
+			}
+			const KamataEngine::Vector3 segFront = {
+			    curr.x - velDir.x * trailSmoothedInset_,
+			    curr.y - velDir.y * trailSmoothedInset_,
+			    curr.z - velDir.z * trailSmoothedInset_,
+			};
+
+			if (!trailHasPrevPos_) {
+				trailPrevPos_ = segFront;
+				trailHasPrevPos_ = true;
+			} else {
+				const float dx = segFront.x - trailPrevPos_.x;
+				const float dy = segFront.y - trailPrevPos_.y;
+				const float dz = segFront.z - trailPrevPos_.z;
+				const float segDist = std::sqrtf(dx * dx + dy * dy + dz * dz);
+
+				if (segDist > 0.0005f) {
+					const float invDist = 1.0f / segDist;
+					const KamataEngine::Vector3 dir = {dx * invDist, dy * invDist, dz * invDist};
+					// 前端を segFront に固定（ボール側へ伸ばさない）。後方だけ大きく重ねてつなぎ目を消す
+					float joinOverlap = kTrailJoinOverlap_ + segDist * kTrailJoinOverlapRate_;
+					if (joinOverlap < kTrailJoinOverlap_) {
+						joinOverlap = kTrailJoinOverlap_;
+					}
+					float stretchLen = segDist + joinOverlap;
+					if (stretchLen < kTrailCrossScale_) {
+						stretchLen = kTrailCrossScale_;
+					}
+					// 前端を segFront より少し手前で止め、メッシュの膨らみ分もボールに被らないようにする
+					const float frontStop = kTrailCrossScale_ * 0.48f;
+					const KamataEngine::Vector3 segEnd = {
+					    segFront.x - dir.x * frontStop,
+					    segFront.y - dir.y * frontStop,
+					    segFront.z - dir.z * frontStop,
+					};
+					const float endDx = segEnd.x - trailPrevPos_.x;
+					const float endDy = segEnd.y - trailPrevPos_.y;
+					const float endDz = segEnd.z - trailPrevPos_.z;
+					const float endDist = std::sqrtf(endDx * endDx + endDy * endDy + endDz * endDz);
+					if (endDist > 0.0005f) {
+						stretchLen = endDist + joinOverlap;
+						if (stretchLen < kTrailCrossScale_) {
+							stretchLen = kTrailCrossScale_;
+						}
+						const KamataEngine::Vector3 center = {
+						    segEnd.x - dir.x * (stretchLen * 0.5f),
+						    segEnd.y - dir.y * (stretchLen * 0.5f),
+						    segEnd.z - dir.z * (stretchLen * 0.5f),
+						};
+						trailEmitter_->EmitTrailSegment(
+						    center, dir, stretchLen, kTrailDotLife_, kTrailCrossScale_);
+					}
+				}
+				trailPrevPos_ = segFront;
+			}
+		}
+		if (trailEmitter_) {
+			trailEmitter_->Update();
+			trailEmitter_->UpdateTrailScale();
+		}
+	} else {
+		trailHasPrevPos_ = false;
+		trailSmoothedInset_ = kTrailInsetMin_;
+		if (trailEmitter_) {
+			trailEmitter_->Clear();
 		}
 	}
 
-	// 軌跡ポイントを毎フレーム老化させ、寿命切れを削除
-	for (auto& tp : ballTrail_) {
-		tp.life -= 1.0f;
-	}
-	while (!ballTrail_.empty() && ballTrail_.front().life <= 0.0f) {
-		ballTrail_.pop_front();
+	if (landingEmitter_) {
+		landingEmitter_->Update();
 	}
 }
 
@@ -442,9 +519,12 @@ void Player::LaunchBall() {
 	velocity_.z = horizSpeed * std::cos(lockedArrowAngle_);
 	velocity_.y = vertSpeed;
 
-	// 軌跡リセット（新しいショットの軌跡を新鮮に）
-	ballTrail_.clear();
-	trailSpawnTimer_ = 0;
+	// 軌跡リセット
+	trailHasPrevPos_ = false;
+	trailSmoothedInset_ = kTrailInsetMin_;
+	if (trailEmitter_) {
+		trailEmitter_->Clear();
+	}
 
 	if (audio_) {
 		audio_->playAudio(hitPlayerSound_, hitPlayerSoundHandle_, false, 0.5f);
@@ -457,9 +537,35 @@ void Player::PlayBallRestSe() {
 	}
 }
 
+void Player::PlayLandingBurst(float impactSpeed) {
+	if (!landingEmitter_) {
+		return;
+	}
+	// 終盤の弱い多段バウンドはパーティクルを抑える（高い初速バウンドはそのまま）
+	if (impactSpeed < 0.12f) {
+		return;
+	}
+
+	const float t = (std::min)(impactSpeed / 1.6f, 1.0f);
+	const int   numParticles = static_cast<int>(6.0f + t * 16.0f);
+	const float speed        = 0.85f + t * 2.2f;
+	const float lifeTime     = 22.0f + t * 20.0f;
+	const float startScale   = 0.24f + t * 0.30f;
+
+	const KamataEngine::Vector3& p = worldtransfrom_.translation_;
+	landingEmitter_->EmitBurst(p, numParticles, speed, lifeTime, startScale, 0.0f);
+}
+
 void Player::ChangeState(PlayerState* newState) {
 	if (newState == nullptr || newState == state_) {
 		return;
+	}
+	if (state_ == PlayerStateFlying::Instance() && newState != PlayerStateFlying::Instance()) {
+		trailHasPrevPos_ = false;
+		trailSmoothedInset_ = kTrailInsetMin_;
+		if (trailEmitter_) {
+			trailEmitter_->Clear();
+		}
 	}
 	state_ = newState;
 }
@@ -901,17 +1007,12 @@ void Player::FinalizeFrameUpdate() {
 }
 
 void Player::Draw() {
-	// 軌跡パーティクル
-	// ratio=1（最新）→ ボールサイズの 60%、ratio=0（最古）→ 0 に向けてリニアに縮小
-	// 後ろへ行くほど小さくなることで「透明に消えていく」視覚効果を出す
-	for (const auto& tp : ballTrail_) {
-		float ratio = tp.life / TrailPoint::kMaxLife; // 0（古い）〜 1（新しい）
-		float s     = 0.6f * ratio;
-		if (s < 0.01f) continue; // ほぼ消えた点はスキップ
-		trailPointTf_.translation_ = tp.pos;
-		trailPointTf_.scale_       = {s, s, s};
-		trailPointTf_.UpdateMatrix();
-		model_->Draw(trailPointTf_, *camera_);
+	if (trailEmitter_ && state_ == PlayerStateFlying::Instance()) {
+		trailEmitter_->Draw(*camera_);
+	}
+
+	if (landingEmitter_) {
+		landingEmitter_->Draw(*camera_);
 	}
 
 	// ゴール方向インジケーター矢印（飛翔中・Dead 以外は常に表示）
@@ -1003,6 +1104,12 @@ void Player::ResetRotation() {
 void Player::ResetParticles() {
 	if (engineExhaust_) {
 		engineExhaust_->Clear();
+	}
+	if (landingEmitter_) {
+		landingEmitter_->Clear();
+	}
+	if (trailEmitter_) {
+		trailEmitter_->Clear();
 	}
 }
 

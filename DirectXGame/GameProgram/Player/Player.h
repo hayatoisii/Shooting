@@ -6,7 +6,6 @@
 #include "ParticleEmitter.h"
 #include "PlayerBullet.h"
 #include "PlayerState.h"
-#include <deque>
 #include <list>
 
 using namespace KamataEngine;
@@ -93,6 +92,7 @@ public:
 	void LaunchBall();
 	// ボールが地面で静止したときの SE
 	void PlayBallRestSe();
+	void PlayLandingBurst(float impactSpeed);
 	// 地面に接地しているか
 	bool IsOnGround() const { return worldtransfrom_.translation_.y <= groundY_ + 0.01f; }
 	// 速度がほぼゼロか（完全停止判定）
@@ -175,6 +175,8 @@ private:
 
 	KamataEngine::Model* modelParticle_ = nullptr;
 	ParticleEmitter* engineExhaust_ = nullptr;
+	ParticleEmitter* landingEmitter_ = nullptr;
+	ParticleEmitter* trailEmitter_ = nullptr;
 
 	static const int kMaxHp_ = 3;
 	int hp_ = kMaxHp_;
@@ -260,15 +262,16 @@ private:
 	KamataEngine::Vector3 goalPosition_ = {0.0f, 10.0f, 1200.0f};
 	float playAreaRadius_ = 2000.0f; // ゴール中心 XZ 円の半径
 
-	// --- 軌跡パーティクル ---
-	struct TrailPoint {
-		KamataEngine::Vector3 pos;
-		float life;            // 残りフレーム
-		static constexpr float kMaxLife = 18.0f; // 寿命（フレーム）短くして密度を上げる
-	};
-	std::deque<TrailPoint> ballTrail_;
-	KamataEngine::WorldTransform trailPointTf_; // 軌跡 Draw 用（毎フレーム再初期化しない）
-	int trailSpawnTimer_           = 0;
-	// 毎フレーム生成して連続した軌跡ラインを作る
-	const int kTrailSpawnInterval_ = 1; // 何フレームごとに点を追加するか
+	static constexpr float kTrailDrawAlpha_      = 0.1f;
+	static constexpr float kTrailDotLife_        = 22.0f;
+	static constexpr float kTrailCrossScale_     = 0.65f;
+	static constexpr float kTrailJoinOverlap_    = 0.55f;
+	static constexpr float kTrailJoinOverlapRate_= 0.52f;
+	static constexpr float kTrailInsetMin_       = 1.70f;
+	static constexpr float kTrailInsetMax_       = 3.0f;
+	static constexpr float kTrailInsetSpeedMul_  = 0.55f;
+
+	KamataEngine::Vector3 trailPrevPos_ = {0.0f, 0.0f, 0.0f};
+	bool trailHasPrevPos_ = false;
+	float trailSmoothedInset_ = 1.70f;
 };

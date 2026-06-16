@@ -12,4 +12,8 @@ struct Particle {
 	float startScale_ = 1.0f;
 	float endScale_ = 0.0f;
 	bool isExplosion_ = false;
+	bool isTrail_ = false;
+	float startAlpha_ = 1.0f;
+	float endAlpha_ = 0.0f;
+	float trailDepth_ = 0.0f;
 };

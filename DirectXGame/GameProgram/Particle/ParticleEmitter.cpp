@@ -1,12 +1,17 @@
 #include "ParticleEmitter.h"
 #include "MT.h"
 #include <algorithm>
+#include <cstdint>
 #include <KamataEngine.h>
 
-void ParticleEmitter::Initialize(KamataEngine::Model* model) {
+void ParticleEmitter::Initialize(KamataEngine::Model* model, size_t maxParticles, float trailDrawAlpha) {
 	model_ = model;
-	particles_.resize(100);
-	frequency_ = 1; // 発生頻度
+	trailDrawAlpha_ = trailDrawAlpha;
+	particles_.clear();
+	particles_.resize(maxParticles);
+	trailDrawColor_.Initialize();
+	trailDrawColor_.SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+	frequency_ = 1;
 	frequencyTimer_ = 0;
 }
 
@@ -24,11 +29,12 @@ void ParticleEmitter::Update() {
 			particle.worldTransform_.translation_ += particle.velocity_;
 
 			if (particle.isExplosion_) {
-				// 1. (爆発用) だんだん小さくなる処理
-				float t = (float)particle.currentTime_ / (float)particle.lifeTime_;
-				t = std::clamp(t, 0.0f, 1.0f); // t を 0.0f～1.0f に制限
-				float scale = particle.startScale_ + (particle.endScale_ - particle.startScale_) * t;
-				particle.worldTransform_.scale_ = {scale, scale, scale};
+				if (!particle.isTrail_) {
+					float t = (float)particle.currentTime_ / (float)particle.lifeTime_;
+					t = std::clamp(t, 0.0f, 1.0f);
+					float scale = particle.startScale_ + (particle.endScale_ - particle.startScale_) * t;
+					particle.worldTransform_.scale_ = {scale, scale, scale};
+				}
 
 			} else {
 				// 2. (排気用) 既存のロジック (一切変更しない)
@@ -40,6 +46,55 @@ void ParticleEmitter::Update() {
 
 			particle.worldTransform_.UpdateMatrix();
 		}
+	}
+}
+
+void ParticleEmitter::UpdateTrailScale() {
+	uint32_t minAge = UINT32_MAX;
+	uint32_t maxAge = 0;
+	int trailCount = 0;
+
+	for (Particle& particle : particles_) {
+		if (!particle.isActive_ || !particle.isTrail_) {
+			continue;
+		}
+		++trailCount;
+		if (particle.currentTime_ < minAge) {
+			minAge = particle.currentTime_;
+		}
+		if (particle.currentTime_ > maxAge) {
+			maxAge = particle.currentTime_;
+		}
+	}
+
+	if (trailCount <= 0) {
+		return;
+	}
+
+	const float ageSpan = static_cast<float>(maxAge - minAge);
+
+	for (Particle& particle : particles_) {
+		if (!particle.isActive_ || !particle.isTrail_) {
+			continue;
+		}
+
+		const float baseCross = particle.startScale_;
+		const float baseStretch = particle.endScale_;
+		float scaleMul = 1.0f;
+
+		if (trailCount > 1 && ageSpan > 0.5f) {
+			float tailT = (static_cast<float>(particle.currentTime_) - static_cast<float>(minAge)) / ageSpan;
+			tailT = std::clamp(tailT, 0.0f, 1.0f);
+			if (tailT > 0.2f) {
+				const float t = (tailT - 0.2f) / 0.8f;
+				scaleMul = 1.0f - t * t * 0.48f;
+			}
+		}
+
+		const float cross = baseCross * scaleMul;
+		const float stretch = baseStretch * scaleMul;
+		particle.worldTransform_.scale_ = {cross, cross, stretch};
+		particle.worldTransform_.UpdateMatrix();
 	}
 }
 
@@ -60,8 +115,17 @@ void ParticleEmitter::Draw(const KamataEngine::Camera& camera) {
 
 	for (Particle& particle : particles_) {
 		if (particle.isActive_) {
-			model_->Draw(particle.worldTransform_, camera);
+			if (particle.isTrail_ && trailDrawAlpha_ < 0.99f) {
+				trailDrawColor_.SetColor({1.0f, 1.0f, 1.0f, trailDrawAlpha_});
+				model_->SetAlpha(trailDrawAlpha_);
+				model_->Draw(particle.worldTransform_, camera, &trailDrawColor_);
+			} else {
+				model_->Draw(particle.worldTransform_, camera);
+			}
 		}
+	}
+	if (trailDrawAlpha_ < 0.99f) {
+		model_->SetAlpha(1.0f);
 	}
 }
 
@@ -95,6 +159,7 @@ void ParticleEmitter::CreateParticle(const KamataEngine::Vector3& position, cons
 
 			// Reuse safety: ensure this particle is treated as exhaust (not explosion)
 			particle.isExplosion_ = false;
+			particle.isTrail_ = false;
 			particle.startScale_ = 1.0f;
 			particle.endScale_ = 0.0f;
 
@@ -124,6 +189,10 @@ void ParticleEmitter::EmitBurst(const KamataEngine::Vector3& position, int numPa
 	}
 }
 
+void ParticleEmitter::EmitTrailSegment(const KamataEngine::Vector3& center, const KamataEngine::Vector3& direction, float stretchLength, float lifeTime, float crossScale) {
+	CreateTrailSegment(center, direction, stretchLength, lifeTime, crossScale);
+}
+
 
 void ParticleEmitter::CreateExplosionParticle(const KamataEngine::Vector3& position, const KamataEngine::Vector3& velocity, float lifeTime, float startScale, float endScale) {
 
@@ -141,9 +210,67 @@ void ParticleEmitter::CreateExplosionParticle(const KamataEngine::Vector3& posit
 			particle.lifeTime_ = static_cast<uint32_t>(std::fmax(1.0f, lifeTime));
 			particle.startScale_ = startScale;
 			particle.endScale_ = endScale;
-			particle.isExplosion_ = true; // ★ 爆発フラグを立てる
+			particle.isExplosion_ = true;
+			particle.isTrail_ = false;
 
-			return; // 1つ生成したら終了
+			return;
 		}
 	}
+}
+
+void ParticleEmitter::CreateTrailSegment(const KamataEngine::Vector3& center, const KamataEngine::Vector3& direction, float stretchLength, float lifeTime, float crossScale) {
+	Particle* target = nullptr;
+	for (Particle& particle : particles_) {
+		if (!particle.isActive_) {
+			target = &particle;
+			break;
+		}
+	}
+	if (!target) {
+		uint32_t maxAge = 0;
+		for (Particle& particle : particles_) {
+			if (particle.isActive_ && particle.isTrail_ && particle.currentTime_ >= maxAge) {
+				maxAge = particle.currentTime_;
+				target = &particle;
+			}
+		}
+	}
+	if (!target) {
+		return;
+	}
+
+	const float dirLen = std::sqrtf(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
+	if (dirLen < 0.0001f) {
+		return;
+	}
+	const float invDirLen = 1.0f / dirLen;
+	const float dirX = direction.x * invDirLen;
+	const float dirY = direction.y * invDirLen;
+	const float dirZ = direction.z * invDirLen;
+
+	Particle& particle = *target;
+	particle.isActive_ = true;
+	particle.worldTransform_.Initialize();
+	particle.worldTransform_.translation_ = center;
+
+	const float horiz = std::sqrtf(dirX * dirX + dirZ * dirZ);
+	const float yaw = std::atan2f(dirX, dirZ);
+	const float pitch = std::atan2f(dirY, horiz);
+	particle.worldTransform_.rotation_ = {-pitch, yaw, 0.0f};
+
+	const float stretch = std::fmax(crossScale * 0.75f, stretchLength);
+	particle.worldTransform_.scale_ = {crossScale, crossScale, stretch};
+	particle.worldTransform_.UpdateMatrix();
+
+	particle.velocity_ = {0.0f, 0.0f, 0.0f};
+	particle.currentTime_ = 0;
+	particle.lifeTime_ = static_cast<uint32_t>(std::fmax(1.0f, lifeTime));
+	particle.startScale_ = crossScale;
+	particle.endScale_ = stretch;
+	particle.isExplosion_ = true;
+	particle.isTrail_ = true;
+	particle.startAlpha_ = 1.0f;
+	particle.endAlpha_ = 0.0f;
+	particle.trailDepth_ = 0.0f;
+	particle.color_ = {1.0f, 1.0f, 1.0f, 1.0f};
 }
