@@ -9,12 +9,9 @@ PlayerStateNormal* PlayerStateNormal::Instance() { return &instance_; }
 PlayerStateRolling* PlayerStateRolling::Instance() { return &instance_; }
 PlayerStateDead* PlayerStateDead::Instance() { return &instance_; }
 
-// 通常状態: 回避入力を受け付け、回避開始時は Rolling へ遷移（状態クラスが次状態を決定）
+// 通常状態: WASDで移動
 void PlayerStateNormal::Update(Player& player) {
-	player.UpdateBullets();
-	player.ProcessDodgeInput();
-	player.UpdateRotationNormal();
-	player.UpdateHitShake();
+	player.UpdateMovement();
 	player.FinalizeFrameUpdate();
 }
 

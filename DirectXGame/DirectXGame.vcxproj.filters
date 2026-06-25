@@ -46,6 +46,9 @@
     <Filter Include="GameProgram\Pattern">
       <UniqueIdentifier>{a1b2c3d4-e5f6-7890-abcd-ef1234567890}</UniqueIdentifier>
     </Filter>
+    <Filter Include="GameProgram\Map">
+      <UniqueIdentifier>{b2c3d4e5-f6a7-8901-bcde-f12345678901}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp">
@@ -92,6 +95,15 @@
     </ClCompile>
     <ClCompile Include="GameProgram\MT\worldTransformEx.cpp">
       <Filter>GameProgram\MT</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Map\MapRenderer.cpp">
+      <Filter>GameProgram\Map</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Map\TrampolineSpring.cpp">
+      <Filter>GameProgram\Map</Filter>
+    </ClCompile>
+    <ClCompile Include="GameProgram\Map\TileMap.cpp">
+      <Filter>GameProgram\Map</Filter>
     </ClCompile>
     <ClCompile Include="GameProgram\Pattern\GameBalanceAccess.cpp">
       <Filter>GameProgram\Pattern</Filter>

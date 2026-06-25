@@ -2,6 +2,7 @@
 #include "GameBalanceAccess.h"
 #include "GameBullet.h"
 #include "GameCharacter.h"
+#include "MT.h"
 #include "SpawnCommandTable.h"
 #include "3d/AxisIndicator.h"
 #include <algorithm>
@@ -47,7 +48,8 @@ SceneStateKind GameScene::GetSceneStateKind() const {
 }
 
 GameScene::~GameScene() {
-	delete modelPlayer_;
+	delete modelCube_;
+	modelPlayer_ = nullptr;
 	delete modelEnemy_;
 	delete modelSkydome_;
 	delete modelTitleObject_;
@@ -82,6 +84,10 @@ GameScene::~GameScene() {
 		delete sprite;
 	}
 	minimapEnemyBulletSprites_.clear();
+	for (KamataEngine::Sprite* sprite : minimapGroundSprites_) {
+		delete sprite;
+	}
+	minimapGroundSprites_.clear();
 	for (EnemyBullet* bullet : enemyBullets_) {
 		entityFactory_.ReleaseEnemyBullet(bullet);
 	}
@@ -106,9 +112,16 @@ void GameScene::Initialize() {
 
 	balanceTable_.LoadFromFile("Resources/gameBalance.csv");
 	GameBalanceAccess::SetTable(&balanceTable_);
+
+	tileMap_.LoadFromFile("Resources/map.csv");
+	if (tileMap_.GetWidth() <= 0) {
+		tileMap_.LoadFromFile("DirectXGame/Resources/map.csv");
+	}
+
 	skydome_ = new Skydome();
 
-	modelPlayer_ = KamataEngine::Model::CreateFromOBJ("fly2", true);
+	modelCube_ = KamataEngine::Model::CreateFromOBJ("cube", true);
+	modelPlayer_ = modelCube_;
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
@@ -190,7 +203,7 @@ void GameScene::Initialize() {
 	// 1. ミニマップ背景
 	minimapSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0, 0});
 	minimapSprite_->SetPosition(kMinimapPosition_);
-	minimapSprite_->SetAnchorPoint({0.0f, 1.0f}); // 左下をアンカーに
+	minimapSprite_->SetAnchorPoint({0.0f, 0.0f}); // 左上をアンカーに
 	minimapSprite_->SetSize(kMinimapSize_);
 
 	// 2. ミニマップ上の自機
@@ -258,11 +271,21 @@ void GameScene::Initialize() {
 
 	camera_.Initialize();
 
-	playerIntroTargetPosition_ = {0.0f, -3.0f, 20.0f};
-	playerIntroStartPosition_ = playerIntroTargetPosition_;
-	playerIntroStartPosition_.z += -50.0f;
+	const float playerHalfW = TileMap::kTileWidth * 0.375f;
+	const float playerHalfH = TileMap::kTileHeight * 0.375f;
+	KamataEngine::Vector3 spawnPos = tileMap_.FindSpawnPosition(playerHalfW, playerHalfH);
+	playerIntroTargetPosition_ = spawnPos;
+	playerIntroStartPosition_ = spawnPos;
 
-	player_->Initialize(modelPlayer_, &camera_, playerIntroStartPosition_);
+	player_->Initialize(modelPlayer_, &camera_, spawnPos);
+	player_->SetParent(nullptr);
+	player_->SetTileMap(&tileMap_);
+	player_->SetTrampolineSprings(&trampolineSprings_);
+	mapRenderer_.Initialize(modelCube_, tileMap_);
+	RebuildMinimapTiles();
+	currentScreenX_ = 0;
+	currentScreenY_ = 0;
+	UpdateTitleCamera();
 	// Initialize last player position for minimap rotation tracking
 	lastPlayerPos_ = player_->GetWorldPosition();
 
@@ -271,12 +294,11 @@ void GameScene::Initialize() {
 	worldTransformTitleObject_.translation_ = {0.0f, 0.0f, -43.0f};
 	worldTransformTitleObject_.UpdateMatrix();
 
-	KamataEngine::AxisIndicator::GetInstance()->SetVisible(true);
+	KamataEngine::AxisIndicator::GetInstance()->SetVisible(false);
 
 	railCamera_ = new RailCamera();
 	railCamera_->Initialize(railcameraPos, railcameraRad);
 	cameraPositionAnchor_.Initialize();
-	player_->SetParent(&railCamera_->GetWorldTransform());
 	player_->SetRailCamera(railCamera_);
 	player_->SetEnemies(&enemies_);
 	player_->SetEntityFactory(&entityFactory_);
@@ -286,147 +308,10 @@ void GameScene::Initialize() {
 
 	// ホーミング弾生成タイマー初期化
 	homingSpawnTimer_ = balanceTable_.GetInt("homingIntervalFrames", kHomingIntervalFrames_);
-
-	// ミニマップ用テクスチャ等の初期化を行った後に、右/左キー表示用スプライトを初期化
-	// テクスチャ名は Resources に配置した "light.png" と "left.png" を想定
-	lightTextureHandle_ = KamataEngine::TextureManager::Load("light.png");
-	leftTextureHandle_ = KamataEngine::TextureManager::Load("left.png");
-	shiftTextureHandle_ = KamataEngine::TextureManager::Load("shift.png"); // Shift画像
-
-	// スプライト生成
-	lightSprite_ = KamataEngine::Sprite::Create(lightTextureHandle_, {0, 0});
-	leftSprite_ = KamataEngine::Sprite::Create(leftTextureHandle_, {0, 0});
-	shiftSprite_ = KamataEngine::Sprite::Create(shiftTextureHandle_, {0, 0});
-
-	if (lightSprite_) {
-		// グループオフセットを適用して右にずらす
-		float groupX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * 80.0f + controlGroupOffset_;
-		lightSprite_->SetAnchorPoint({1.0f, 1.0f});
-		lightSprite_->SetSize({80.0f, 80.0f});
-		lightSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
-		lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
-	}
-	if (leftSprite_) {
-		float groupX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * 80.0f - 16.0f + controlGroupOffset_;
-		leftSprite_->SetAnchorPoint({1.0f, 1.0f});
-		leftSprite_->SetSize({80.0f, 80.0f});
-		leftSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
-		leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
-	}
-	if (shiftSprite_) {
-		shiftSprite_->SetAnchorPoint({1.0f, 1.0f});
-		// 横長: 幅1.5倍, 高さは矢印基準サイズ
-		shiftSprite_->SetSize({80.0f * 1.5f, 80.0f});
-		// 初期配置: light の右側に少しずらして上に置く（グループオフセット適用）
-		float controlSizeInit = 80.0f;
-		float verticalGapInit = 8.0f;
-		float lightRightXInit = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSizeInit + controlGroupOffset_;
-		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
-		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
-		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
-		shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
-	}
-
-	// スプライトの初期位置を右下に設定（毎フレームの更新時に再計算されるため、ここではウィンドウサイズ依存の初期位置のみ設定）
-	if (lightSprite_) {
-		float groupX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * 80.0f + controlGroupOffset_;
-		lightSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
-	}
-	if (leftSprite_) {
-		float groupX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * 80.0f - 16.0f + controlGroupOffset_;
-		leftSprite_->SetPosition({groupX, (float)WinApp::kWindowHeight - 20.0f});
-	}
-	if (shiftSprite_) {
-		float controlSizeInit = 80.0f;
-		float verticalGapInit = 8.0f;
-		float lightRightXInit = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSizeInit + controlGroupOffset_;
-		float shiftRightXInit = lightRightXInit + controlSizeInit + shiftExtraRight_;
-		float shiftBottomYInit = static_cast<float>(WinApp::kWindowHeight) - 20.0f - controlSizeInit - verticalGapInit - shiftExtraUp_;
-		shiftSprite_->SetPosition({shiftRightXInit, shiftBottomYInit});
-	}
 }
 
 void GameScene::Update() {
-
 	skydome_->Update();
-
-	// 右／左キーの押下状態に応じてスプライトの明るさを切替
-	if (input_) {
-		bool rightPressed = input_->PushKey(DIK_RIGHT);
-		bool leftPressed = input_->PushKey(DIK_LEFT);
-
-		if (lightSprite_) {
-			if (rightPressed) {
-				// 明るく表示
-				lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
-			} else {
-				// 非押下はやや半透明
-				lightSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
-			}
-		}
-		if (leftSprite_) {
-			if (leftPressed) {
-				leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
-			} else {
-				leftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
-			}
-		}
-	}
-
-	// 常に右下に表示するため、毎フレーム位置を再設定する（ウィンドウリサイズ対応）
-	float margin = 20.0f;
-	float gap = 16.0f; // スプライト間のギャップ
-
-	// 実際のサイズを取得（スプライトが無ければ基準値を使う）
-	float controlSize = 80.0f;
-	//float shiftW = shiftSprite_ ? shiftSprite_->GetSize().x : controlSize * 1.5f;
-	//float lightW = lightSprite_ ? lightSprite_->GetSize().x : controlSize;
-	//float leftW = leftSprite_ ? leftSprite_->GetSize().x : controlSize;
-
-	float bottomY = static_cast<float>(WinApp::kWindowHeight) - margin; // 下辺の位置
-
-	// 矢印（light/left）は下端に横並びで配置
-	float lightRightX = static_cast<float>(WinApp::kWindowWidth) - 2.0f * controlSize + controlGroupOffset_; // グループオフセット適用
-	float leftRightX = static_cast<float>(WinApp::kWindowWidth) - 3.0f * controlSize - gap + controlGroupOffset_;  // グループオフセット適用
-
-	if (lightSprite_) {
-		lightSprite_->SetAnchorPoint({1.0f, 1.0f});
-		lightSprite_->SetSize({controlSize, controlSize});
-		lightSprite_->SetPosition({lightRightX, bottomY});
-	}
-	if (leftSprite_) {
-		leftSprite_->SetAnchorPoint({1.0f, 1.0f});
-		leftSprite_->SetSize({controlSize, controlSize});
-		leftSprite_->SetPosition({leftRightX, bottomY});
-	}
-
-	// Shift は light の上に表示する
-	float verticalGap = 8.0f; // 縦方向の隙間
-	if (shiftSprite_) {
-		shiftSprite_->SetAnchorPoint({1.0f, 1.0f});
-		shiftSprite_->SetSize({controlSize * 1.5f, controlSize});
-		// 矢印スプライト一個分右にずらす + クラスメンバで追加オフセット
-		float shiftRightX = lightRightX + controlSize + shiftExtraRight_;
-		float shiftBottomY = bottomY - controlSize - verticalGap - shiftExtraUp_; // light の上に配置
-		shiftSprite_->SetPosition({shiftRightX, shiftBottomY});
-	}
-
-	// Shift の表示（Shift 押下時は点滅）
-	if (shiftSprite_ && input_) {
-		bool shiftPressed = input_->PushKey(DIK_RSHIFT) || input_->PushKey(DIK_LSHIFT);
-		bool aPressed = input_->PushKey(DIK_A);
-		bool dPressed = input_->PushKey(DIK_D);
-		if (shiftPressed && (aPressed || dPressed)) {
-			shiftBlinkTimer_++;
-			const int blinkPeriod = 8;
-			bool visible = ((shiftBlinkTimer_ / blinkPeriod) % 2) == 0;
-			float alpha = visible ? 1.0f : 0.3f;
-			shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, alpha});
-		} else {
-			shiftBlinkTimer_ = 0;
-			shiftSprite_->SetColor({1.0f, 1.0f, 1.0f, 0.5f});
-		}
-	}
 
 	// State Pattern: 現在のシーン状態に更新を委譲（ポリモーフィズム）
 	if (sceneState_) {
@@ -451,8 +336,9 @@ void GameScene::Draw() {
 		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
 	} else if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game || GetSceneStateKind() == SceneStateKind::TransitionFromGame || GetSceneStateKind() == SceneStateKind::Over) {
 
+		mapRenderer_.Draw(camera_);
+		DrawTrampolineSprings();
 		player_->Draw();
-		skydome_->Draw();
 
 		if (explosionEmitter_) {
 			explosionEmitter_->Draw(camera_);
@@ -497,27 +383,15 @@ void GameScene::Draw() {
 		transitionSprite_->Draw();
 	}
 
-	if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game) {
-		if (reticleSprite_) {
-			reticleSprite_->Draw();
-		}
-		if (aimAssistCircleSprite_) {
-			aimAssistCircleSprite_->Draw();
-		}
-
-		if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
-			for (Enemy* enemy : enemies_) {
-				if (enemy) {
-					enemy->DrawSprite();
-				}
-			}
-		}
-	}
-
-	// ミニマップと矢印キー表示はゲームシーンのみ表示
+	// ミニマップはゲームシーンのみ表示
 	if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
 		if (minimapSprite_) {
-			minimapSprite_->Draw(); // 背景
+			minimapSprite_->Draw(); // 背景枠
+		}
+		for (KamataEngine::Sprite* sprite : minimapGroundSprites_) {
+			if (sprite) {
+				sprite->Draw();
+			}
 		}
 		// 敵アイコン (背景より手前、自機より奥)
 		for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
@@ -534,18 +408,6 @@ void GameScene::Draw() {
 		// 自機アイコン (最前面)
 		if (minimapPlayerSprite_) {
 			minimapPlayerSprite_->Draw();
-		}
-
-		// 追加: 右/左キー表示を最前面に描画（ゲームシーンのみ表示）
-		if (leftSprite_) {
-			leftSprite_->Draw();
-		}
-		if (lightSprite_) {
-			lightSprite_->Draw();
-		}
-		// Shift を最前面に描画
-		if (shiftSprite_) {
-			shiftSprite_->Draw();
 		}
 	}
 
@@ -741,7 +603,7 @@ void GameScene::TransitionToClearScene() {
 	hitCount2 = 0;
 
 	camera_.Initialize();
-	camera_.TransferMatrix();
+	UpdateTitleCamera();
 
 	if (railCamera_) {
 		railCamera_->Reset();
@@ -1002,35 +864,335 @@ void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
 	);
 }
 
+void GameScene::RebuildMinimapTiles() {
+	for (KamataEngine::Sprite* sprite : minimapGroundSprites_) {
+		delete sprite;
+	}
+	minimapGroundSprites_.clear();
+
+	if (tileMap_.GetWidth() <= 0 || tileMap_.GetHeight() <= 0) {
+		return;
+	}
+
+	const float tileW = kMinimapSize_.x / static_cast<float>(tileMap_.GetWidth());
+	const float tileH = kMinimapSize_.y / static_cast<float>(tileMap_.GetHeight());
+
+	for (int row = 0; row < tileMap_.GetHeight(); ++row) {
+		for (int col = 0; col < tileMap_.GetWidth(); ++col) {
+			if (!tileMap_.IsGround(col, row)) {
+				continue;
+			}
+
+			KamataEngine::Sprite* sprite = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0.0f, 0.0f});
+			if (!sprite) {
+				continue;
+			}
+			sprite->SetAnchorPoint({0.0f, 0.0f});
+			sprite->SetSize({tileW, tileH});
+			sprite->SetPosition({kMinimapPosition_.x + static_cast<float>(col) * tileW, kMinimapPosition_.y + static_cast<float>(row) * tileH});
+			sprite->SetColor({0.6f, 0.45f, 0.25f, 1.0f});
+			minimapGroundSprites_.push_back(sprite);
+		}
+	}
+}
+
+KamataEngine::Vector2 GameScene::ConvertWorldToMinimapPosition(const KamataEngine::Vector3& worldPos) const {
+	if (tileMap_.GetWidth() <= 0 || tileMap_.GetHeight() <= 0) {
+		return kMinimapPosition_;
+	}
+
+	int col = 0;
+	int row = 0;
+	tileMap_.WorldToTile(worldPos.x, worldPos.y, col, row);
+
+	const float tileW = kMinimapSize_.x / static_cast<float>(tileMap_.GetWidth());
+	const float tileH = kMinimapSize_.y / static_cast<float>(tileMap_.GetHeight());
+
+	KamataEngine::Vector2 pos;
+	pos.x = kMinimapPosition_.x + (static_cast<float>(col) + 0.5f) * tileW;
+	pos.y = kMinimapPosition_.y + (static_cast<float>(row) + 0.5f) * tileH;
+	return pos;
+}
+
 KamataEngine::Vector2 GameScene::ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos) {
+	(void)playerPos;
+	KamataEngine::Vector2 finalPos = ConvertWorldToMinimapPosition(worldPos);
 
-	// 1. 自機からの相対座標 (XZ平面のみ)
-	float relativeX = worldPos.x - playerPos.x;
-	float relativeZ = worldPos.z - playerPos.z;
-
-	// 2. ミニマップのスケールを適用 (ワールドのZ+ を ミニマップのY+ (上) に)
-	float minimapOffsetX = relativeX * kMinimapScale_;
-	float minimapOffsetY = relativeZ * kMinimapScale_ * -1.0f; // Y軸反転
-
-	// 3. ミニマップの中心座標を計算
-	KamataEngine::Vector2 minimapCenterPos = {
-	    kMinimapPosition_.x + kMinimapSize_.x * 0.5f,
-	    kMinimapPosition_.y - kMinimapSize_.y * 0.5f // 左下アンカー基準
-	};
-
-	// 4. 中心の座標にオフセットを加える
-	KamataEngine::Vector2 finalPos = {minimapCenterPos.x + minimapOffsetX, minimapCenterPos.y + minimapOffsetY};
-
-	// 5. ミニマップの範囲内に座標をクランプ (はみ出さないように)
 	float minX = kMinimapPosition_.x;
 	float maxX = kMinimapPosition_.x + kMinimapSize_.x;
-	float minY = kMinimapPosition_.y - kMinimapSize_.y; // Yは上(小)・下(大)
-	float maxY = kMinimapPosition_.y;
+	float minY = kMinimapPosition_.y;
+	float maxY = kMinimapPosition_.y + kMinimapSize_.y;
 
 	finalPos.x = std::clamp(finalPos.x, minX, maxX);
 	finalPos.y = std::clamp(finalPos.y, minY, maxY);
-
 	return finalPos;
+}
+
+void GameScene::UpdateTitleCamera() {
+	camera_.translation_ = {0.0f, 0.0f, -50.0f};
+	camera_.rotation_ = {0.0f, 0.0f, 0.0f};
+	camera_.aspectRatio = static_cast<float>(WinApp::kWindowWidth) / static_cast<float>(WinApp::kWindowHeight);
+	camera_.UpdateMatrix();
+	camera_.TransferMatrix();
+}
+
+void GameScene::SyncFreeCameraFromPlayerScreen() {
+	float left = 0.0f;
+	float bottom = 0.0f;
+	float right = 0.0f;
+	float top = 0.0f;
+	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, left, bottom, right, top);
+	freeCameraCenterX_ = (left + right) * 0.5f;
+	freeCameraCenterY_ = (bottom + top) * 0.5f;
+}
+
+void GameScene::ComputeFreeCameraViewSize(float& viewW, float& viewH) const {
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
+	const float mapW = tileMap_.GetMapPixelWidth();
+	const float mapH = tileMap_.GetMapPixelHeight();
+	const float targetW = mapW > winW ? mapW : winW;
+	const float targetH = mapH > winH ? mapH : winH;
+	viewW = winW + (targetW - winW) * cameraZoomOut_;
+	viewH = winH + (targetH - winH) * cameraZoomOut_;
+}
+
+void GameScene::ClampFreeCameraCenter(float viewW, float viewH) {
+	float mapMinX = 0.0f;
+	float mapMinY = 0.0f;
+	float mapMaxX = 0.0f;
+	float mapMaxY = 0.0f;
+	tileMap_.GetMapWorldBounds(mapMinX, mapMinY, mapMaxX, mapMaxY);
+	const float mapW = mapMaxX - mapMinX;
+	const float mapH = mapMaxY - mapMinY;
+	const float halfW = viewW * 0.5f;
+	const float halfH = viewH * 0.5f;
+
+	if (viewW >= mapW) {
+		freeCameraCenterX_ = mapMinX + mapW * 0.5f;
+	} else {
+		freeCameraCenterX_ = std::clamp(freeCameraCenterX_, mapMinX + halfW, mapMaxX - halfW);
+	}
+
+	if (viewH >= mapH) {
+		freeCameraCenterY_ = mapMinY + mapH * 0.5f;
+	} else {
+		freeCameraCenterY_ = std::clamp(freeCameraCenterY_, mapMinY + halfH, mapMaxY - halfH);
+	}
+}
+
+void GameScene::ComputeCameraBounds(float& left, float& bottom, float& right, float& top) {
+	left = 0.0f;
+	bottom = 0.0f;
+	right = 0.0f;
+	top = 0.0f;
+	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, left, bottom, right, top);
+
+	if (!isFreeCamera_) {
+		return;
+	}
+
+	float viewW = 0.0f;
+	float viewH = 0.0f;
+	ComputeFreeCameraViewSize(viewW, viewH);
+	ClampFreeCameraCenter(viewW, viewH);
+
+	left = freeCameraCenterX_ - viewW * 0.5f;
+	right = freeCameraCenterX_ + viewW * 0.5f;
+	bottom = freeCameraCenterY_ - viewH * 0.5f;
+	top = freeCameraCenterY_ + viewH * 0.5f;
+}
+
+KamataEngine::Vector3 GameScene::ConvertScreenToWorld(float screenX, float screenY) {
+	float left = 0.0f;
+	float bottom = 0.0f;
+	float right = 0.0f;
+	float top = 0.0f;
+	ComputeCameraBounds(left, bottom, right, top);
+
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
+	const float worldX = left + (screenX / winW) * (right - left);
+	const float worldY = top - (screenY / winH) * (top - bottom);
+
+	KamataEngine::Vector3 pos;
+	pos.x = worldX;
+	pos.y = worldY;
+	pos.z = 0.5f;
+	return pos;
+}
+
+void GameScene::UpdateTrampolinePlacement() {
+	if (!input_ || !isGameIntroFinished_ || !player_) {
+		hasTrampolinePreview_ = false;
+		return;
+	}
+
+	const KamataEngine::Vector2& mousePos = input_->GetMousePosition();
+	trampolinePreviewPos_ = ConvertScreenToWorld(mousePos.x, mousePos.y);
+	hasTrampolinePreview_ = true;
+
+	const float playerHalfW = player_->GetHalfWidth();
+	const float playerHalfH = player_->GetHalfHeight();
+	const TrampolineSpringType nextType = TrampolineSpring::GetPlacementType(nextTrampolineTypeIndex_);
+
+	trampolinePreview_.SetType(nextType);
+	trampolinePreview_.SetCenter(trampolinePreviewPos_, playerHalfW, playerHalfH);
+
+	float springHalfW = 0.0f;
+	float springHalfH = 0.0f;
+	trampolinePreview_.GetHalfSize(springHalfW, springHalfH);
+	tileMap_.ClampPositionToMapBounds(trampolinePreviewPos_.x, trampolinePreviewPos_.y, springHalfW, springHalfH);
+	trampolinePreview_.SetCenter(trampolinePreviewPos_, playerHalfW, playerHalfH);
+
+	if (input_->IsTriggerMouse(0) && !input_->IsPressMouse(1)) {
+		TrampolineSpring spring;
+		spring.SetType(nextType);
+		spring.SetCenter(trampolinePreviewPos_, playerHalfW, playerHalfH);
+		trampolineSprings_.push_back(std::move(spring));
+		nextTrampolineTypeIndex_++;
+	}
+}
+
+void GameScene::DrawTrampolineSprings() {
+	if (!modelCube_ || !isGameIntroFinished_) {
+		return;
+	}
+
+	for (const TrampolineSpring& spring : trampolineSprings_) {
+		spring.Draw(modelCube_, camera_);
+	}
+
+	if (hasTrampolinePreview_) {
+		trampolinePreview_.Draw(modelCube_, camera_);
+	}
+}
+
+void GameScene::UpdateMapCamera() {
+	float left = 0.0f;
+	float bottom = 0.0f;
+	float right = 0.0f;
+	float top = 0.0f;
+	ComputeCameraBounds(left, bottom, right, top);
+
+	Matrix4x4 identity = {};
+	identity.m[0][0] = 1.0f;
+	identity.m[1][1] = 1.0f;
+	identity.m[2][2] = 1.0f;
+	identity.m[3][3] = 1.0f;
+
+	camera_.matView = identity;
+	camera_.matProjection = MakeOrthographicMatrix(left, top, right, bottom, -100.0f, 100.0f);
+	camera_.TransferMatrix();
+}
+
+void GameScene::UpdateCameraControl() {
+	if (!input_) {
+		return;
+	}
+
+	if (player_ && player_->IsMovingInput()) {
+		isFreeCamera_ = false;
+		cameraZoomOut_ = 0.0f;
+		return;
+	}
+
+	const int32_t wheel = input_->GetWheel();
+	if (wheel != 0) {
+		if (!isFreeCamera_) {
+			SyncFreeCameraFromPlayerScreen();
+			isFreeCamera_ = true;
+		}
+
+		cameraZoomOut_ -= static_cast<float>(wheel) / 120.0f * 0.12f;
+		cameraZoomOut_ = std::clamp(cameraZoomOut_, 0.0f, 1.0f);
+
+		float viewW = 0.0f;
+		float viewH = 0.0f;
+		ComputeFreeCameraViewSize(viewW, viewH);
+		ClampFreeCameraCenter(viewW, viewH);
+	}
+
+	if (input_->IsPressMouse(1)) {
+		if (!isFreeCamera_) {
+			SyncFreeCameraFromPlayerScreen();
+			isFreeCamera_ = true;
+		}
+
+		float viewW = 0.0f;
+		float viewH = 0.0f;
+		ComputeFreeCameraViewSize(viewW, viewH);
+
+		const float winW = static_cast<float>(WinApp::kWindowWidth);
+		const float winH = static_cast<float>(WinApp::kWindowHeight);
+		const Input::MouseMove mouseMove = input_->GetMouseMove();
+		const float worldPerPixelX = viewW / winW;
+		const float worldPerPixelY = viewH / winH;
+
+		const float panSpeed = 1.2f;
+		freeCameraCenterX_ -= static_cast<float>(mouseMove.lX) * worldPerPixelX * panSpeed;
+		freeCameraCenterY_ += static_cast<float>(mouseMove.lY) * worldPerPixelY * panSpeed;
+		ClampFreeCameraCenter(viewW, viewH);
+	}
+}
+
+void GameScene::UpdatePlayerScreenTransition() {
+	if (!player_) {
+		return;
+	}
+
+	KamataEngine::Vector3 pos = player_->GetWorldPosition();
+	const float halfW = player_->GetHalfWidth();
+	const float halfH = player_->GetHalfHeight();
+
+	float left = 0.0f;
+	float bottom = 0.0f;
+	float right = 0.0f;
+	float top = 0.0f;
+	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, left, bottom, right, top);
+
+	int newScreenX = currentScreenX_;
+	int newScreenY = currentScreenY_;
+	bool transitioned = false;
+
+	if (pos.x - halfW < left && currentScreenX_ > 0) {
+		newScreenX = currentScreenX_ - 1;
+		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
+		pos.x = right - halfW - 2.0f;
+		transitioned = true;
+	} else if (pos.x + halfW > right && currentScreenX_ < tileMap_.GetScreenCountX() - 1) {
+		newScreenX = currentScreenX_ + 1;
+		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
+		pos.x = left + halfW + 2.0f;
+		transitioned = true;
+	}
+
+	if (pos.y - halfH < bottom && currentScreenY_ < tileMap_.GetScreenCountY() - 1) {
+		newScreenY = currentScreenY_ + 1;
+		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
+		pos.y = top - halfH - 4.0f;
+		player_->SetVelocityY(-2.0f);
+		player_->SetPosition(pos);
+		currentScreenX_ = newScreenX;
+		currentScreenY_ = newScreenY;
+		return;
+	}
+
+	if (pos.y + halfH > top && currentScreenY_ > 0) {
+		newScreenY = currentScreenY_ - 1;
+		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
+		pos.y = bottom + halfH + 4.0f;
+		player_->SetVelocityY(0.0f);
+		transitioned = true;
+	}
+
+	if (transitioned) {
+		currentScreenX_ = newScreenX;
+		currentScreenY_ = newScreenY;
+		player_->SetPosition(pos);
+	} else {
+		tileMap_.GetScreenFromWorld(pos.x, pos.y, currentScreenX_, currentScreenY_);
+	}
 }
 
 // データドリブン: イベント種別ごとの処理テーブル（switch 分岐の代替）

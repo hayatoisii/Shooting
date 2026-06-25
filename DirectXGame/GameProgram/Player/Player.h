@@ -7,12 +7,15 @@
 #include "PlayerBullet.h"
 #include "PlayerState.h"
 #include <list>
+#include <vector>
 
 using namespace KamataEngine;
 
 class Enemy;
 class EntityFactory;
 class RailCamera;
+class TileMap;
+class TrampolineSpring;
 
 // プレイヤー（GameCharacter を継承。行動は State Pattern で切り替え）
 class Player : public GameCharacter {
@@ -24,6 +27,7 @@ public:
 	void Update();
 	void Draw();
 	void Attack();
+	void UpdateMovement();
 
 	// --- GameCharacter の仮想関数（override） ---
 	KamataEngine::Vector3 GetWorldPosition() const override;
@@ -49,8 +53,16 @@ public:
 
 	void SetParent(const KamataEngine::WorldTransform* parent);
 	void SetRailCamera(RailCamera* camera);
+	void SetTileMap(TileMap* tileMap);
+	void SetTrampolineSprings(std::vector<TrampolineSpring>* springs) { trampolineSprings_ = springs; }
 	void SetEnemies(std::list<Enemy*>* enemies) { enemies_ = enemies; }
 	void SetEntityFactory(EntityFactory* factory) { entityFactory_ = factory; }
+
+	float GetHalfWidth() const { return halfWidth_; }
+	float GetHalfHeight() const { return halfHeight_; }
+	bool IsMovingInput() const;
+	void SetVelocityY(float velocityY) { velocityY_ = velocityY; }
+	void SetVelocityX(float velocityX) { velocityX_ = velocityX; }
 
 	void ResetRotation();
 	void ResetParticles();
@@ -129,4 +141,18 @@ private:
 	float hitShakePrevHorizontalOffset_ = 0.0f;
 
 	float spawnBaseY_ = 0.0f;
+
+	TileMap* tileMap_ = nullptr;
+	std::vector<TrampolineSpring>* trampolineSprings_ = nullptr;
+
+	float velocityX_ = 0.0f;
+	float velocityY_ = 0.0f;
+	bool onGround_ = false;
+	float halfWidth_ = 14.0f;
+	float halfHeight_ = 14.0f;
+
+	static constexpr float kMoveSpeed = 4.0f;
+	static constexpr float kGravity = 0.6f;
+	static constexpr float kJumpSpeed = 12.0f;
+	static constexpr float kVelocityXDamping = 0.94f;
 };

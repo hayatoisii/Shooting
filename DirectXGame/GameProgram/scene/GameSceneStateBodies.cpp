@@ -16,6 +16,7 @@ void GameScene::UpdateStateBody_Start() {
 		worldTransformTitleObject_.rotation_.y = 0.0f;
 	}
 	worldTransformTitleObject_.UpdateMatrix();
+	UpdateTitleCamera();
 }
 
 // 画面遷移（拡大）の更新本体
@@ -26,6 +27,7 @@ void GameScene::UpdateStateBody_TransitionToGame() {
 	float easedProgress = 1.0f - cosf(progress * 3.14159265f / 2.0f);
 	float scale = easedProgress * maxScale;
 	transitionSprite_->SetSize({scale, scale});
+	UpdateTitleCamera();
 }
 
 // 画面遷移（縮小）の更新本体
@@ -37,17 +39,10 @@ void GameScene::UpdateStateBody_TransitionFromGame() {
 	float scale = (1.0f - easedProgress) * maxScale;
 	transitionSprite_->SetSize({scale, scale});
 
-	if (railCamera_) {
-		railCamera_->Update();
-		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-		cameraPositionAnchor_.UpdateMatrix();
-	}
+	UpdateMapCamera();
 	if (player_) {
 		player_->RefreshWorldMatrix();
 	}
-	camera_.matView = railCamera_->GetViewProjection().matView;
-	camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-	camera_.TransferMatrix();
 }
 
 // ゲーム開始前イントロの更新本体
@@ -63,171 +58,41 @@ void GameScene::UpdateStateBody_GameIntro() {
 		player_->RefreshWorldMatrix();
 	}
 
-	UpdateAimAssist();
-	if (railCamera_) {
-		railCamera_->Update();
-	}
+	UpdateMapCamera();
 
 	if (explosionEmitter_) {
 		explosionEmitter_->Update();
 	}
-
-	cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-	cameraPositionAnchor_.UpdateMatrix();
-	camera_.matView = railCamera_->GetViewProjection().matView;
-	camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-	camera_.TransferMatrix();
 }
 
 // 本編ゲームプレイの更新本体
 void GameScene::UpdateStateBody_Game() {
-	if (isGameIntroFinished_) {
-		const float kDeltaSecGame = 1.0f / 60.0f;
-		gameSceneTimer_ += kDeltaSecGame;
-		const float kAutoGameOverSeconds = 40.0f;
-		if (gameSceneTimer_ >= kAutoGameOverSeconds) {
-			TransitionToClearScene2();
-			return;
-		}
-	}
-
-	railCamera_->Update();
-	cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-	cameraPositionAnchor_.UpdateMatrix();
-	camera_.matView = railCamera_->GetViewProjection().matView;
-	camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-	camera_.TransferMatrix();
-
-	UpdateAimAssist();
+	UpdateCameraControl();
+	UpdateMapCamera();
+	UpdateTrampolinePlacement();
 
 	if (explosionEmitter_) {
 		explosionEmitter_->Update();
 	}
 
 	if (isGameIntroFinished_) {
-		const int kSpawnsPerFrame = 1;
-		meteoriteSpawnTimer_--;
-		if (meteoriteSpawnTimer_ <= 0) {
-			for (int i = 0; i < kSpawnsPerFrame; ++i) {
-				SpawnMeteorite();
-			}
-			meteoriteSpawnTimer_ = 1;
-		}
-
 		player_->Update();
-		player_->EvadeBullets(enemyBullets_);
-
-		for (Enemy* enemy : enemies_) {
-			enemy->Update();
-		}
-
-		for (Meteorite* meteor : meteorites_) {
-			if (meteor) {
-				meteor->Update(player_->GetWorldPosition());
-			}
-		}
-
-		for (EnemyBullet* bullet : enemyBullets_) {
-			bullet->Update();
-		}
-
-		if (homingSpawnTimer_ > 0) {
-			homingSpawnTimer_--;
-		} else {
-			Enemy* shooter = nullptr;
-			KamataEngine::Vector3 playerPosForHoming = player_->GetWorldPosition();
-			float maxDistSq = balanceTable_.GetFloat("homingMaxDistance", kHomingMaxDistance_) * balanceTable_.GetFloat("homingMaxDistance", kHomingMaxDistance_);
-			const float kMinHomingDistance = balanceTable_.GetFloat("homingMinDistance", 1000.0f);
-			float minDistSq = kMinHomingDistance * kMinHomingDistance;
-			for (Enemy* enemy : enemies_) {
-				if (!enemy || enemy->IsDead())
-					continue;
-				KamataEngine::Vector3 epos = enemy->GetWorldPosition();
-				float dx = epos.x - playerPosForHoming.x;
-				float dy = epos.y - playerPosForHoming.y;
-				float dz = epos.z - playerPosForHoming.z;
-				float distSq = dx * dx + dy * dy + dz * dz;
-				if (distSq <= maxDistSq && distSq > minDistSq) {
-					shooter = enemy;
-					break;
-				}
-			}
-
-			if (shooter) {
-				KamataEngine::Vector3 moveBullet = shooter->GetWorldPosition();
-				KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-				KamataEngine::Vector3 toPlayer = playerPos - moveBullet;
-				float len = std::sqrt(toPlayer.x * toPlayer.x + toPlayer.y * toPlayer.y + toPlayer.z * toPlayer.z);
-				if (len > 0.001f) {
-					toPlayer.x /= len;
-					toPlayer.y /= len;
-					toPlayer.z /= len;
-				}
-				const float homingSpeed = balanceTable_.GetFloat("enemyHomingBulletSpeed", kHomingBulletSpeed_);
-				KamataEngine::Vector3 vel = {toPlayer.x * homingSpeed, toPlayer.y * homingSpeed, toPlayer.z * homingSpeed};
-
-				EnemyBullet* newBullet = GetEntityFactory().CreateEnemyHomingBullet(modelEnemyBullet_, moveBullet, vel, player_, homingSpeed);
-				AddEnemyBullet(newBullet);
-
-				homingSpawnTimer_ = balanceTable_.GetInt("homingIntervalFrames", kHomingIntervalFrames_);
-			}
-		}
-
-		enemyBullets_.remove_if([this](EnemyBullet* bullet) {
-			if (bullet && bullet->IsDead()) {
-				entityFactory_.ReleaseEnemyBullet(bullet);
-				return true;
-			}
-			return false;
-		});
-		CheckAllCollisions();
+		UpdatePlayerScreenTransition();
+		UpdateMapCamera();
 
 		if (player_ && minimapPlayerSprite_) {
 			KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-
-			KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y - kMinimapSize_.y * 0.5f};
-			minimapPlayerSprite_->SetPosition(minimapCenterPos);
+			minimapPlayerSprite_->SetPosition(ConvertWorldToMinimapPosition(playerPos));
 
 			float dx = playerPos.x - lastPlayerPos_.x;
-			float dz = playerPos.z - lastPlayerPos_.z;
+			float dy = playerPos.y - lastPlayerPos_.y;
 			const float kMoveThresholdSq = 0.0001f;
-			float moveDistSq = dx * dx + dz * dz;
+			float moveDistSq = dx * dx + dy * dy;
 			if (moveDistSq > kMoveThresholdSq) {
-				float mx = dx;
-				float my = -dz;
-				float angle = std::atan2(my, mx);
+				float angle = std::atan2(dy, dx);
 				const float kPI = 3.14159265f;
 				minimapPlayerSprite_->SetRotation(angle + kPI / 2.0f);
 				lastPlayerPos_ = playerPos;
-			}
-
-			size_t activeEnemyCount = 0;
-			for (Enemy* enemy : enemies_) {
-				if (enemy && !enemy->IsDead() && activeEnemyCount < kMaxMinimapEnemies_) {
-					KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
-					KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(enemyPos, playerPos);
-					minimapEnemySprites_[activeEnemyCount]->SetPosition(minimapPos);
-					activeEnemyCount++;
-				}
-			}
-
-			size_t activeBulletCount = 0;
-			for (EnemyBullet* eb : enemyBullets_) {
-				if (!eb || eb->IsDead())
-					continue;
-				if (activeBulletCount >= kMaxMinimapEnemyBullets_)
-					break;
-				KamataEngine::Vector3 bpos = eb->GetWorldPosition();
-				KamataEngine::Vector2 bmin = ConvertWorldToMinimap(bpos, playerPos);
-				minimapEnemyBulletSprites_[activeBulletCount]->SetPosition(bmin);
-				activeBulletCount++;
-			}
-
-			for (size_t i = activeEnemyCount; i < kMaxMinimapEnemies_; ++i) {
-				minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f});
-			}
-			for (size_t i = activeBulletCount; i < kMaxMinimapEnemyBullets_; ++i) {
-				minimapEnemyBulletSprites_[i]->SetPosition({-100.0f, -100.0f});
 			}
 		}
 	} else {
@@ -239,6 +104,8 @@ void GameScene::UpdateStateBody_Game() {
 
 // クリア演出の更新本体
 void GameScene::UpdateStateBody_Clear() {
+	UpdateTitleCamera();
+
 	if (!confettiActive_) {
 		confettiActive_ = true;
 		confettiSpawnTimer_ = 0;
@@ -320,11 +187,13 @@ void GameScene::UpdateStateBody_Over() {
 
 // タイトルへ戻るときの共通リセット
 void GameScene::ResetToTitle() {
-	debug10ElapsedSec_ = 0.0f;
 	gameOverTimer_ = 0;
+	trampolineSprings_.clear();
+	hasTrampolinePreview_ = false;
+	nextTrampolineTypeIndex_ = 0;
 
 	camera_.Initialize();
-	camera_.TransferMatrix();
+	UpdateTitleCamera();
 
 	if (railCamera_) {
 		railCamera_->Reset();

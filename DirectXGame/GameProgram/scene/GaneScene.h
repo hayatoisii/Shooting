@@ -2,7 +2,10 @@
 #include "EntityFactory.h"
 #include "GameBalanceTable.h"
 #include "GameEvent.h"
+#include "MapRenderer.h"
 #include "SpawnCommandTable.h"
+#include "TileMap.h"
+#include "TrampolineSpring.h"
 #include "Enemy.h"
 #include "KamataEngine.h"
 #include "Player.h"
@@ -62,6 +65,18 @@ public:
 	void SpawnMeteorite();
 	void UpdateMeteorites();
 
+	void UpdateMapCamera();
+	void UpdateTitleCamera();
+	void UpdateCameraControl();
+	void UpdatePlayerScreenTransition();
+	void UpdateTrampolinePlacement();
+	void DrawTrampolineSprings();
+	KamataEngine::Vector3 ConvertScreenToWorld(float screenX, float screenY);
+	void ComputeCameraBounds(float& left, float& bottom, float& right, float& top);
+	void SyncFreeCameraFromPlayerScreen();
+	void ComputeFreeCameraViewSize(float& viewW, float& viewH) const;
+	void ClampFreeCameraCenter(float viewW, float viewH);
+
 	void RequestExplosion(const KamataEngine::Vector3& position);
 
 	bool hasSpawnedEnemies_ = false;
@@ -95,6 +110,7 @@ private:
 	uint32_t reticleTextureHandle_ = 0;
 
 	Model* modelPlayer_ = nullptr;
+	Model* modelCube_ = nullptr;
 	Model* modelEnemy_ = nullptr;
 	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
 	Model* modelEnemyBullet_ = nullptr;
@@ -223,12 +239,16 @@ private:
 	std::vector<KamataEngine::Sprite*> minimapEnemyBulletSprites_;
 	uint32_t minimapEnemyBulletTextureHandle_ = 0;
 
-	// ミニマップ設定値
-	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 710.0f}; // 描画基準位置 (左下)
-	const KamataEngine::Vector2 kMinimapSize_ = {200.0f, 200.0f};    // 背景スプライトのサイズ
-	const float kMinimapScale_ = 0.03f;                              // ワールド座標 -> ミニマップ座標の縮尺
+	// ミニマップ設定値（30×17タイルに合わせた縦横比）
+	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 10.0f}; // 描画基準位置 (左上)
+	const KamataEngine::Vector2 kMinimapSize_ = {150.0f, 85.0f};   // 1タイル約5px
 
-	/// <returns>ミニマップ上のスクリーン座標</returns>
+	void RebuildMinimapTiles();
+	KamataEngine::Vector2 ConvertWorldToMinimapPosition(const KamataEngine::Vector3& worldPos) const;
+
+	std::vector<KamataEngine::Sprite*> minimapGroundSprites_;
+
+	/// <returns>ミニマップ上のスクリーン座標（レーダー用・旧）</returns>
 	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);
 
 	// 最後に記録したプレイヤー位置（ミニマップ回転の判定用）
@@ -240,13 +260,7 @@ private:
 	const float kHomingMaxDistance_ = 3000.0f;
 	const float kHomingBulletSpeed_ = 8.0f; // requested speed
 
-	// デバッグ: ゲーム開始から指定秒数でタイトルに戻す
-	bool debug10 = true;            // 有効化フラグ
-	// デバッグ10秒タイマー
-	float debug10ElapsedSec_ = 0.0f; // 経過秒数
-	const float kDebug10Seconds = 100.0f; // タイトルへ戻すまでの秒数（100秒）
-
-	// ゲームタイマー（秒）: 自動ゲームオーバー判定に使用
+	// ゲームタイマー（秒）
 	float gameSceneTimer_ = 0.0f;
 
 	// カウント表示 (ビットマップフォント用)
@@ -268,4 +282,20 @@ private:
 	// データドリブン: バランス値・スポーンコマンド
 	GameBalanceTable balanceTable_;
 	SpawnCommandTable spawnCommandTable_;
+
+	TileMap tileMap_;
+	MapRenderer mapRenderer_;
+
+	int currentScreenX_ = 0;
+	int currentScreenY_ = 0;
+	bool isFreeCamera_ = false;
+	float freeCameraCenterX_ = 0.0f;
+	float freeCameraCenterY_ = 0.0f;
+	float cameraZoomOut_ = 0.0f;
+
+	std::vector<TrampolineSpring> trampolineSprings_;
+	TrampolineSpring trampolinePreview_;
+	KamataEngine::Vector3 trampolinePreviewPos_ = {};
+	bool hasTrampolinePreview_ = false;
+	int nextTrampolineTypeIndex_ = 0;
 };
