@@ -52,6 +52,12 @@ public:
 
 	void TransitionToClearScene2();
 
+	void LoadStage(int stageIndex);
+	void AdvanceFromClearScreen();
+	void HandleStageClear();
+	static constexpr int kStageCount = 3;
+	int GetCurrentStageIndex() const { return currentStageIndex_; }
+
 	void AddEnemyBullet(EnemyBullet* enemyBullet);
 	const std::list<EnemyBullet*>& GetEnemyBullets() const { return enemyBullets_; }
 
@@ -71,7 +77,9 @@ public:
 	void UpdatePlayerScreenTransition();
 	void UpdateTrampolinePlacement();
 	void DrawTrampolineSprings();
+	void DrawJumpSpringChargeCircle();
 	KamataEngine::Vector3 ConvertScreenToWorld(float screenX, float screenY);
+	KamataEngine::Vector2 ConvertWorldToScreen(float worldX, float worldY);
 	void ComputeCameraBounds(float& left, float& bottom, float& right, float& top);
 	void SyncFreeCameraFromPlayerScreen();
 	void ComputeFreeCameraViewSize(float& viewW, float& viewH) const;
@@ -111,6 +119,7 @@ private:
 
 	Model* modelPlayer_ = nullptr;
 	Model* modelCube_ = nullptr;
+	Model* modelSpikeTile_ = nullptr;
 	Model* modelEnemy_ = nullptr;
 	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
 	Model* modelEnemyBullet_ = nullptr;
@@ -227,6 +236,7 @@ private:
 	uint32_t greenBoxTextureHandle_ = 0;
 	KamataEngine::Sprite* minimapSprite_ = nullptr;       // ミニマップ背景
 	KamataEngine::Sprite* minimapPlayerSprite_ = nullptr; // ミニマップ上の自機アイコン
+	KamataEngine::Sprite* jumpSpringChargeSprite_ = nullptr;
 
 	uint32_t minimapPlayerTextureHandle_ = 0;
 
@@ -286,8 +296,13 @@ private:
 	TileMap tileMap_;
 	MapRenderer mapRenderer_;
 
+	int currentStageIndex_ = 0;
+	bool isPlayerGameInitialized_ = false;
+
 	int currentScreenX_ = 0;
 	int currentScreenY_ = 0;
+	int screenTransitionCooldown_ = 0;
+	static constexpr int kScreenTransitionCooldownFrames = 45;
 	bool isFreeCamera_ = false;
 	float freeCameraCenterX_ = 0.0f;
 	float freeCameraCenterY_ = 0.0f;

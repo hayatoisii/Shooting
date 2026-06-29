@@ -29,6 +29,14 @@ public:
 	void Attack();
 	void UpdateMovement();
 
+	enum class SpringChargePhase { None, Penetrating, Pause, Charging };
+	enum class SpringChargeKind { Up, Right, Left, Down };
+
+	SpringChargePhase GetSpringChargePhase() const { return springChargePhase_; }
+	float GetJumpSpringChargeLevel() const { return springChargeLevel_; }
+	const KamataEngine::Vector3& GetJumpSpringAnchor() const { return springChargeAnchor_; }
+	float GetJumpSpringCircleRadiusWorld() const;
+
 	// --- GameCharacter の仮想関数（override） ---
 	KamataEngine::Vector3 GetWorldPosition() const override;
 	bool IsDead() const override;
@@ -40,6 +48,9 @@ public:
 
 	// 位置は setter 経由でのみ変更
 	void SetPosition(const KamataEngine::Vector3& position);
+	void TeleportForScreenWrap(const KamataEngine::Vector3& position, bool preserveVelocity);
+	bool IsSpikeInvulnerable() const { return spikeRespawnCooldown_ > 0; }
+	bool IsSideSpringFlying() const { return isSideSpringFlying_; }
 	const KamataEngine::Vector3& GetLocalPosition() const { return worldtransfrom_.translation_; }
 	void RefreshWorldMatrix() { worldtransfrom_.UpdateMatrix(); }
 
@@ -63,6 +74,10 @@ public:
 	bool IsMovingInput() const;
 	void SetVelocityY(float velocityY) { velocityY_ = velocityY; }
 	void SetVelocityX(float velocityX) { velocityX_ = velocityX; }
+
+	void SetVisualModel(KamataEngine::Model* model);
+	void SetSpawnPosition(const KamataEngine::Vector3& pos);
+	const KamataEngine::Vector3& GetSpawnPosition() const { return spawnPosition_; }
 
 	void ResetRotation();
 	void ResetParticles();
@@ -90,6 +105,16 @@ public:
 	void FinalizeFrameUpdate();
 	void UpdateGameOverAnimation();
 	void BeginRolling(float direction);
+
+	void HandleSpikeCollision(KamataEngine::Vector3& pos);
+	void RespawnToSpawn(KamataEngine::Vector3& pos);
+
+	bool UpdateSpringCharge(KamataEngine::Vector3& pos);
+	void BeginSpringPenetration(int springIndex, SpringChargeKind kind, const KamataEngine::Vector3& pos);
+	void BeginSpringPauseAt(const KamataEngine::Vector3& pos);
+	void LaunchFromSpringCharge(bool useCharge);
+	const TrampolineSpring* GetActiveSpring() const;
+	TrampolineSpring* GetActiveSpringMutable();
 
 private:
 	PlayerState* state_ = nullptr;
@@ -150,9 +175,27 @@ private:
 	bool onGround_ = false;
 	float halfWidth_ = 14.0f;
 	float halfHeight_ = 14.0f;
+	int spikeRespawnCooldown_ = 0;
 
-	static constexpr float kMoveSpeed = 4.0f;
+	SpringChargePhase springChargePhase_ = SpringChargePhase::None;
+	SpringChargeKind springChargeKind_ = SpringChargeKind::Up;
+	int activeSpringIndex_ = -1;
+	float springChargePauseTimer_ = 0.0f;
+	float springChargeLevel_ = 0.0f;
+	KamataEngine::Vector3 springChargeAnchor_ = {};
+	KamataEngine::Vector3 springPenetrationPrevPos_ = {};
+	bool isSideSpringFlying_ = false;
+	KamataEngine::Vector3 spawnPosition_ = {};
+
+	static constexpr float kMoveSpeed = 6.5f;
 	static constexpr float kGravity = 0.6f;
 	static constexpr float kJumpSpeed = 12.0f;
-	static constexpr float kVelocityXDamping = 0.94f;
+	static constexpr float kSpringPauseDuration = 0.3f;
+	static constexpr float kSpringMaxChargeTime = 1.2f;
+	static constexpr float kSpringMinLaunchSpeed = 7.0f;
+	static constexpr float kSpringMaxLaunchSpeed = 28.0f;
+	static constexpr float kSideSpringMinLaunchSpeed = 7.0f;
+	static constexpr float kSideSpringMaxLaunchSpeed = 24.0f;
+	static constexpr float kSpringPenetrationSpeed = 3.5f;
+	static constexpr int kSpikeRespawnInvulnFrames = 45;
 };

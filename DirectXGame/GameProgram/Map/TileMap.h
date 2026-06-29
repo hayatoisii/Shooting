@@ -3,7 +3,7 @@
 #include "KamataEngine.h"
 #include <vector>
 
-// CSVマップ（0=空白, 1=地面）。1画面=30×17タイル、複数画面を1枚のCSVに連結可能
+// CSVマップ（0=空白, 1=地面, 2=トゲ, 3=ゴール）
 class TileMap {
 public:
 	static constexpr float kTileWidth = 42.0f;
@@ -17,6 +17,8 @@ public:
 	int GetHeight() const { return height_; }
 	int GetTile(int col, int row) const;
 	bool IsGround(int col, int row) const;
+	bool IsSpike(int col, int row) const;
+	bool IsGoal(int col, int row) const;
 
 	int GetScreenCountX() const;
 	int GetScreenCountY() const;
@@ -42,6 +44,8 @@ public:
 	void ResolveCollisionX(float& x, float y, float halfWidth, float halfHeight) const;
 	void ResolveCollisionY(float& y, float x, float halfWidth, float halfHeight, float velocityY, bool& onGround) const;
 	void ClampPositionToMapBounds(float& x, float& y, float halfWidth, float halfHeight) const;
+	bool OverlapsSpike(float worldX, float worldY, float halfWidth, float halfHeight) const;
+	bool OverlapsGoal(float worldX, float worldY, float halfWidth, float halfHeight) const;
 	void GetMapWorldBounds(float& minX, float& minY, float& maxX, float& maxY) const;
 
 private:

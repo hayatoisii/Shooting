@@ -73,6 +73,7 @@ GameScene::~GameScene() {
 	delete modelParticle_;
 	delete minimapSprite_;
 	delete minimapPlayerSprite_;
+	delete jumpSpringChargeSprite_;
 	// シーンのクリア
 	delete clearEmitter_;
 	delete clearSprite_;
@@ -113,14 +114,10 @@ void GameScene::Initialize() {
 	balanceTable_.LoadFromFile("Resources/gameBalance.csv");
 	GameBalanceAccess::SetTable(&balanceTable_);
 
-	tileMap_.LoadFromFile("Resources/map.csv");
-	if (tileMap_.GetWidth() <= 0) {
-		tileMap_.LoadFromFile("DirectXGame/Resources/map.csv");
-	}
-
 	skydome_ = new Skydome();
 
 	modelCube_ = KamataEngine::Model::CreateFromOBJ("cube", true);
+	modelSpikeTile_ = KamataEngine::Model::CreateFromOBJ("Bullet", true);
 	modelPlayer_ = modelCube_;
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
 	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
@@ -211,6 +208,10 @@ void GameScene::Initialize() {
 	minimapPlayerSprite_->SetAnchorPoint({0.5f, 0.5f}); // 中央をアンカーに
 	minimapPlayerSprite_->SetSize({10.0f, 10.0f});      // 仮サイズ
 
+	jumpSpringChargeSprite_ = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0.0f, 0.0f});
+	jumpSpringChargeSprite_->SetAnchorPoint({0.5f, 0.5f});
+	jumpSpringChargeSprite_->SetColor({0.6f, 0.45f, 0.25f, 0.75f});
+
 	// 3. ミニマップ上の敵 (あらかじめ最大数作成し、非表示にしておく)
 	minimapEnemySprites_.resize(kMaxMinimapEnemies_);
 	for (size_t i = 0; i < kMaxMinimapEnemies_; ++i) {
@@ -271,23 +272,7 @@ void GameScene::Initialize() {
 
 	camera_.Initialize();
 
-	const float playerHalfW = TileMap::kTileWidth * 0.375f;
-	const float playerHalfH = TileMap::kTileHeight * 0.375f;
-	KamataEngine::Vector3 spawnPos = tileMap_.FindSpawnPosition(playerHalfW, playerHalfH);
-	playerIntroTargetPosition_ = spawnPos;
-	playerIntroStartPosition_ = spawnPos;
-
-	player_->Initialize(modelPlayer_, &camera_, spawnPos);
-	player_->SetParent(nullptr);
-	player_->SetTileMap(&tileMap_);
-	player_->SetTrampolineSprings(&trampolineSprings_);
-	mapRenderer_.Initialize(modelCube_, tileMap_);
-	RebuildMinimapTiles();
-	currentScreenX_ = 0;
-	currentScreenY_ = 0;
-	UpdateTitleCamera();
-	// Initialize last player position for minimap rotation tracking
-	lastPlayerPos_ = player_->GetWorldPosition();
+	LoadStage(0);
 
 	skydome_->Initialize(modelSkydome_, &camera_);
 	worldTransformTitleObject_.Initialize();
@@ -310,6 +295,118 @@ void GameScene::Initialize() {
 	homingSpawnTimer_ = balanceTable_.GetInt("homingIntervalFrames", kHomingIntervalFrames_);
 }
 
+namespace {
+const char* const kStageMapPaths[GameScene::kStageCount] = {
+    "Resources/map.csv",
+    "Resources/map2.csv",
+    "Resources/map3.csv",
+};
+const char* const kStageMapPathsAlt[GameScene::kStageCount] = {
+    "DirectXGame/Resources/map.csv",
+    "DirectXGame/Resources/map2.csv",
+    "DirectXGame/Resources/map3.csv",
+};
+} // namespace
+
+void GameScene::LoadStage(int stageIndex) {
+	stageIndex = std::clamp(stageIndex, 0, GameScene::kStageCount - 1);
+	currentStageIndex_ = stageIndex;
+
+	bool loaded = tileMap_.LoadFromFile(kStageMapPaths[stageIndex]);
+	if (!loaded) {
+		tileMap_.LoadFromFile(kStageMapPathsAlt[stageIndex]);
+	}
+
+	mapRenderer_.Initialize(modelCube_, modelSpikeTile_, modelCube_, tileMap_);
+	RebuildMinimapTiles();
+
+	trampolineSprings_.clear();
+	hasTrampolinePreview_ = false;
+	nextTrampolineTypeIndex_ = 0;
+	currentScreenX_ = 0;
+	currentScreenY_ = 0;
+	screenTransitionCooldown_ = 0;
+	isFreeCamera_ = false;
+	cameraZoomOut_ = 0.0f;
+
+	const float playerHalfW = TileMap::kTileWidth * 0.375f;
+	const float playerHalfH = TileMap::kTileHeight * 0.375f;
+	const KamataEngine::Vector3 spawnPos = tileMap_.FindSpawnPosition(playerHalfW, playerHalfH);
+	playerIntroTargetPosition_ = spawnPos;
+	playerIntroStartPosition_ = spawnPos;
+
+	if (!isPlayerGameInitialized_) {
+		player_->Initialize(modelCube_, &camera_, spawnPos);
+		isPlayerGameInitialized_ = true;
+	} else {
+		player_->SetVisualModel(modelCube_);
+		player_->SetPosition(spawnPos);
+		player_->SetSpawnPosition(spawnPos);
+		player_->ResetStats();
+		player_->ResetRotation();
+		player_->ResetParticles();
+		player_->ResetBullets();
+	}
+
+	player_->SetParent(nullptr);
+	player_->SetTileMap(&tileMap_);
+	player_->SetTrampolineSprings(&trampolineSprings_);
+	player_->SetSpawnPosition(spawnPos);
+
+	lastPlayerPos_ = spawnPos;
+	UpdateMapCamera();
+}
+
+void GameScene::HandleStageClear() {
+	confettiActive_ = false;
+	score_ = 0;
+	UpdateScoreSprites();
+	requestSceneClear_ = false;
+	gameOverTimer_ = 0;
+	hitCount = 0;
+	hitCount2 = 0;
+
+	for (Enemy* enemy : enemies_) {
+		delete enemy;
+	}
+	enemies_.clear();
+	for (EnemyBullet* bullet : enemyBullets_) {
+		entityFactory_.ReleaseEnemyBullet(bullet);
+	}
+	enemyBullets_.clear();
+	for (Meteorite* meteor : meteorites_) {
+		delete meteor;
+	}
+	meteorites_.clear();
+	meteoriteSpawnTimer_ = 0;
+	hasSpawnedEnemies_ = false;
+
+	if (railCamera_) {
+		railCamera_->Reset();
+		railCamera_->SetCanMove(false);
+	}
+
+	const int nextStage = currentStageIndex_ + 1;
+	if (nextStage >= GameScene::kStageCount) {
+		currentStageIndex_ = 0;
+		LoadStage(0);
+		ResetToTitle();
+		ChangeSceneState(SceneStateStart::Instance());
+		return;
+	}
+
+	LoadStage(nextStage);
+	isGameIntroFinished_ = false;
+	gameIntroTimer_ = 0.0f;
+	screenTransitionCooldown_ = 0;
+	transitionTimer_ = 0.0f;
+	ChangeSceneState(SceneStateTransitionToGame::Instance());
+}
+
+void GameScene::AdvanceFromClearScreen() {
+	HandleStageClear();
+}
+
 void GameScene::Update() {
 	skydome_->Update();
 
@@ -318,10 +415,9 @@ void GameScene::Update() {
 		sceneState_->Update(*this);
 	}
 
-	// Deferred scene clear: perform transition at a safe point after game update
+	// ステージクリア → 次ステージへ直行（全クリア時のみタイトル）
 	if (requestSceneClear_ && GetSceneStateKind() == SceneStateKind::Game) {
-		requestSceneClear_ = false;
-		TransitionToClearScene();
+		HandleStageClear();
 	}
 }
 
@@ -385,6 +481,8 @@ void GameScene::Draw() {
 
 	// ミニマップはゲームシーンのみ表示
 	if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
+		DrawJumpSpringChargeCircle();
+
 		if (minimapSprite_) {
 			minimapSprite_->Draw(); // 背景枠
 		}
@@ -879,7 +977,10 @@ void GameScene::RebuildMinimapTiles() {
 
 	for (int row = 0; row < tileMap_.GetHeight(); ++row) {
 		for (int col = 0; col < tileMap_.GetWidth(); ++col) {
-			if (!tileMap_.IsGround(col, row)) {
+			const bool isGround = tileMap_.IsGround(col, row);
+			const bool isSpike = tileMap_.IsSpike(col, row);
+			const bool isGoal = tileMap_.IsGoal(col, row);
+			if (!isGround && !isSpike && !isGoal) {
 				continue;
 			}
 
@@ -890,7 +991,13 @@ void GameScene::RebuildMinimapTiles() {
 			sprite->SetAnchorPoint({0.0f, 0.0f});
 			sprite->SetSize({tileW, tileH});
 			sprite->SetPosition({kMinimapPosition_.x + static_cast<float>(col) * tileW, kMinimapPosition_.y + static_cast<float>(row) * tileH});
-			sprite->SetColor({0.6f, 0.45f, 0.25f, 1.0f});
+			if (isSpike) {
+				sprite->SetColor({0.85f, 0.2f, 0.2f, 1.0f});
+			} else if (isGoal) {
+				sprite->SetColor({0.2f, 0.55f, 0.95f, 1.0f});
+			} else {
+				sprite->SetColor({0.6f, 0.45f, 0.25f, 1.0f});
+			}
 			minimapGroundSprites_.push_back(sprite);
 		}
 	}
@@ -947,14 +1054,29 @@ void GameScene::SyncFreeCameraFromPlayerScreen() {
 }
 
 void GameScene::ComputeFreeCameraViewSize(float& viewW, float& viewH) const {
-	const float winW = static_cast<float>(WinApp::kWindowWidth);
-	const float winH = static_cast<float>(WinApp::kWindowHeight);
-	const float mapW = tileMap_.GetMapPixelWidth();
-	const float mapH = tileMap_.GetMapPixelHeight();
-	const float targetW = mapW > winW ? mapW : winW;
-	const float targetH = mapH > winH ? mapH : winH;
-	viewW = winW + (targetW - winW) * cameraZoomOut_;
-	viewH = winH + (targetH - winH) * cameraZoomOut_;
+	float screenLeft = 0.0f;
+	float screenBottom = 0.0f;
+	float screenRight = 0.0f;
+	float screenTop = 0.0f;
+	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, screenLeft, screenBottom, screenRight, screenTop);
+	const float baseW = screenRight - screenLeft;
+	const float baseH = screenTop - screenBottom;
+
+	float mapMinX = 0.0f;
+	float mapMinY = 0.0f;
+	float mapMaxX = 0.0f;
+	float mapMaxY = 0.0f;
+	tileMap_.GetMapWorldBounds(mapMinX, mapMinY, mapMaxX, mapMaxY);
+	const float mapW = mapMaxX - mapMinX;
+	const float mapH = mapMaxY - mapMinY;
+
+	const float scaleToFitMapW = baseW > 0.0f ? mapW / baseW : 1.0f;
+	const float scaleToFitMapH = baseH > 0.0f ? mapH / baseH : 1.0f;
+	const float maxScale = (std::max)(scaleToFitMapW, scaleToFitMapH);
+	const float scale = 1.0f + (maxScale - 1.0f) * cameraZoomOut_;
+
+	viewW = baseW * scale;
+	viewH = baseH * scale;
 }
 
 void GameScene::ClampFreeCameraCenter(float viewW, float viewH) {
@@ -1020,6 +1142,46 @@ KamataEngine::Vector3 GameScene::ConvertScreenToWorld(float screenX, float scree
 	pos.y = worldY;
 	pos.z = 0.5f;
 	return pos;
+}
+
+KamataEngine::Vector2 GameScene::ConvertWorldToScreen(float worldX, float worldY) {
+	float left = 0.0f;
+	float bottom = 0.0f;
+	float right = 0.0f;
+	float top = 0.0f;
+	ComputeCameraBounds(left, bottom, right, top);
+
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
+	const float screenX = (worldX - left) / (right - left) * winW;
+	const float screenY = (top - worldY) / (top - bottom) * winH;
+	return {screenX, screenY};
+}
+
+void GameScene::DrawJumpSpringChargeCircle() {
+	if (!player_ || !jumpSpringChargeSprite_) {
+		return;
+	}
+
+	if (player_->GetSpringChargePhase() != Player::SpringChargePhase::Charging) {
+		return;
+	}
+
+	const KamataEngine::Vector3& anchor = player_->GetJumpSpringAnchor();
+	const KamataEngine::Vector2 screenPos = ConvertWorldToScreen(anchor.x, anchor.y);
+	const float radiusWorld = player_->GetJumpSpringCircleRadiusWorld();
+
+	float left = 0.0f;
+	float bottom = 0.0f;
+	float right = 0.0f;
+	float top = 0.0f;
+	ComputeCameraBounds(left, bottom, right, top);
+	const float worldPerPixel = (right - left) / static_cast<float>(WinApp::kWindowWidth);
+	const float diameterPx = (radiusWorld * 2.0f) / worldPerPixel;
+
+	jumpSpringChargeSprite_->SetPosition(screenPos);
+	jumpSpringChargeSprite_->SetSize({diameterPx, diameterPx});
+	jumpSpringChargeSprite_->Draw();
 }
 
 void GameScene::UpdateTrampolinePlacement() {
@@ -1124,14 +1286,12 @@ void GameScene::UpdateCameraControl() {
 		ComputeFreeCameraViewSize(viewW, viewH);
 
 		const float winW = static_cast<float>(WinApp::kWindowWidth);
-		const float winH = static_cast<float>(WinApp::kWindowHeight);
 		const Input::MouseMove mouseMove = input_->GetMouseMove();
-		const float worldPerPixelX = viewW / winW;
-		const float worldPerPixelY = viewH / winH;
+		const float worldPerPixel = viewW / winW;
 
 		const float panSpeed = 1.2f;
-		freeCameraCenterX_ -= static_cast<float>(mouseMove.lX) * worldPerPixelX * panSpeed;
-		freeCameraCenterY_ += static_cast<float>(mouseMove.lY) * worldPerPixelY * panSpeed;
+		freeCameraCenterX_ -= static_cast<float>(mouseMove.lX) * worldPerPixel * panSpeed;
+		freeCameraCenterY_ += static_cast<float>(mouseMove.lY) * worldPerPixel * panSpeed;
 		ClampFreeCameraCenter(viewW, viewH);
 	}
 }
@@ -1141,7 +1301,15 @@ void GameScene::UpdatePlayerScreenTransition() {
 		return;
 	}
 
-	KamataEngine::Vector3 pos = player_->GetWorldPosition();
+	if (screenTransitionCooldown_ > 0) {
+		screenTransitionCooldown_--;
+	}
+
+	if (player_->IsSpikeInvulnerable()) {
+		return;
+	}
+
+	KamataEngine::Vector3 pos = player_->GetLocalPosition();
 	const float halfW = player_->GetHalfWidth();
 	const float halfH = player_->GetHalfHeight();
 
@@ -1150,6 +1318,10 @@ void GameScene::UpdatePlayerScreenTransition() {
 	float right = 0.0f;
 	float top = 0.0f;
 	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, left, bottom, right, top);
+
+	if (screenTransitionCooldown_ > 0) {
+		return;
+	}
 
 	int newScreenX = currentScreenX_;
 	int newScreenY = currentScreenY_;
@@ -1171,10 +1343,13 @@ void GameScene::UpdatePlayerScreenTransition() {
 		newScreenY = currentScreenY_ + 1;
 		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
 		pos.y = top - halfH - 4.0f;
-		player_->SetVelocityY(-2.0f);
-		player_->SetPosition(pos);
 		currentScreenX_ = newScreenX;
 		currentScreenY_ = newScreenY;
+		player_->TeleportForScreenWrap(pos, player_->IsSideSpringFlying());
+		if (!player_->IsSideSpringFlying()) {
+			player_->SetVelocityY(-2.0f);
+		}
+		screenTransitionCooldown_ = kScreenTransitionCooldownFrames;
 		return;
 	}
 
@@ -1182,16 +1357,14 @@ void GameScene::UpdatePlayerScreenTransition() {
 		newScreenY = currentScreenY_ - 1;
 		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
 		pos.y = bottom + halfH + 4.0f;
-		player_->SetVelocityY(0.0f);
 		transitioned = true;
 	}
 
 	if (transitioned) {
 		currentScreenX_ = newScreenX;
 		currentScreenY_ = newScreenY;
-		player_->SetPosition(pos);
-	} else {
-		tileMap_.GetScreenFromWorld(pos.x, pos.y, currentScreenX_, currentScreenY_);
+		player_->TeleportForScreenWrap(pos, player_->IsSideSpringFlying());
+		screenTransitionCooldown_ = kScreenTransitionCooldownFrames;
 	}
 }
 

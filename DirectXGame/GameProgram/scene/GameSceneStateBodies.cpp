@@ -84,6 +84,12 @@ void GameScene::UpdateStateBody_Game() {
 			KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 			minimapPlayerSprite_->SetPosition(ConvertWorldToMinimapPosition(playerPos));
 
+			const float playerHalfW = player_->GetHalfWidth();
+			const float playerHalfH = player_->GetHalfHeight();
+			if (tileMap_.OverlapsGoal(playerPos.x, playerPos.y, playerHalfW, playerHalfH)) {
+				requestSceneClear_ = true;
+			}
+
 			float dx = playerPos.x - lastPlayerPos_.x;
 			float dy = playerPos.y - lastPlayerPos_.y;
 			const float kMoveThresholdSq = 0.0001f;
@@ -188,6 +194,7 @@ void GameScene::UpdateStateBody_Over() {
 // タイトルへ戻るときの共通リセット
 void GameScene::ResetToTitle() {
 	gameOverTimer_ = 0;
+	currentStageIndex_ = 0;
 	trampolineSprings_.clear();
 	hasTrampolinePreview_ = false;
 	nextTrampolineTypeIndex_ = 0;

@@ -86,6 +86,10 @@ int TileMap::GetTile(int col, int row) const {
 
 bool TileMap::IsGround(int col, int row) const { return GetTile(col, row) == 1; }
 
+bool TileMap::IsSpike(int col, int row) const { return GetTile(col, row) == 2; }
+
+bool TileMap::IsGoal(int col, int row) const { return GetTile(col, row) == 3; }
+
 void TileMap::GetTileWorldRect(int col, int row, float& minX, float& minY, float& maxX, float& maxY) const {
 	minX = offsetX_ + static_cast<float>(col) * tileWidth_;
 	maxX = minX + tileWidth_;
@@ -211,6 +215,43 @@ void TileMap::ClampPositionToMapBounds(float& x, float& y, float halfWidth, floa
 	y = std::clamp(y, minY + halfHeight, maxY - halfHeight);
 }
 
+bool TileMap::OverlapsSpike(float worldX, float worldY, float halfWidth, float halfHeight) const {
+	(void)halfWidth;
+	(void)halfHeight;
+
+	int col = 0;
+	int row = 0;
+	WorldToTile(worldX, worldY, col, row);
+	return IsSpike(col, row);
+}
+
+bool TileMap::OverlapsGoal(float worldX, float worldY, float halfWidth, float halfHeight) const {
+	const float playerMinX = worldX - halfWidth;
+	const float playerMaxX = worldX + halfWidth;
+	const float playerMinY = worldY - halfHeight;
+	const float playerMaxY = worldY + halfHeight;
+
+	for (int row = 0; row < height_; ++row) {
+		for (int col = 0; col < width_; ++col) {
+			if (!IsGoal(col, row)) {
+				continue;
+			}
+
+			float tMinX = 0.0f;
+			float tMinY = 0.0f;
+			float tMaxX = 0.0f;
+			float tMaxY = 0.0f;
+			GetTileWorldRect(col, row, tMinX, tMinY, tMaxX, tMaxY);
+
+			if (playerMaxX > tMinX && playerMinX < tMaxX && playerMaxY > tMinY && playerMinY < tMaxY) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 void TileMap::ResolveCollisionX(float& x, float y, float halfWidth, float halfHeight) const {
 	const float playerMinY = y - halfHeight;
 	const float playerMaxY = y + halfHeight;
@@ -270,16 +311,24 @@ void TileMap::ResolveCollisionY(float& y, float x, float halfWidth, float halfHe
 			const float overlapBottom = playerMaxY - tMinY;
 			const float overlapTop = tMaxY - playerMinY;
 
-			if (velocityY <= 0.0f && overlapTop <= overlapBottom) {
-				y = tMaxY + halfHeight;
-				onGround = true;
-			} else if (velocityY > 0.0f && overlapBottom < overlapTop) {
-				y = tMinY - halfHeight;
-			} else if (velocityY <= 0.0f) {
+			if (velocityY > 0.0f) {
+				// 上昇中は足元の地面では解決しない（ジャンプ直後に押し戻されるのを防ぐ）
+				if (playerMinY >= tMaxY - 1.0f) {
+					continue;
+				}
+				// 頭上の天井だけ解決
+				if (overlapBottom < overlapTop) {
+					y = tMinY - halfHeight;
+				}
+				continue;
+			}
+
+			if (overlapTop <= overlapBottom) {
 				y = tMaxY + halfHeight;
 				onGround = true;
 			} else {
-				y = tMinY - halfHeight;
+				y = tMaxY + halfHeight;
+				onGround = true;
 			}
 		}
 	}

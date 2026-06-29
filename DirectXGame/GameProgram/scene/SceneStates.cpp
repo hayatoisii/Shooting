@@ -21,6 +21,8 @@ SceneStateOver* SceneStateOver::Instance() { return &instance_; }
 void SceneStateStart::Update(GameScene& scene) {
 	scene.UpdateStateBody_Start();
 	if (scene.input_->TriggerKey(DIK_SPACE)) {
+		scene.currentStageIndex_ = 0;
+		scene.LoadStage(0);
 		scene.transitionTimer_ = 0.0f;
 		scene.gameSceneTimer_ = 0;
 		scene.ChangeSceneState(SceneStateTransitionToGame::Instance());
@@ -82,8 +84,7 @@ void SceneStateGame::Update(GameScene& scene) {
 void SceneStateClear::Update(GameScene& scene) {
 	scene.UpdateStateBody_Clear();
 	if (scene.input_->TriggerKey(DIK_SPACE)) {
-		scene.confettiActive_ = false;
-		scene.ChangeSceneState(SceneStateStart::Instance());
+		scene.AdvanceFromClearScreen();
 	}
 }
 

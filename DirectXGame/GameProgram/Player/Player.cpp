@@ -10,6 +10,7 @@
 #include <cassert>
 #include <cmath>
 #include <limits>
+#include <dinput.h>
 // For window size constants
 #include "base/WinApp.h"
 #include <Windows.h>
@@ -65,6 +66,21 @@ void Player::SetPosition(const KamataEngine::Vector3& position) {
 	worldtransfrom_.translation_.z = 1.0f;
 	velocityX_ = 0.0f;
 	velocityY_ = 0.0f;
+	spikeRespawnCooldown_ = 0;
+
+	if (tileMap_) {
+		tileMap_->ClampPositionToMapBounds(worldtransfrom_.translation_.x, worldtransfrom_.translation_.y, halfWidth_, halfHeight_);
+	}
+}
+
+void Player::TeleportForScreenWrap(const KamataEngine::Vector3& position, bool preserveVelocity) {
+	worldtransfrom_.translation_ = position;
+	worldtransfrom_.translation_.z = 1.0f;
+
+	if (!preserveVelocity) {
+		velocityX_ = 0.0f;
+		velocityY_ = 0.0f;
+	}
 
 	if (tileMap_) {
 		tileMap_->ClampPositionToMapBounds(worldtransfrom_.translation_.x, worldtransfrom_.translation_.y, halfWidth_, halfHeight_);
@@ -74,6 +90,12 @@ void Player::SetPosition(const KamataEngine::Vector3& position) {
 void Player::ResetStats() {
 	hp_ = kMaxHp_;
 	isDead_ = false;
+	spikeRespawnCooldown_ = 0;
+	springChargePhase_ = SpringChargePhase::None;
+	activeSpringIndex_ = -1;
+	springChargePauseTimer_ = 0.0f;
+	springChargeLevel_ = 0.0f;
+	isSideSpringFlying_ = false;
 	gameOverAnimationTime_ = 0.0f;
 	rollTimer_ = 0.0f;
 	// タイトル復帰時は通常状態へ
@@ -114,59 +136,360 @@ void Player::Attack() {
 	// 2Dマップ移動モードでは発射しない
 }
 
+const TrampolineSpring* Player::GetActiveSpring() const {
+	if (!trampolineSprings_ || activeSpringIndex_ < 0 || activeSpringIndex_ >= static_cast<int>(trampolineSprings_->size())) {
+		return nullptr;
+	}
+	return &(*trampolineSprings_)[static_cast<size_t>(activeSpringIndex_)];
+}
+
+TrampolineSpring* Player::GetActiveSpringMutable() {
+	if (!trampolineSprings_ || activeSpringIndex_ < 0 || activeSpringIndex_ >= static_cast<int>(trampolineSprings_->size())) {
+		return nullptr;
+	}
+	return &(*trampolineSprings_)[static_cast<size_t>(activeSpringIndex_)];
+}
+
+void Player::BeginSpringPenetration(int springIndex, SpringChargeKind kind, const KamataEngine::Vector3& pos) {
+	activeSpringIndex_ = springIndex;
+	springChargeKind_ = kind;
+	springChargePhase_ = SpringChargePhase::Penetrating;
+	springChargeLevel_ = 0.0f;
+	onGround_ = false;
+	springPenetrationPrevPos_ = pos;
+
+	TrampolineSpring* spring = GetActiveSpringMutable();
+	if (!spring) {
+		return;
+	}
+
+	if (kind == SpringChargeKind::Up || kind == SpringChargeKind::Down) {
+		velocityX_ = 0.0f;
+		if (!spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
+			const float centerY = spring->GetCenter().y;
+			if (centerY > pos.y + 0.5f) {
+				velocityY_ = kSpringPenetrationSpeed;
+			} else if (centerY < pos.y - 0.5f) {
+				velocityY_ = -kSpringPenetrationSpeed;
+			} else {
+				velocityY_ = 0.0f;
+			}
+		} else {
+			velocityY_ = 0.0f;
+		}
+	} else {
+		if (!spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
+			const float centerX = spring->GetCenter().x;
+			if (centerX > pos.x + 0.5f) {
+				velocityX_ = kSpringPenetrationSpeed;
+			} else if (centerX < pos.x - 0.5f) {
+				velocityX_ = -kSpringPenetrationSpeed;
+			} else {
+				velocityX_ = 0.0f;
+			}
+		} else {
+			velocityX_ = 0.0f;
+		}
+		velocityY_ = 0.0f;
+	}
+}
+
+void Player::BeginSpringPauseAt(const KamataEngine::Vector3& pos) {
+	springChargeAnchor_ = pos;
+	springChargeAnchor_.z = 1.0f;
+	springChargePhase_ = SpringChargePhase::Pause;
+	springChargePauseTimer_ = kSpringPauseDuration;
+	velocityX_ = 0.0f;
+	velocityY_ = 0.0f;
+}
+
+void Player::LaunchFromSpringCharge(bool useCharge) {
+	const SpringChargeKind kind = springChargeKind_;
+	springChargePhase_ = SpringChargePhase::None;
+	activeSpringIndex_ = -1;
+
+	const float t = useCharge ? std::clamp(springChargeLevel_, 0.0f, 1.0f) : 0.0f;
+
+	switch (kind) {
+	case SpringChargeKind::Up:
+		velocityY_ = useCharge ? (kSpringMinLaunchSpeed + (kSpringMaxLaunchSpeed - kSpringMinLaunchSpeed) * t) : TrampolineSpring::kBounceSpeedY;
+		velocityX_ = 0.0f;
+		isSideSpringFlying_ = false;
+		break;
+	case SpringChargeKind::Right:
+		velocityX_ = useCharge ? (kSideSpringMinLaunchSpeed + (kSideSpringMaxLaunchSpeed - kSideSpringMinLaunchSpeed) * t) : TrampolineSpring::kSideBounceSpeedX;
+		velocityY_ = TrampolineSpring::kSideBounceLiftY;
+		isSideSpringFlying_ = true;
+		break;
+	case SpringChargeKind::Left:
+		velocityX_ = useCharge ? -(kSideSpringMinLaunchSpeed + (kSideSpringMaxLaunchSpeed - kSideSpringMinLaunchSpeed) * t) : -TrampolineSpring::kSideBounceSpeedX;
+		velocityY_ = TrampolineSpring::kSideBounceLiftY;
+		isSideSpringFlying_ = true;
+		break;
+	case SpringChargeKind::Down:
+		velocityY_ = -(useCharge ? (kSpringMinLaunchSpeed + (kSpringMaxLaunchSpeed - kSpringMinLaunchSpeed) * t) : TrampolineSpring::kDownBounceSpeedY);
+		velocityX_ = 0.0f;
+		isSideSpringFlying_ = false;
+		break;
+	}
+
+	onGround_ = false;
+}
+
+void Player::RespawnToSpawn(KamataEngine::Vector3& pos) {
+	pos = spawnPosition_;
+	velocityX_ = 0.0f;
+	velocityY_ = 0.0f;
+	onGround_ = true;
+	isSideSpringFlying_ = false;
+	springChargePhase_ = SpringChargePhase::None;
+	activeSpringIndex_ = -1;
+	springChargeLevel_ = 0.0f;
+}
+
+void Player::HandleSpikeCollision(KamataEngine::Vector3& pos) {
+	if (spikeRespawnCooldown_ > 0 || !tileMap_) {
+		return;
+	}
+
+	if (!tileMap_->OverlapsSpike(pos.x, pos.y, halfWidth_, halfHeight_)) {
+		return;
+	}
+
+	RespawnToSpawn(pos);
+	spikeRespawnCooldown_ = kSpikeRespawnInvulnFrames;
+}
+
+bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
+	const float kDeltaSec = 1.0f / 60.0f;
+	const TrampolineSpring* spring = GetActiveSpring();
+
+	if (springChargePhase_ == SpringChargePhase::Penetrating) {
+		if (!spring) {
+			springChargePhase_ = SpringChargePhase::None;
+			return false;
+		}
+
+		const float prevX = springPenetrationPrevPos_.x;
+		const float prevY = springPenetrationPrevPos_.y;
+
+		if (springChargeKind_ == SpringChargeKind::Up || springChargeKind_ == SpringChargeKind::Down) {
+			if (spring && !spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
+				const float centerY = spring->GetCenter().y;
+				if (centerY > pos.y + 0.5f) {
+					velocityY_ = kSpringPenetrationSpeed;
+				} else if (centerY < pos.y - 0.5f) {
+					velocityY_ = -kSpringPenetrationSpeed;
+				}
+			}
+			velocityX_ = 0.0f;
+		} else {
+			if (spring && !spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
+				const float centerX = spring->GetCenter().x;
+				if (centerX > pos.x + 0.5f) {
+					velocityX_ = kSpringPenetrationSpeed;
+				} else if (centerX < pos.x - 0.5f) {
+					velocityX_ = -kSpringPenetrationSpeed;
+				}
+			}
+			velocityY_ = 0.0f;
+		}
+		pos.x += velocityX_;
+		tileMap_->ResolveCollisionX(pos.x, pos.y, halfWidth_, halfHeight_);
+
+		pos.y += velocityY_;
+		bool landed = false;
+		tileMap_->ResolveCollisionY(pos.y, pos.x, halfWidth_, halfHeight_, velocityY_, landed);
+		if (landed) {
+			velocityY_ = 0.0f;
+			if (springChargeKind_ == SpringChargeKind::Right || springChargeKind_ == SpringChargeKind::Left) {
+				onGround_ = false;
+			} else {
+				velocityX_ = 0.0f;
+				onGround_ = true;
+			}
+		} else {
+			onGround_ = false;
+		}
+
+		if (!spring->IsPlayerOverlapping(pos.x, pos.y, halfWidth_, halfHeight_)) {
+			TrampolineSpring* mutableSpring = GetActiveSpringMutable();
+			if (mutableSpring) {
+				mutableSpring->ResetPlayerContact();
+			}
+			springChargePhase_ = SpringChargePhase::None;
+			activeSpringIndex_ = -1;
+			return false;
+		}
+
+		if (spring->DidEnterOrCrossStopZone(prevX, prevY, pos.x, pos.y)) {
+			BeginSpringPauseAt(pos);
+			springPenetrationPrevPos_ = pos;
+			return true;
+		}
+
+		springPenetrationPrevPos_ = pos;
+		HandleSpikeCollision(pos);
+		return true;
+	}
+
+	if (springChargePhase_ == SpringChargePhase::Pause || springChargePhase_ == SpringChargePhase::Charging) {
+		pos = springChargeAnchor_;
+		velocityX_ = 0.0f;
+		velocityY_ = 0.0f;
+
+		if (springChargePhase_ == SpringChargePhase::Pause) {
+			springChargePauseTimer_ -= kDeltaSec;
+			if (input_->PushKey(DIK_SPACE)) {
+				springChargePhase_ = SpringChargePhase::Charging;
+				springChargeLevel_ = 0.0f;
+				return true;
+			}
+			if (springChargePauseTimer_ <= 0.0f) {
+				LaunchFromSpringCharge(false);
+				return false;
+			}
+			return true;
+		}
+
+		if (input_->PushKey(DIK_SPACE)) {
+			springChargeLevel_ += kDeltaSec / kSpringMaxChargeTime;
+			springChargeLevel_ = std::clamp(springChargeLevel_, 0.0f, 1.0f);
+			return true;
+		}
+
+		LaunchFromSpringCharge(true);
+		return false;
+	}
+
+	return false;
+}
+
+float Player::GetJumpSpringCircleRadiusWorld() const {
+	const float maxRadius = halfWidth_ * 2.0f;
+	const float minRadius = halfWidth_ * 0.35f;
+	return maxRadius + (minRadius - maxRadius) * std::clamp(springChargeLevel_, 0.0f, 1.0f);
+}
+
 void Player::UpdateMovement() {
 	if (!tileMap_ || !input_) {
 		return;
 	}
 
-	float moveX = 0.0f;
-	if (input_->PushKey(DIK_A)) {
-		moveX -= kMoveSpeed;
-	}
-	if (input_->PushKey(DIK_D)) {
-		moveX += kMoveSpeed;
+	KamataEngine::Vector3 pos = worldtransfrom_.translation_;
+
+	if (spikeRespawnCooldown_ > 0) {
+		spikeRespawnCooldown_--;
+		RespawnToSpawn(pos);
+		worldtransfrom_.translation_ = pos;
+		worldtransfrom_.translation_.z = 1.0f;
+		worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+		worldtransfrom_.UpdateMatrix();
+		return;
 	}
 
-	if (input_->PushKey(DIK_W) && onGround_) {
+	bool launchedFromSpringThisFrame = false;
+	if (springChargePhase_ != SpringChargePhase::None) {
+		const SpringChargePhase phaseBefore = springChargePhase_;
+		if (UpdateSpringCharge(pos)) {
+			worldtransfrom_.translation_ = pos;
+			worldtransfrom_.translation_.z = 1.0f;
+			worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+			return;
+		}
+		launchedFromSpringThisFrame = phaseBefore == SpringChargePhase::Pause || phaseBefore == SpringChargePhase::Charging;
+	}
+
+	float moveX = 0.0f;
+	const bool canUseMoveInput = !launchedFromSpringThisFrame && !isSideSpringFlying_;
+	if (canUseMoveInput) {
+		if (input_->PushKey(DIK_A)) {
+			moveX -= kMoveSpeed;
+		}
+		if (input_->PushKey(DIK_D)) {
+			moveX += kMoveSpeed;
+		}
+	}
+
+	if (canUseMoveInput && input_->TriggerKey(DIK_W) && onGround_ && springChargePhase_ == SpringChargePhase::None) {
 		velocityY_ = kJumpSpeed;
 		onGround_ = false;
 	}
 
 	velocityY_ -= kGravity;
 
-	KamataEngine::Vector3 pos = worldtransfrom_.translation_;
+	const float prevX = pos.x;
+	const float prevY = pos.y;
+	const float approachVelX = velocityX_ + moveX;
 
-	if (trampolineSprings_) {
-		for (TrampolineSpring& spring : *trampolineSprings_) {
-			spring.TryBounce(pos.x, pos.y, halfWidth_, halfHeight_, velocityX_, velocityY_, onGround_);
-		}
-	}
-
-	pos.x += moveX + velocityX_;
+	pos.x += approachVelX;
 	tileMap_->ResolveCollisionX(pos.x, pos.y, halfWidth_, halfHeight_);
 
-	const float prevY = pos.y;
 	pos.y += velocityY_;
+	const float yAfterMove = pos.y;
+
 	bool landed = false;
 	tileMap_->ResolveCollisionY(pos.y, pos.x, halfWidth_, halfHeight_, velocityY_, landed);
 	if (landed) {
 		velocityY_ = 0.0f;
+		velocityX_ = 0.0f;
 		onGround_ = true;
-	} else if (pos.y != prevY + velocityY_) {
+		isSideSpringFlying_ = false;
+	} else if (velocityY_ > 0.0f && pos.y < yAfterMove) {
 		velocityY_ = 0.0f;
 		onGround_ = false;
 	} else {
 		onGround_ = false;
 	}
 
-	// 空中は横速度を維持してふわっと飛ばす。着地後だけゆっくり減速
-	if (onGround_) {
-		if (std::abs(velocityX_) < 0.1f) {
-			velocityX_ = 0.0f;
-		} else {
-			velocityX_ *= kVelocityXDamping;
+	if (springChargePhase_ == SpringChargePhase::None && !launchedFromSpringThisFrame && trampolineSprings_) {
+		for (size_t i = 0; i < trampolineSprings_->size(); ++i) {
+			TrampolineSpring& spring = (*trampolineSprings_)[i];
+			const TrampolineBounceResult result = spring.TryBounce(prevX, prevY, pos.x, pos.y, halfWidth_, halfHeight_);
+			if (result == TrampolineBounceResult::EnterUp) {
+				BeginSpringPenetration(static_cast<int>(i), SpringChargeKind::Up, pos);
+				if (spring.DidEnterOrCrossStopZone(pos.x, pos.y, pos.x, pos.y)) {
+					BeginSpringPauseAt(pos);
+				}
+				if (UpdateSpringCharge(pos)) {
+					worldtransfrom_.translation_ = pos;
+					worldtransfrom_.translation_.z = 1.0f;
+					worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+					return;
+				}
+				break;
+			}
+			if (result == TrampolineBounceResult::EnterDown) {
+				BeginSpringPenetration(static_cast<int>(i), SpringChargeKind::Down, pos);
+				if (spring.DidEnterOrCrossStopZone(pos.x, pos.y, pos.x, pos.y)) {
+					BeginSpringPauseAt(pos);
+				}
+				if (UpdateSpringCharge(pos)) {
+					worldtransfrom_.translation_ = pos;
+					worldtransfrom_.translation_.z = 1.0f;
+					worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+					return;
+				}
+				break;
+			}
+			if (result == TrampolineBounceResult::EnterSide) {
+				const SpringChargeKind kind = spring.GetType() == TrampolineSpringType::Right ? SpringChargeKind::Right : SpringChargeKind::Left;
+				BeginSpringPenetration(static_cast<int>(i), kind, pos);
+				if (spring.DidEnterOrCrossStopZone(pos.x, pos.y, pos.x, pos.y)) {
+					BeginSpringPauseAt(pos);
+				}
+				if (UpdateSpringCharge(pos)) {
+					worldtransfrom_.translation_ = pos;
+					worldtransfrom_.translation_.z = 1.0f;
+					worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+					return;
+				}
+				break;
+			}
 		}
 	}
+
+	HandleSpikeCollision(pos);
 
 	const float clampedY = pos.y;
 	tileMap_->ClampPositionToMapBounds(pos.x, pos.y, halfWidth_, halfHeight_);
@@ -181,6 +504,12 @@ void Player::UpdateMovement() {
 
 bool Player::IsMovingInput() const {
 	if (!input_) {
+		return false;
+	}
+	if (springChargePhase_ != SpringChargePhase::None) {
+		return false;
+	}
+	if (isSideSpringFlying_) {
 		return false;
 	}
 	return input_->PushKey(DIK_W) || input_->PushKey(DIK_A) || input_->PushKey(DIK_D);
@@ -368,6 +697,17 @@ void Player::FinalizeFrameUpdate() {
 
 void Player::Draw() {
 	model_->Draw(worldtransfrom_, *camera_);
+}
+
+void Player::SetVisualModel(KamataEngine::Model* model) {
+	if (model) {
+		model_ = model;
+	}
+}
+
+void Player::SetSpawnPosition(const KamataEngine::Vector3& pos) {
+	spawnPosition_ = pos;
+	spawnPosition_.z = 1.0f;
 }
 
 void Player::SetRailCamera(RailCamera* camera) { railCamera_ = camera; }
