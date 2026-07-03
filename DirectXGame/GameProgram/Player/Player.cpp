@@ -98,6 +98,9 @@ void Player::ResetStats() {
 	isSideSpringFlying_ = false;
 	gameOverAnimationTime_ = 0.0f;
 	rollTimer_ = 0.0f;
+	isPortalAbsorbing_ = false;
+	portalAbsorbTimer_ = 0.0f;
+	portalAbsorbSpinZ_ = 0.0f;
 	// タイトル復帰時は通常状態へ
 	ChangeState(PlayerStateNormal::Instance());
 }
@@ -196,6 +199,14 @@ void Player::BeginSpringPenetration(int springIndex, SpringChargeKind kind, cons
 
 void Player::BeginSpringPauseAt(const KamataEngine::Vector3& pos) {
 	springChargeAnchor_ = pos;
+	if (const TrampolineSpring* spring = GetActiveSpring()) {
+		const KamataEngine::Vector3& center = spring->GetCenter();
+		if (springChargeKind_ == SpringChargeKind::Up || springChargeKind_ == SpringChargeKind::Down) {
+			springChargeAnchor_.y = center.y;
+		} else {
+			springChargeAnchor_.x = center.x;
+		}
+	}
 	springChargeAnchor_.z = 1.0f;
 	springChargePhase_ = SpringChargePhase::Pause;
 	springChargePauseTimer_ = kSpringPauseDuration;
@@ -371,6 +382,173 @@ float Player::GetJumpSpringCircleRadiusWorld() const {
 	return maxRadius + (minRadius - maxRadius) * std::clamp(springChargeLevel_, 0.0f, 1.0f);
 }
 
+bool Player::ShouldShowSpringTrajectory() const {
+	return springChargePhase_ == SpringChargePhase::Charging;
+}
+
+float Player::GetSpringTrajectoryPreviewCharge() const {
+	if (springChargePhase_ == SpringChargePhase::Charging) {
+		return springChargeLevel_;
+	}
+	return 0.0f;
+}
+
+void Player::GetSpringTrajectoryOrigin(KamataEngine::Vector3& outOrigin) const {
+	if (ShouldShowSpringTrajectory()) {
+		outOrigin = springChargeAnchor_;
+	} else {
+		outOrigin = worldtransfrom_.translation_;
+	}
+	outOrigin.z = 1.0f;
+}
+
+void Player::GetSpringPreviewVelocity(float chargeLevel, float& outVelX, float& outVelY) const {
+	const bool isCharging = springChargePhase_ == SpringChargePhase::Charging;
+	const float t = isCharging ? std::clamp(chargeLevel, 0.0f, 1.0f) : 0.0f;
+
+	switch (springChargeKind_) {
+	case SpringChargeKind::Up:
+		outVelY = isCharging ? (kSpringMinLaunchSpeed + (kSpringMaxLaunchSpeed - kSpringMinLaunchSpeed) * t) : TrampolineSpring::kBounceSpeedY;
+		outVelX = 0.0f;
+		break;
+	case SpringChargeKind::Right:
+		outVelX = isCharging ? (kSideSpringMinLaunchSpeed + (kSideSpringMaxLaunchSpeed - kSideSpringMinLaunchSpeed) * t) : TrampolineSpring::kSideBounceSpeedX;
+		outVelY = TrampolineSpring::kSideBounceLiftY;
+		break;
+	case SpringChargeKind::Left:
+		outVelX = isCharging ? -(kSideSpringMinLaunchSpeed + (kSideSpringMaxLaunchSpeed - kSideSpringMinLaunchSpeed) * t) : -TrampolineSpring::kSideBounceSpeedX;
+		outVelY = TrampolineSpring::kSideBounceLiftY;
+		break;
+	case SpringChargeKind::Down:
+		outVelY = -(isCharging ? (kSpringMinLaunchSpeed + (kSpringMaxLaunchSpeed - kSpringMinLaunchSpeed) * t) : TrampolineSpring::kDownBounceSpeedY);
+		outVelX = 0.0f;
+		break;
+	}
+}
+
+bool Player::ComputeSpringTrajectorySamples(KamataEngine::Vector3* outSamples, int maxSamples, int& outCount) const {
+	if (!tileMap_ || !ShouldShowSpringTrajectory() || outSamples == nullptr || maxSamples < 2) {
+		outCount = 0;
+		return false;
+	}
+
+	float launchVelX = 0.0f;
+	float launchVelY = 0.0f;
+	GetSpringPreviewVelocity(GetSpringTrajectoryPreviewCharge(), launchVelX, launchVelY);
+
+	KamataEngine::Vector3 origin{};
+	GetSpringTrajectoryOrigin(origin);
+	const float startX = origin.x;
+	const float startY = origin.y;
+	float posX = startX;
+	float posY = startY;
+	float velX = launchVelX;
+	float velY = launchVelY;
+	bool hasLeftGround = false;
+	bool clearingLaunchPad = true;
+	const float launchPadClearDistance = halfHeight_ * 0.35f;
+
+	auto hasClearedLaunchPad = [&]() {
+		switch (springChargeKind_) {
+		case SpringChargeKind::Up:
+			return posY >= startY + launchPadClearDistance;
+		case SpringChargeKind::Down:
+			return posY <= startY - launchPadClearDistance;
+		case SpringChargeKind::Right:
+			return posX >= startX + launchPadClearDistance;
+		case SpringChargeKind::Left:
+			return posX <= startX - launchPadClearDistance;
+		}
+		return true;
+	};
+
+	outCount = 0;
+	outSamples[outCount++] = {startX, startY, 1.0f};
+
+	for (int step = 0; step < 720; ++step) {
+		velY -= kGravity;
+
+		posX += velX;
+		tileMap_->ResolveCollisionX(posX, posY, halfWidth_, halfHeight_);
+
+		posY += velY;
+		bool landed = false;
+		if (clearingLaunchPad) {
+			if (hasClearedLaunchPad()) {
+				clearingLaunchPad = false;
+				tileMap_->ResolveCollisionY(posY, posX, halfWidth_, halfHeight_, velY, landed);
+			}
+		} else {
+			tileMap_->ResolveCollisionY(posY, posX, halfWidth_, halfHeight_, velY, landed);
+		}
+
+		if (landed) {
+			if (hasLeftGround) {
+				if (springChargeKind_ == SpringChargeKind::Right || springChargeKind_ == SpringChargeKind::Left) {
+					if (outCount < maxSamples) {
+						outSamples[outCount++] = {posX, posY, 1.0f};
+					}
+				}
+				break;
+			}
+
+			const bool shouldLaunch =
+			    (springChargeKind_ == SpringChargeKind::Up && launchVelY > 1.0f) ||
+			    (springChargeKind_ == SpringChargeKind::Down && launchVelY < -1.0f) ||
+			    (springChargeKind_ == SpringChargeKind::Right && launchVelX > 1.0f) ||
+			    (springChargeKind_ == SpringChargeKind::Left && launchVelX < -1.0f);
+
+			if (!shouldLaunch) {
+				posX = startX;
+				posY = startY;
+				velX = launchVelX;
+				velY = launchVelY;
+				continue;
+			}
+		} else {
+			hasLeftGround = true;
+		}
+
+		if (clearingLaunchPad) {
+			hasLeftGround = true;
+		}
+
+		tileMap_->ClampPositionToMapBounds(posX, posY, halfWidth_, halfHeight_);
+
+		if (hasLeftGround && !clearingLaunchPad) {
+			bool outboundEnded = false;
+			switch (springChargeKind_) {
+			case SpringChargeKind::Up:
+				outboundEnded = velY <= 0.0f;
+				break;
+			case SpringChargeKind::Down:
+				outboundEnded = velY >= 0.0f;
+				break;
+			default:
+				break;
+			}
+			if (outboundEnded) {
+				if (outCount < maxSamples) {
+					outSamples[outCount++] = {posX, posY, 1.0f};
+				}
+				break;
+			}
+		}
+
+		if (hasLeftGround && outCount < maxSamples && step % 3 == 0) {
+			outSamples[outCount++] = {posX, posY, 1.0f};
+		}
+	}
+
+	return outCount >= 2;
+}
+
+KamataEngine::Vector3 Player::GetSpringTrajectoryStart() const {
+	KamataEngine::Vector3 origin{};
+	GetSpringTrajectoryOrigin(origin);
+	return origin;
+}
+
 void Player::UpdateMovement() {
 	if (!tileMap_ || !input_) {
 		return;
@@ -380,12 +558,6 @@ void Player::UpdateMovement() {
 
 	if (spikeRespawnCooldown_ > 0) {
 		spikeRespawnCooldown_--;
-		RespawnToSpawn(pos);
-		worldtransfrom_.translation_ = pos;
-		worldtransfrom_.translation_.z = 1.0f;
-		worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
-		worldtransfrom_.UpdateMatrix();
-		return;
 	}
 
 	bool launchedFromSpringThisFrame = false;
@@ -719,15 +891,35 @@ void Player::SetTileMap(TileMap* tileMap) {
 		const float tw = tileMap_->GetTileWidth();
 		const float th = tileMap_->GetTileHeight();
 		if (tw > 0.0f && th > 0.0f) {
-			worldtransfrom_.scale_ = {tw / kModelExtent * 0.75f, th / kModelExtent * 0.75f, 1.0f};
-			halfWidth_ = tw * 0.375f;
-			halfHeight_ = th * 0.375f;
+			const float visualScale = 0.75f * kPlayerVisualScale;
+			worldtransfrom_.scale_ = {tw / kModelExtent * visualScale, th / kModelExtent * visualScale, 1.0f};
+			halfWidth_ = tw * 0.375f * kPlayerVisualScale;
+			halfHeight_ = th * 0.375f * kPlayerVisualScale;
 		}
 	}
 }
 
 void Player::ResetRotation() {
 	worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+	worldtransfrom_.UpdateMatrix();
+}
+
+void Player::ResetVisualScaleFromTileMap() {
+	if (!tileMap_) {
+		return;
+	}
+
+	const float kModelExtent = 8.0f;
+	const float tw = tileMap_->GetTileWidth();
+	const float th = tileMap_->GetTileHeight();
+	if (tw <= 0.0f || th <= 0.0f) {
+		return;
+	}
+
+	const float visualScale = 0.75f * kPlayerVisualScale;
+	worldtransfrom_.scale_ = {tw / kModelExtent * visualScale, th / kModelExtent * visualScale, 1.0f};
+	halfWidth_ = tw * 0.375f * kPlayerVisualScale;
+	halfHeight_ = th * 0.375f * kPlayerVisualScale;
 	worldtransfrom_.UpdateMatrix();
 }
 
@@ -767,6 +959,126 @@ void Player::UpdateGameOverAnimation() {
 		engineExhaust_->Emit(worldEmitPos, smokeVelocity);
 		engineExhaust_->Update();
 	}
+}
+
+void Player::BeginPortalAbsorption(const KamataEngine::Vector3& portalCenter, PortalAbsorptionStyle style) {
+	if (isPortalAbsorbing_) {
+		return;
+	}
+
+	isPortalAbsorbing_ = true;
+	portalAbsorbStyle_ = style;
+	portalAbsorbTimer_ = 0.0f;
+	portalAbsorbCenter_ = portalCenter;
+	portalAbsorbStartPos_ = worldtransfrom_.translation_;
+	portalAbsorbStartScale_ = worldtransfrom_.scale_;
+	portalAbsorbStartRotZ_ = worldtransfrom_.rotation_.z;
+	portalAbsorbSpinZ_ = 0.0f;
+
+	if (portalAbsorbStartScale_.x < 0.01f || portalAbsorbStartScale_.y < 0.01f) {
+		ResetVisualScaleFromTileMap();
+		portalAbsorbStartScale_ = worldtransfrom_.scale_;
+	}
+
+	const float offsetX = portalAbsorbStartPos_.x - portalAbsorbCenter_.x;
+	const float offsetY = portalAbsorbStartPos_.y - portalAbsorbCenter_.y;
+	const float distance = std::sqrt(offsetX * offsetX + offsetY * offsetY);
+	const float minOrbitRadius = halfWidth_ * 0.85f;
+	portalAbsorbStartRadius_ = distance > minOrbitRadius ? distance : minOrbitRadius;
+	if (distance > 0.5f) {
+		portalAbsorbStartAngle_ = std::atan2(offsetY, offsetX);
+	} else {
+		portalAbsorbStartAngle_ = -1.5707963f;
+	}
+
+	velocityX_ = 0.0f;
+	velocityY_ = 0.0f;
+	onGround_ = false;
+	springChargePhase_ = SpringChargePhase::None;
+	activeSpringIndex_ = -1;
+	isSideSpringFlying_ = false;
+}
+
+bool Player::UpdatePortalAbsorptionPlayerSpin(float t, float ease, float oneMinusEase) {
+	KamataEngine::Vector3 pos;
+	pos.x = portalAbsorbStartPos_.x * oneMinusEase + portalAbsorbCenter_.x * ease;
+	pos.y = portalAbsorbStartPos_.y * oneMinusEase + portalAbsorbCenter_.y * ease;
+	pos.z = portalAbsorbStartPos_.z * oneMinusEase + portalAbsorbCenter_.z * ease;
+	worldtransfrom_.translation_ = pos;
+
+	const float kTwoPi = 6.2831853f;
+	const float spinTurns = 5.0f;
+	portalAbsorbSpinZ_ = portalAbsorbStartRotZ_ + ease * spinTurns * kTwoPi;
+	worldtransfrom_.rotation_.z = portalAbsorbSpinZ_;
+	worldtransfrom_.rotation_.y = ease * 1.2f;
+	worldtransfrom_.rotation_.x = ease * 0.25f;
+
+	const float scaleFactor = 1.0f - ease * 0.96f;
+	const float clampedScale = scaleFactor < 0.04f ? 0.04f : scaleFactor;
+	worldtransfrom_.scale_.x = portalAbsorbStartScale_.x * clampedScale;
+	worldtransfrom_.scale_.y = portalAbsorbStartScale_.y * clampedScale;
+	worldtransfrom_.scale_.z = portalAbsorbStartScale_.z * clampedScale;
+
+	worldtransfrom_.UpdateMatrix();
+	return t >= 1.0f;
+}
+
+bool Player::UpdatePortalAbsorptionOrbitSpiral(float t, float ease, float oneMinusEase) {
+	const float kTwoPi = 6.2831853f;
+	const float kHalfPi = 1.5707963f;
+	const float orbitTurns = 4.0f;
+	const float orbitAngle = portalAbsorbStartAngle_ + ease * orbitTurns * kTwoPi;
+	const float radiusEase = oneMinusEase * oneMinusEase;
+	const float orbitRadius = portalAbsorbStartRadius_ * radiusEase;
+
+	KamataEngine::Vector3 pos;
+	pos.x = portalAbsorbCenter_.x + std::cos(orbitAngle) * orbitRadius;
+	pos.y = portalAbsorbCenter_.y + std::sin(orbitAngle) * orbitRadius;
+	pos.z = portalAbsorbStartPos_.z * oneMinusEase + portalAbsorbCenter_.z * ease;
+	worldtransfrom_.translation_ = pos;
+
+	const float selfSpinTurns = 3.0f;
+	worldtransfrom_.rotation_.z = orbitAngle + kHalfPi + ease * selfSpinTurns * kTwoPi;
+	worldtransfrom_.rotation_.y = ease * 0.6f;
+	worldtransfrom_.rotation_.x = ease * 0.15f;
+
+	const float scaleFactor = 1.0f - ease * 0.96f;
+	const float clampedScale = scaleFactor < 0.04f ? 0.04f : scaleFactor;
+	worldtransfrom_.scale_.x = portalAbsorbStartScale_.x * clampedScale;
+	worldtransfrom_.scale_.y = portalAbsorbStartScale_.y * clampedScale;
+	worldtransfrom_.scale_.z = portalAbsorbStartScale_.z * clampedScale;
+
+	worldtransfrom_.UpdateMatrix();
+	return t >= 1.0f;
+}
+
+bool Player::UpdatePortalAbsorption() {
+	if (!isPortalAbsorbing_) {
+		return true;
+	}
+
+	portalAbsorbTimer_ += 1.0f;
+	float t = portalAbsorbTimer_ / kPortalAbsorbDuration;
+	if (t > 1.0f) {
+		t = 1.0f;
+	}
+
+	const float ease = t * t * (3.0f - 2.0f * t);
+	const float oneMinusEase = 1.0f - ease;
+
+	bool finished = false;
+	if (portalAbsorbStyle_ == PortalAbsorptionStyle::OrbitSpiral) {
+		finished = UpdatePortalAbsorptionOrbitSpiral(t, ease, oneMinusEase);
+	} else {
+		finished = UpdatePortalAbsorptionPlayerSpin(t, ease, oneMinusEase);
+	}
+
+	if (finished) {
+		isPortalAbsorbing_ = false;
+		return true;
+	}
+
+	return false;
 }
 
 void Player::ResetBullets() {

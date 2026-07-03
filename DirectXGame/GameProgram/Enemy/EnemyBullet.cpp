@@ -1,15 +1,9 @@
 #include "EnemyBullet.h"
-
 #include "BulletMovementStrategy.h"
-
 #include "GameCharacter.h"
-
 #include "Player.h"
-
 #include <algorithm>
-
 #include <cassert>
-
 #include <cmath>
 
 
@@ -213,4 +207,3 @@ void EnemyBullet::Draw(const KamataEngine::Camera& camera) {
 	}
 
 }
-

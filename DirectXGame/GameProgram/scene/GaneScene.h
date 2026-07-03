@@ -14,6 +14,7 @@
 #include "Skydome.h"
 #include "Meteorite.h"
 #include <sstream>
+#include <array>
 #include <vector>
 using namespace KamataEngine;
 
@@ -76,8 +77,11 @@ public:
 	void UpdateCameraControl();
 	void UpdatePlayerScreenTransition();
 	void UpdateTrampolinePlacement();
+	void UpdateTrampolineArrowAnimations();
 	void DrawTrampolineSprings();
 	void DrawJumpSpringChargeCircle();
+	void DrawSpringTrajectoryPreview();
+	KamataEngine::Model* GetSpringModel(TrampolineSpringType type) const;
 	KamataEngine::Vector3 ConvertScreenToWorld(float screenX, float screenY);
 	KamataEngine::Vector2 ConvertWorldToScreen(float worldX, float worldY);
 	void ComputeCameraBounds(float& left, float& bottom, float& right, float& top);
@@ -119,7 +123,18 @@ private:
 
 	Model* modelPlayer_ = nullptr;
 	Model* modelCube_ = nullptr;
+	Model* modelBlocks_ = nullptr;
 	Model* modelSpikeTile_ = nullptr;
+	Model* modelPortal_ = nullptr;
+	Model* modelSpringUp_ = nullptr;
+	Model* modelSpringDown_ = nullptr;
+	Model* modelSpringRight_ = nullptr;
+	Model* modelSpringLeft_ = nullptr;
+	Model* modelSpringArrow_ = nullptr;
+	Model* modelRaycasting_ = nullptr;
+	static constexpr int kTrajectoryDotPoolSize_ = 64;
+	std::array<KamataEngine::WorldTransform, kTrajectoryDotPoolSize_> trajectoryDotTransforms_;
+	bool isTrajectoryDotPoolReady_ = false;
 	Model* modelEnemy_ = nullptr;
 	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
 	Model* modelEnemyBullet_ = nullptr;
@@ -171,6 +186,9 @@ private:
 	void UpdateStateBody_Clear();
 	void UpdateStateBody_Over();
 	void ResetToTitle();
+	void BeginGameplayWhileTransitionOverlay();
+	void UpdateTransitionOverlayIfActive();
+	KamataEngine::Vector2 GetClientMousePosition() const;
 
 	float DistanceSquared(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2);
 
@@ -178,6 +196,8 @@ private:
 	uint32_t transitionTextureHandle_ = 0;
 	float transitionTimer_ = 0.0f;
 	const float kTransitionTime = 30.0f;
+	const float kTransitionGameplayUnlockTime = 15.0f;
+	bool transitionOverlayActive_ = false;
 
 	int hitSoundHandle_ = 0;
 	int hitSound_ = -1;
@@ -185,7 +205,7 @@ private:
 	Vector3 playerIntroStartPosition_ = {0.0f, -3.0f, -30.0f};
 	Vector3 playerIntroTargetPosition_ = {0.0f, -3.0f, 20.0f};
 	float gameIntroTimer_ = 0.0f;
-	const float kGameIntroDuration_ = 120.0f;
+	const float kGameIntroDuration_ = 60.0f;
 	bool isGameIntroFinished_ = false;
 
 	Camera camera_ = {};
@@ -215,6 +235,7 @@ private:
 	KamataEngine::Sprite* clearSprite_ = nullptr;
 	uint32_t clearTextureHandle_ = 0;
 	ParticleEmitter* clearEmitter_ = nullptr;
+	ParticleEmitter* goalPortalEmitter_ = nullptr;
 	int confettiSpawnTimer_ = 0;
 	bool confettiActive_ = false;
 
@@ -249,14 +270,22 @@ private:
 	std::vector<KamataEngine::Sprite*> minimapEnemyBulletSprites_;
 	uint32_t minimapEnemyBulletTextureHandle_ = 0;
 
-	// ミニマップ設定値（30×17タイルに合わせた縦横比）
+	// ミニマップ設定値（36×20タイルに合わせた縦横比）
 	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 10.0f}; // 描画基準位置 (左上)
-	const KamataEngine::Vector2 kMinimapSize_ = {150.0f, 85.0f};   // 1タイル約5px
+	const KamataEngine::Vector2 kMinimapSize_ = {162.0f, 90.0f};     // 1タイル約4.5px
 
 	void RebuildMinimapTiles();
+	void RebuildGoalPositions();
+	void UpdateGoalPortalParticles();
+	bool BeginPortalAbsorption();
+
+	// ゴール吸い込み演出（PlayerSpin=自機軸 / OrbitSpiral=ポータル周回）
+	static constexpr PortalAbsorptionStyle kPortalAbsorptionStyle = PortalAbsorptionStyle::OrbitSpiral;
+
 	KamataEngine::Vector2 ConvertWorldToMinimapPosition(const KamataEngine::Vector3& worldPos) const;
 
 	std::vector<KamataEngine::Sprite*> minimapGroundSprites_;
+	std::vector<KamataEngine::Vector3> goalPositions_;
 
 	/// <returns>ミニマップ上のスクリーン座標（レーダー用・旧）</returns>
 	KamataEngine::Vector2 ConvertWorldToMinimap(const KamataEngine::Vector3& worldPos, const KamataEngine::Vector3& playerPos);
@@ -274,11 +303,13 @@ private:
 	float gameSceneTimer_ = 0.0f;
 
 	// カウント表示 (ビットマップフォント用)
+	static constexpr bool kShowScoreDigits_ = false;
 	int score_ = 0; // 表示スコア
 	const int kMaxScore_ = 9999;
 
 	// 安全にシーンクリア遷移をリクエストするフラグ
 	bool requestSceneClear_ = false;
+	bool portalAbsorbFinishedPending_ = false;
 
 	// デジットテクスチャハンドル (0..9)
 	std::vector<uint32_t> digitTextureHandles_;
@@ -307,10 +338,12 @@ private:
 	float freeCameraCenterX_ = 0.0f;
 	float freeCameraCenterY_ = 0.0f;
 	float cameraZoomOut_ = 0.0f;
+	int middleMouseWheelSuppressFrames_ = 0;
 
 	std::vector<TrampolineSpring> trampolineSprings_;
 	TrampolineSpring trampolinePreview_;
 	KamataEngine::Vector3 trampolinePreviewPos_ = {};
 	bool hasTrampolinePreview_ = false;
 	int nextTrampolineTypeIndex_ = 0;
+	float trampolineArrowAnimTime_ = 0.0f;
 };

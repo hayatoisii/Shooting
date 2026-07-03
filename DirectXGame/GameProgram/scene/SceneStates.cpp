@@ -24,6 +24,7 @@ void SceneStateStart::Update(GameScene& scene) {
 		scene.currentStageIndex_ = 0;
 		scene.LoadStage(0);
 		scene.transitionTimer_ = 0.0f;
+		scene.transitionOverlayActive_ = false;
 		scene.gameSceneTimer_ = 0;
 		scene.ChangeSceneState(SceneStateTransitionToGame::Instance());
 	}
@@ -41,15 +42,24 @@ void SceneStateTransitionToGame::Update(GameScene& scene) {
 // 画面遷移（縮小）→ ゲームイントロへ
 void SceneStateTransitionFromGame::Update(GameScene& scene) {
 	scene.UpdateStateBody_TransitionFromGame();
+
+	if (!scene.isGameIntroFinished_ && scene.transitionTimer_ >= scene.kTransitionGameplayUnlockTime) {
+		scene.BeginGameplayWhileTransitionOverlay();
+	}
+
 	if (scene.transitionTimer_ >= scene.kTransitionTime) {
-		scene.gameIntroTimer_ = 0.0f;
-		if (scene.player_) {
-			scene.player_->SetPosition(scene.playerIntroStartPosition_);
-			scene.player_->RefreshWorldMatrix();
+		scene.transitionTimer_ = 0.0f;
+		scene.transitionOverlayActive_ = false;
+		if (!scene.isGameIntroFinished_) {
+			scene.gameIntroTimer_ = 0.0f;
+			if (scene.player_) {
+				scene.player_->SetPosition(scene.playerIntroStartPosition_);
+				scene.player_->RefreshWorldMatrix();
+			}
+			scene.isGameIntroFinished_ = false;
+			scene.UpdateEnemyPopCommands();
+			scene.ChangeSceneState(SceneStateGameIntro::Instance());
 		}
-		scene.isGameIntroFinished_ = false;
-		scene.UpdateEnemyPopCommands();
-		scene.ChangeSceneState(SceneStateGameIntro::Instance());
 	}
 }
 

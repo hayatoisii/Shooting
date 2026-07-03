@@ -1,27 +1,52 @@
 #include "Skydome.h"
 #include "KamataEngine.h"
 
-void Skydome::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera) {
-	worldtransfrom_.Initialize();
-	model_ = model;
-	camera_ = camera;
+namespace {
+// 正のZ＝奥（マップ z=0 より後ろ）
+constexpr float kSkydomeDepthZ = 90.0f;
+// blocks.obj など 8 単位キューブの一辺
+constexpr float kBackdropModelExtent = 8.0f;
+// 1.0 = 画面ぴったり / 10.0 = 約10倍（テクスチャが拡大表示される）
+constexpr float kSkydomeSizeScale = 1.0f;
+} // namespace
 
-	worldtransfrom_.scale_ = {8.0f, 8.0f, 8.0f};
+void Skydome::Initialize(KamataEngine::Model* backdropModel, KamataEngine::Camera* camera) {
+	worldtransfrom_.Initialize();
+	backdropModel_ = backdropModel;
+	camera_ = camera;
+	LoadSkyTexture();
+}
+
+void Skydome::LoadSkyTexture() {
+	hasSkyTexture_ = false;
+	skyTextureHandle_ = KamataEngine::TextureManager::Load("skydome/sky_sphere.png");
+	hasSkyTexture_ = true;
 }
 
 void Skydome::Update() {
-	// スカイドームがカメラに追従するようにする
-	/*/
-	if (camera_) {
-		KamataEngine::Matrix4x4 cameraWorldMatrix = KamataEngine::MathUtility::Inverse(camera_->matView);
-		KamataEngine::Vector3 cameraPosition = {cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2]};
-
-		// スカイドームの座標 (translation_) をカメラの座標と一致させる
-		worldtransfrom_.translation_ = cameraPosition;
-		worldtransfrom_.UpdateMatrix();
-	}
-	/*/
 	worldtransfrom_.UpdateMatrix();
 }
 
-void Skydome::Draw() { model_->Draw(worldtransfrom_, *camera_); }
+void Skydome::SetViewBounds(float centerX, float centerY, float viewW, float viewH) {
+	const float coverW = viewW * 1.05f * kSkydomeSizeScale;
+	const float coverH = viewH * 1.05f * kSkydomeSizeScale;
+
+	// 球体ではなく +Z 面の板としてビュー全体を覆う（正射影向け）
+	worldtransfrom_.translation_ = {centerX, centerY, kSkydomeDepthZ};
+	worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
+	worldtransfrom_.scale_ = {coverW / kBackdropModelExtent, coverH / kBackdropModelExtent, 0.02f};
+	worldtransfrom_.UpdateMatrix();
+}
+
+void Skydome::Draw() {
+	if (!backdropModel_ || !camera_) {
+		return;
+	}
+
+	if (hasSkyTexture_) {
+		backdropModel_->Draw(worldtransfrom_, *camera_, skyTextureHandle_);
+		return;
+	}
+
+	backdropModel_->Draw(worldtransfrom_, *camera_);
+}

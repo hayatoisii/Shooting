@@ -8,8 +8,24 @@ class TileMap {
 public:
 	static constexpr float kTileWidth = 42.0f;
 	static constexpr float kTileHeight = 42.0f;
-	static constexpr int kScreenTilesW = 30;
-	static constexpr int kScreenTilesH = 17;
+	static constexpr int kScreenTilesW = 36;
+	static constexpr int kScreenTilesH = 20;
+	// バネサイズ用（Player拡大前の基準半幅）
+	static constexpr float kSpringReferenceHalfW = kTileWidth * 0.375f;
+	static constexpr float kSpringReferenceHalfH = kTileHeight * 0.375f;
+	static constexpr float kSpikeVerticalHitScale = 0.5f;
+	static constexpr float kGoalHitScaleX = 1.3f;
+	static constexpr float kGoalHitScaleY = 1.4f;
+	// portal 見た目：下にはみ出す分を上にずらす（スケール後の高さに対する比率）
+	static constexpr float kGoalModelRaiseRatio = 0.05f;
+	// パーティクル基準点：モデル中心からわずかに下（上下とも隠す）
+	static constexpr float kGoalParticleLowerRatio = 0.05f;
+	// Player 初期位置（TileMap::FindSpawnPosition / GaneScene::LoadStage）
+	static constexpr int kSpawnColumn = 0; // 列（0=左端）。負の値なら下から最初に見つかった地面
+	static constexpr int kSpawnPlatformTiers = 2; // 足場の段数（下の段から数える）
+
+	static float GetGoalModelRaiseOffsetY(float tileHeight);
+	static float GetGoalParticleBaseOffsetY(float tileHeight);
 
 	bool LoadFromFile(const char* filePath);
 
@@ -46,6 +62,10 @@ public:
 	void ClampPositionToMapBounds(float& x, float& y, float halfWidth, float halfHeight) const;
 	bool OverlapsSpike(float worldX, float worldY, float halfWidth, float halfHeight) const;
 	bool OverlapsGoal(float worldX, float worldY, float halfWidth, float halfHeight) const;
+	bool FindOverlappingGoalCenter(float worldX, float worldY, float halfWidth, float halfHeight, KamataEngine::Vector3& outCenter) const;
+
+	float GetSpikeRotationZ(int col, int row) const;
+	void GetSpikeAnchorOffset(int col, int row, float& offsetX, float& offsetY) const;
 	void GetMapWorldBounds(float& minX, float& minY, float& maxX, float& maxY) const;
 
 private:

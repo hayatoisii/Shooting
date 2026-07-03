@@ -17,6 +17,12 @@ class RailCamera;
 class TileMap;
 class TrampolineSpring;
 
+// ゴール吸い込み演出の種類
+enum class PortalAbsorptionStyle {
+	PlayerSpin,  // 自機を軸にくるくる回転しながら吸い込み
+	OrbitSpiral, // ポータル中心の周りを旋回、円が縮小しながら吸い込み
+};
+
 // プレイヤー（GameCharacter を継承。行動は State Pattern で切り替え）
 class Player : public GameCharacter {
 public:
@@ -33,9 +39,15 @@ public:
 	enum class SpringChargeKind { Up, Right, Left, Down };
 
 	SpringChargePhase GetSpringChargePhase() const { return springChargePhase_; }
+	SpringChargeKind GetSpringChargeKind() const { return springChargeKind_; }
 	float GetJumpSpringChargeLevel() const { return springChargeLevel_; }
 	const KamataEngine::Vector3& GetJumpSpringAnchor() const { return springChargeAnchor_; }
 	float GetJumpSpringCircleRadiusWorld() const;
+	bool ShouldShowSpringTrajectory() const;
+	float GetSpringTrajectoryPreviewCharge() const;
+	static constexpr int kSpringTrajectoryMaxSamples = 48;
+	bool ComputeSpringTrajectorySamples(KamataEngine::Vector3* outSamples, int maxSamples, int& outCount) const;
+	KamataEngine::Vector3 GetSpringTrajectoryStart() const;
 
 	// --- GameCharacter の仮想関数（override） ---
 	KamataEngine::Vector3 GetWorldPosition() const override;
@@ -80,6 +92,7 @@ public:
 	const KamataEngine::Vector3& GetSpawnPosition() const { return spawnPosition_; }
 
 	void ResetRotation();
+	void ResetVisualScaleFromTileMap();
 	void ResetParticles();
 	void ResetBullets();
 
@@ -104,6 +117,11 @@ public:
 	void UpdateHitShake();
 	void FinalizeFrameUpdate();
 	void UpdateGameOverAnimation();
+	void BeginPortalAbsorption(const KamataEngine::Vector3& portalCenter, PortalAbsorptionStyle style);
+	bool UpdatePortalAbsorption();
+	bool IsPortalAbsorbing() const { return isPortalAbsorbing_; }
+	PortalAbsorptionStyle GetPortalAbsorptionStyle() const { return portalAbsorbStyle_; }
+	const KamataEngine::Vector3& GetPortalAbsorbCenter() const { return portalAbsorbCenter_; }
 	void BeginRolling(float direction);
 
 	void HandleSpikeCollision(KamataEngine::Vector3& pos);
@@ -115,6 +133,7 @@ public:
 	void LaunchFromSpringCharge(bool useCharge);
 	const TrampolineSpring* GetActiveSpring() const;
 	TrampolineSpring* GetActiveSpringMutable();
+	void GetSpringTrajectoryOrigin(KamataEngine::Vector3& outOrigin) const;
 
 private:
 	PlayerState* state_ = nullptr;
@@ -187,15 +206,33 @@ private:
 	bool isSideSpringFlying_ = false;
 	KamataEngine::Vector3 spawnPosition_ = {};
 
-	static constexpr float kMoveSpeed = 6.5f;
-	static constexpr float kGravity = 0.6f;
-	static constexpr float kJumpSpeed = 12.0f;
+	static constexpr float kMoveSpeed = 6.5f * 1.224744871391589f;  // 重力1.5倍時の滞空距離補正 (√1.5)
+	static constexpr float kGravity = 0.6f * 1.5f;
+	static constexpr float kJumpSpeed = 12.0f * 1.4491374849946407f; // 高さ1.4倍＋重力1.5倍補正 (√2.1)
+	static constexpr float kPlayerVisualScale = 2.0f;
 	static constexpr float kSpringPauseDuration = 0.3f;
 	static constexpr float kSpringMaxChargeTime = 1.2f;
 	static constexpr float kSpringMinLaunchSpeed = 7.0f;
-	static constexpr float kSpringMaxLaunchSpeed = 28.0f;
+	static constexpr float kSpringMaxLaunchSpeed = 28.0f * 1.1f;
 	static constexpr float kSideSpringMinLaunchSpeed = 7.0f;
 	static constexpr float kSideSpringMaxLaunchSpeed = 24.0f;
-	static constexpr float kSpringPenetrationSpeed = 3.5f;
+	static constexpr float kSpringPenetrationSpeed = 3.5f * 1.3f;
 	static constexpr int kSpikeRespawnInvulnFrames = 45;
+	static constexpr float kPortalAbsorbDuration = 105.0f;
+
+	bool isPortalAbsorbing_ = false;
+	PortalAbsorptionStyle portalAbsorbStyle_ = PortalAbsorptionStyle::PlayerSpin;
+	float portalAbsorbTimer_ = 0.0f;
+	KamataEngine::Vector3 portalAbsorbCenter_ = {};
+	KamataEngine::Vector3 portalAbsorbStartPos_ = {};
+	KamataEngine::Vector3 portalAbsorbStartScale_ = {};
+	float portalAbsorbStartRotZ_ = 0.0f;
+	float portalAbsorbSpinZ_ = 0.0f;
+	float portalAbsorbStartRadius_ = 0.0f;
+	float portalAbsorbStartAngle_ = 0.0f;
+
+	bool UpdatePortalAbsorptionPlayerSpin(float t, float ease, float oneMinusEase);
+	bool UpdatePortalAbsorptionOrbitSpiral(float t, float ease, float oneMinusEase);
+
+	void GetSpringPreviewVelocity(float chargeLevel, float& outVelX, float& outVelY) const;
 };

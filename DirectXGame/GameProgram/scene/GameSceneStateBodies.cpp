@@ -45,6 +45,43 @@ void GameScene::UpdateStateBody_TransitionFromGame() {
 	}
 }
 
+void GameScene::BeginGameplayWhileTransitionOverlay() {
+	if (isGameIntroFinished_) {
+		return;
+	}
+
+	if (player_) {
+		player_->SetPosition(playerIntroTargetPosition_);
+		player_->RefreshWorldMatrix();
+	}
+	isGameIntroFinished_ = true;
+	gameSceneTimer_ = 0;
+	if (railCamera_) {
+		railCamera_->SetCanMove(true);
+	}
+	transitionOverlayActive_ = true;
+	UpdateEnemyPopCommands();
+	ChangeSceneState(SceneStateGame::Instance());
+}
+
+void GameScene::UpdateTransitionOverlayIfActive() {
+	if (!transitionOverlayActive_) {
+		return;
+	}
+
+	transitionTimer_++;
+	float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
+	float progress = std::fmin(transitionTimer_ / kTransitionTime, 1.0f);
+	float easedProgress = sinf(progress * 3.14159265f / 2.0f);
+	float scale = (1.0f - easedProgress) * maxScale;
+	transitionSprite_->SetSize({scale, scale});
+
+	if (transitionTimer_ >= kTransitionTime) {
+		transitionOverlayActive_ = false;
+		transitionTimer_ = 0.0f;
+	}
+}
+
 // ゲーム開始前イントロの更新本体
 void GameScene::UpdateStateBody_GameIntro() {
 	gameIntroTimer_++;
@@ -69,26 +106,42 @@ void GameScene::UpdateStateBody_GameIntro() {
 void GameScene::UpdateStateBody_Game() {
 	UpdateCameraControl();
 	UpdateMapCamera();
-	UpdateTrampolinePlacement();
+
+	const bool isPortalAbsorbing = player_ && player_->IsPortalAbsorbing();
+	if (!isPortalAbsorbing) {
+		UpdateTrampolinePlacement();
+	}
 
 	if (explosionEmitter_) {
 		explosionEmitter_->Update();
 	}
 
 	if (isGameIntroFinished_) {
-		player_->Update();
-		UpdatePlayerScreenTransition();
+		if (player_) {
+			if (isPortalAbsorbing) {
+				if (player_->UpdatePortalAbsorption()) {
+					portalAbsorbFinishedPending_ = true;
+				}
+			} else {
+				player_->Update();
+				UpdatePlayerScreenTransition();
+
+				const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+				const float playerHalfW = player_->GetHalfWidth();
+				const float playerHalfH = player_->GetHalfHeight();
+				if (tileMap_.OverlapsGoal(playerPos.x, playerPos.y, playerHalfW, playerHalfH)) {
+					if (BeginPortalAbsorption()) {
+						player_->UpdatePortalAbsorption();
+					}
+				}
+			}
+		}
+
 		UpdateMapCamera();
 
 		if (player_ && minimapPlayerSprite_) {
 			KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
 			minimapPlayerSprite_->SetPosition(ConvertWorldToMinimapPosition(playerPos));
-
-			const float playerHalfW = player_->GetHalfWidth();
-			const float playerHalfH = player_->GetHalfHeight();
-			if (tileMap_.OverlapsGoal(playerPos.x, playerPos.y, playerHalfW, playerHalfH)) {
-				requestSceneClear_ = true;
-			}
 
 			float dx = playerPos.x - lastPlayerPos_.x;
 			float dy = playerPos.y - lastPlayerPos_.y;
