@@ -267,8 +267,81 @@ void Player::HandleSpikeCollision(KamataEngine::Vector3& pos) {
 		return;
 	}
 
-	RespawnToSpawn(pos);
-	spikeRespawnCooldown_ = kSpikeRespawnInvulnFrames;
+	velocityX_ = 0.0f;
+	velocityY_ = 0.0f;
+	spikeHitEvent_ = true;
+}
+
+bool Player::ConsumeSpikeHitEvent() {
+	const bool hit = spikeHitEvent_;
+	spikeHitEvent_ = false;
+	return hit;
+}
+
+void Player::CaptureSnapshot(PlayerSnapshot& outSnapshot) const {
+	outSnapshot.position = worldtransfrom_.translation_;
+	outSnapshot.spawnPosition = spawnPosition_;
+	outSnapshot.scale = worldtransfrom_.scale_;
+	outSnapshot.rotation = worldtransfrom_.rotation_;
+	outSnapshot.velocityX = velocityX_;
+	outSnapshot.velocityY = velocityY_;
+	outSnapshot.onGround = onGround_;
+	outSnapshot.hp = hp_;
+	outSnapshot.spikeRespawnCooldown = spikeRespawnCooldown_;
+	outSnapshot.springChargePhase = springChargePhase_;
+	outSnapshot.springChargeKind = springChargeKind_;
+	outSnapshot.activeSpringIndex = activeSpringIndex_;
+	outSnapshot.springChargePauseTimer = springChargePauseTimer_;
+	outSnapshot.springChargeLevel = springChargeLevel_;
+	outSnapshot.springChargeAnchor = springChargeAnchor_;
+	outSnapshot.springPenetrationPrevPos = springPenetrationPrevPos_;
+	outSnapshot.isSideSpringFlying = isSideSpringFlying_;
+	outSnapshot.isPortalAbsorbing = isPortalAbsorbing_;
+	outSnapshot.portalAbsorbTimer = portalAbsorbTimer_;
+	outSnapshot.portalAbsorbStyle = portalAbsorbStyle_;
+	outSnapshot.portalAbsorbCenter = portalAbsorbCenter_;
+	outSnapshot.portalAbsorbStartPos = portalAbsorbStartPos_;
+	outSnapshot.portalAbsorbStartScale = portalAbsorbStartScale_;
+	outSnapshot.portalAbsorbStartRotZ = portalAbsorbStartRotZ_;
+	outSnapshot.portalAbsorbSpinZ = portalAbsorbSpinZ_;
+	outSnapshot.portalAbsorbStartRadius = portalAbsorbStartRadius_;
+	outSnapshot.portalAbsorbStartAngle = portalAbsorbStartAngle_;
+	outSnapshot.isDead = isDead_;
+}
+
+void Player::ApplySnapshot(const PlayerSnapshot& snapshot) {
+	worldtransfrom_.translation_ = snapshot.position;
+	spawnPosition_ = snapshot.spawnPosition;
+	worldtransfrom_.scale_ = snapshot.scale;
+	worldtransfrom_.rotation_ = snapshot.rotation;
+	velocityX_ = snapshot.velocityX;
+	velocityY_ = snapshot.velocityY;
+	onGround_ = snapshot.onGround;
+	hp_ = snapshot.hp;
+	spikeRespawnCooldown_ = snapshot.spikeRespawnCooldown;
+	springChargePhase_ = snapshot.springChargePhase;
+	springChargeKind_ = snapshot.springChargeKind;
+	activeSpringIndex_ = snapshot.activeSpringIndex;
+	springChargePauseTimer_ = snapshot.springChargePauseTimer;
+	springChargeLevel_ = snapshot.springChargeLevel;
+	springChargeAnchor_ = snapshot.springChargeAnchor;
+	springPenetrationPrevPos_ = snapshot.springPenetrationPrevPos;
+	isSideSpringFlying_ = snapshot.isSideSpringFlying;
+	isPortalAbsorbing_ = snapshot.isPortalAbsorbing;
+	portalAbsorbTimer_ = snapshot.portalAbsorbTimer;
+	portalAbsorbStyle_ = snapshot.portalAbsorbStyle;
+	portalAbsorbCenter_ = snapshot.portalAbsorbCenter;
+	portalAbsorbStartPos_ = snapshot.portalAbsorbStartPos;
+	portalAbsorbStartScale_ = snapshot.portalAbsorbStartScale;
+	portalAbsorbStartRotZ_ = snapshot.portalAbsorbStartRotZ;
+	portalAbsorbSpinZ_ = snapshot.portalAbsorbSpinZ;
+	portalAbsorbStartRadius_ = snapshot.portalAbsorbStartRadius;
+	portalAbsorbStartAngle_ = snapshot.portalAbsorbStartAngle;
+	isDead_ = snapshot.isDead;
+	spikeHitEvent_ = false;
+	worldtransfrom_.parent_ = nullptr;
+	ChangeState(PlayerStateNormal::Instance());
+	worldtransfrom_.UpdateMatrix();
 }
 
 bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {

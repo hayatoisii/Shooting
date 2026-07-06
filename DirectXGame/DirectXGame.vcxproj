@@ -121,6 +121,7 @@
     <ClCompile Include="GameProgram\MT\GameCharacter.cpp" />
     <ClCompile Include="GameProgram\Enemy\Enemy.cpp" />
     <ClCompile Include="GameProgram\Enemy\EnemyBullet.cpp" />
+    <ClCompile Include="GameProgram\scene\GameplayRewind.cpp" />
     <ClCompile Include="GameProgram\scene\GameSceneStateBodies.cpp" />
     <ClCompile Include="GameProgram\scene\GaneScene.cpp" />
     <ClCompile Include="GameProgram\scene\SceneStates.cpp" />
@@ -230,6 +231,7 @@
     <ClInclude Include="GameProgram\MT\GameCharacter.h" />
     <ClInclude Include="GameProgram\Enemy\Enemy.h" />
     <ClInclude Include="GameProgram\Enemy\EnemyBullet.h" />
+    <ClInclude Include="GameProgram\scene\GameplayRewind.h" />
     <ClInclude Include="GameProgram\scene\GaneScene.h" />
     <ClInclude Include="GameProgram\scene\SceneStateBase.h" />
     <ClInclude Include="GameProgram\MT\MT.h" />

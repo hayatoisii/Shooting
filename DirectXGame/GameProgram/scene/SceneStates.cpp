@@ -2,6 +2,7 @@
 #include "GaneScene.h"
 
 SceneStateStart SceneStateStart::instance_;
+SceneStateStageSelect SceneStateStageSelect::instance_;
 SceneStateTransitionToGame SceneStateTransitionToGame::instance_;
 SceneStateTransitionFromGame SceneStateTransitionFromGame::instance_;
 SceneStateGameIntro SceneStateGameIntro::instance_;
@@ -10,6 +11,7 @@ SceneStateClear SceneStateClear::instance_;
 SceneStateOver SceneStateOver::instance_;
 
 SceneStateStart* SceneStateStart::Instance() { return &instance_; }
+SceneStateStageSelect* SceneStateStageSelect::Instance() { return &instance_; }
 SceneStateTransitionToGame* SceneStateTransitionToGame::Instance() { return &instance_; }
 SceneStateTransitionFromGame* SceneStateTransitionFromGame::Instance() { return &instance_; }
 SceneStateGameIntro* SceneStateGameIntro::Instance() { return &instance_; }
@@ -17,17 +19,18 @@ SceneStateGame* SceneStateGame::Instance() { return &instance_; }
 SceneStateClear* SceneStateClear::Instance() { return &instance_; }
 SceneStateOver* SceneStateOver::Instance() { return &instance_; }
 
-// タイトル画面: Space で遷移開始（状態クラスが次状態を決定）
+// タイトル画面: Space でステージ選択へ
 void SceneStateStart::Update(GameScene& scene) {
 	scene.UpdateStateBody_Start();
 	if (scene.input_->TriggerKey(DIK_SPACE)) {
-		scene.currentStageIndex_ = 0;
-		scene.LoadStage(0);
-		scene.transitionTimer_ = 0.0f;
-		scene.transitionOverlayActive_ = false;
-		scene.gameSceneTimer_ = 0;
-		scene.ChangeSceneState(SceneStateTransitionToGame::Instance());
+		scene.focusedStageSelectIndex_ = 0;
+		scene.ChangeSceneState(SceneStateStageSelect::Instance());
 	}
+}
+
+// ステージ選択
+void SceneStateStageSelect::Update(GameScene& scene) {
+	scene.UpdateStateBody_StageSelect();
 }
 
 // 画面遷移（拡大）→ 縮小へ
@@ -35,6 +38,7 @@ void SceneStateTransitionToGame::Update(GameScene& scene) {
 	scene.UpdateStateBody_TransitionToGame();
 	if (scene.transitionTimer_ >= scene.kTransitionTime) {
 		scene.transitionTimer_ = 0.0f;
+		scene.CommitPendingStageAfterTransitionExpand();
 		scene.ChangeSceneState(SceneStateTransitionFromGame::Instance());
 	}
 }
@@ -90,12 +94,9 @@ void SceneStateGame::Update(GameScene& scene) {
 	scene.UpdateStateBody_Game();
 }
 
-// クリア演出
+// クリア後: title / nextstage ボタン操作は UpdateStateBody_Clear で処理
 void SceneStateClear::Update(GameScene& scene) {
 	scene.UpdateStateBody_Clear();
-	if (scene.input_->TriggerKey(DIK_SPACE)) {
-		scene.AdvanceFromClearScreen();
-	}
 }
 
 // ゲームオーバー

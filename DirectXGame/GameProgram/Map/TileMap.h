@@ -1,9 +1,15 @@
 #pragma once
 
 #include "KamataEngine.h"
+#include <unordered_set>
 #include <vector>
 
-// CSVマップ（0=空白, 1=地面, 2=トゲ, 3=ゴール）
+struct TileMapGimmickSnapshot {
+	std::unordered_set<int> deactivatedWalls;
+	std::unordered_set<int> pressedButtons;
+};
+
+// CSVマップ（0=空白, 1=地面, 2=トゲ, 3=ゴール, 4=消える壁, 5=ボタン）
 class TileMap {
 public:
 	static constexpr float kTileWidth = 42.0f;
@@ -35,6 +41,17 @@ public:
 	bool IsGround(int col, int row) const;
 	bool IsSpike(int col, int row) const;
 	bool IsGoal(int col, int row) const;
+	bool IsDisappearingWall(int col, int row) const;
+	bool IsButton(int col, int row) const;
+	bool IsSolidForCollision(int col, int row) const;
+	bool IsDisappearingWallActive(int col, int row) const;
+	bool IsButtonPressed(int col, int row) const;
+
+	void ResetGimmickState();
+	void DeactivateAllDisappearingWalls();
+	bool PressButton(int col, int row);
+	void CaptureGimmickSnapshot(TileMapGimmickSnapshot& outSnapshot) const;
+	void ApplyGimmickSnapshot(const TileMapGimmickSnapshot& snapshot);
 
 	int GetScreenCountX() const;
 	int GetScreenCountY() const;
@@ -63,6 +80,7 @@ public:
 	bool OverlapsSpike(float worldX, float worldY, float halfWidth, float halfHeight) const;
 	bool OverlapsGoal(float worldX, float worldY, float halfWidth, float halfHeight) const;
 	bool FindOverlappingGoalCenter(float worldX, float worldY, float halfWidth, float halfHeight, KamataEngine::Vector3& outCenter) const;
+	bool FindOverlappingUnpressedButton(float worldX, float worldY, float halfWidth, float halfHeight, int& outCol, int& outRow) const;
 
 	float GetSpikeRotationZ(int col, int row) const;
 	void GetSpikeAnchorOffset(int col, int row, float& offsetX, float& offsetY) const;
@@ -77,6 +95,10 @@ private:
 	float offsetX_ = 0.0f;
 	float offsetY_ = 0.0f;
 
+	std::unordered_set<int> deactivatedWallKeys_;
+	std::unordered_set<int> pressedButtonKeys_;
+
+	static int EncodeTileKey(int col, int row);
 	bool IsMultiScreenMap() const;
 	float GetViewportMarginX() const;
 	float GetViewportMarginY() const;

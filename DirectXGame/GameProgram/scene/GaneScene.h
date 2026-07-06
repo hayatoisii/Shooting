@@ -2,6 +2,7 @@
 #include "EntityFactory.h"
 #include "GameBalanceTable.h"
 #include "GameEvent.h"
+#include "GameplayRewind.h"
 #include "MapRenderer.h"
 #include "SpawnCommandTable.h"
 #include "TileMap.h"
@@ -23,6 +24,7 @@ Vector3 Lerp(const Vector3& start, const Vector3& end, float t);
 
 // State Pattern: シーン状態クラスから GameScene の内部にアクセスする
 class SceneStateStart;
+class SceneStateStageSelect;
 class SceneStateTransitionToGame;
 class SceneStateTransitionFromGame;
 class SceneStateGameIntro;
@@ -32,6 +34,7 @@ class SceneStateOver;
 
 class GameScene : public IGameEventListener {
 	friend class SceneStateStart;
+	friend class SceneStateStageSelect;
 	friend class SceneStateTransitionToGame;
 	friend class SceneStateTransitionFromGame;
 	friend class SceneStateGameIntro;
@@ -54,9 +57,28 @@ public:
 	void TransitionToClearScene2();
 
 	void LoadStage(int stageIndex);
+	void BeginStageFromSelect(int stageIndex);
 	void AdvanceFromClearScreen();
-	void HandleStageClear();
-	static constexpr int kStageCount = 3;
+	void AdvanceToNextStageFromClear();
+	void ReturnToTitleFromStageClear();
+	void ReturnToTitleScreen();
+	void ResetCurrentStage();
+	void HandleGameplayShortcuts();
+	void UpdateGameplayRewind();
+	void UpdateGameplayRewindInput();
+	void SeedGameplayRewindSnapshot();
+	void CaptureGameplaySnapshot(GameplaySnapshot& outSnapshot) const;
+	void ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool finalizeSideEffects = true);
+	void FinalizeGameplayRewindScrub();
+	bool TrampolinesMatchSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings) const;
+	void RestoreTrampolinesFromSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings);
+	void DrawSpikeRewindOverlay();
+	bool HasNextStageAfterCurrent() const;
+	static constexpr int kStageCount = 10;
+	static constexpr int kStageSelectDisplayMin = 1;
+	static constexpr int kStageSelectDisplayMax = 10;
+	static constexpr int kStageSelectColsPerRow = 5;
+	// 将来チュートリアル用スロットを追加する場合は kStageCount / UI 配置を拡張する
 	int GetCurrentStageIndex() const { return currentStageIndex_; }
 
 	void AddEnemyBullet(EnemyBullet* enemyBullet);
@@ -78,9 +100,15 @@ public:
 	void UpdatePlayerScreenTransition();
 	void UpdateTrampolinePlacement();
 	void UpdateTrampolineArrowAnimations();
+	void UpdateButtonGimmicks();
 	void DrawTrampolineSprings();
 	void DrawJumpSpringChargeCircle();
 	void DrawSpringTrajectoryPreview();
+	void DrawStageSelectUi();
+	void DrawStageClearUi();
+	void LayoutStageClearButtons();
+	bool IsScreenPointInSprite(const KamataEngine::Sprite* sprite, float screenX, float screenY) const;
+	int HitTestStageSelectSlot(float screenX, float screenY) const;
 	KamataEngine::Model* GetSpringModel(TrampolineSpringType type) const;
 	KamataEngine::Vector3 ConvertScreenToWorld(float screenX, float screenY);
 	KamataEngine::Vector2 ConvertWorldToScreen(float worldX, float worldY);
@@ -124,6 +152,7 @@ private:
 	Model* modelPlayer_ = nullptr;
 	Model* modelCube_ = nullptr;
 	Model* modelBlocks_ = nullptr;
+	Model* modelDeleteBlocks_ = nullptr;
 	Model* modelSpikeTile_ = nullptr;
 	Model* modelPortal_ = nullptr;
 	Model* modelSpringUp_ = nullptr;
@@ -179,6 +208,7 @@ private:
 
 	// 各シーン状態の更新本体（状態クラスから呼ばれる）
 	void UpdateStateBody_Start();
+	void UpdateStateBody_StageSelect();
 	void UpdateStateBody_TransitionToGame();
 	void UpdateStateBody_TransitionFromGame();
 	void UpdateStateBody_GameIntro();
@@ -186,8 +216,11 @@ private:
 	void UpdateStateBody_Clear();
 	void UpdateStateBody_Over();
 	void ResetToTitle();
+	void ClearStageRuntimeEntities();
 	void BeginGameplayWhileTransitionOverlay();
 	void UpdateTransitionOverlayIfActive();
+	void CommitPendingStageAfterTransitionExpand();
+	void ResetTransitionExpandOverlay();
 	KamataEngine::Vector2 GetClientMousePosition() const;
 
 	float DistanceSquared(const KamataEngine::Vector3& v1, const KamataEngine::Vector3& v2);
@@ -198,6 +231,13 @@ private:
 	const float kTransitionTime = 30.0f;
 	const float kTransitionGameplayUnlockTime = 15.0f;
 	bool transitionOverlayActive_ = false;
+
+	enum class TransitionExpandSource {
+		StageSelect,
+		ClearScreen,
+	};
+	TransitionExpandSource transitionExpandSource_ = TransitionExpandSource::StageSelect;
+	int pendingStageIndex_ = 0;
 
 	int hitSoundHandle_ = 0;
 	int hitSound_ = -1;
@@ -234,6 +274,32 @@ private:
 
 	KamataEngine::Sprite* clearSprite_ = nullptr;
 	uint32_t clearTextureHandle_ = 0;
+	KamataEngine::Sprite* stageClearTitleReturnSprite_ = nullptr;
+	KamataEngine::Sprite* stageClearNextStageSprite_ = nullptr;
+	uint32_t stageClearTitleReturnTextureHandle_ = 0;
+	uint32_t stageClearNextStageTextureHandle_ = 0;
+
+	struct StageSelectSlot {
+		float centerX = 0.0f;
+		float centerY = 0.0f;
+		float halfW = 72.0f;
+		float halfH = 56.0f;
+		int displayNumber = 1;
+	};
+	struct StageSelectSlotUi {
+		KamataEngine::Sprite* digitSprites[2] = {nullptr, nullptr};
+		int digitCount = 0;
+	};
+	std::array<StageSelectSlot, kStageCount> stageSelectSlots_{};
+	std::array<StageSelectSlotUi, kStageCount> stageSelectSlotUi_{};
+	int focusedStageSelectIndex_ = 0;
+	static constexpr float kStageSelectDigitSize = 80.0f;
+	static constexpr float kStageSelectMultiDigitSpacing = 4.0f;
+	std::array<uint32_t, 10> stageSelectDigitTextureHandles_{};
+	bool isStageSelectFontReady_ = false;
+	KamataEngine::Sprite* stageSelectBackgroundSprite_ = nullptr;
+	KamataEngine::Sprite* stageSelectCursorSprite_ = nullptr;
+	void MoveStageSelectFocus(int deltaCol, int deltaRow);
 	ParticleEmitter* clearEmitter_ = nullptr;
 	ParticleEmitter* goalPortalEmitter_ = nullptr;
 	int confettiSpawnTimer_ = 0;
@@ -341,6 +407,14 @@ private:
 	int middleMouseWheelSuppressFrames_ = 0;
 
 	std::vector<TrampolineSpring> trampolineSprings_;
+
+	GameplayRewindBuffer gameplayRewindBuffer_;
+	bool isGameplayRewinding_ = false;
+	bool gameplayRewindSeeded_ = false;
+	int gameplayRewindScrubCooldown_ = 0;
+	bool isSpikeRewindOverlayActive_ = false;
+	float spikeRewindOverlayAlpha_ = 0.0f;
+	KamataEngine::Sprite* spikeRewindDimSprite_ = nullptr;
 	TrampolineSpring trampolinePreview_;
 	KamataEngine::Vector3 trampolinePreviewPos_ = {};
 	bool hasTrampolinePreview_ = false;

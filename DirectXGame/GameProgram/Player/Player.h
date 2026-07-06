@@ -17,6 +17,8 @@ class RailCamera;
 class TileMap;
 class TrampolineSpring;
 
+struct PlayerSnapshot;
+
 // ゴール吸い込み演出の種類
 enum class PortalAbsorptionStyle {
 	PlayerSpin,  // 自機を軸にくるくる回転しながら吸い込み
@@ -126,6 +128,10 @@ public:
 
 	void HandleSpikeCollision(KamataEngine::Vector3& pos);
 	void RespawnToSpawn(KamataEngine::Vector3& pos);
+	bool ConsumeSpikeHitEvent();
+
+	void CaptureSnapshot(PlayerSnapshot& outSnapshot) const;
+	void ApplySnapshot(const PlayerSnapshot& snapshot);
 
 	bool UpdateSpringCharge(KamataEngine::Vector3& pos);
 	void BeginSpringPenetration(int springIndex, SpringChargeKind kind, const KamataEngine::Vector3& pos);
@@ -231,8 +237,41 @@ private:
 	float portalAbsorbStartRadius_ = 0.0f;
 	float portalAbsorbStartAngle_ = 0.0f;
 
+	bool spikeHitEvent_ = false;
+
 	bool UpdatePortalAbsorptionPlayerSpin(float t, float ease, float oneMinusEase);
 	bool UpdatePortalAbsorptionOrbitSpiral(float t, float ease, float oneMinusEase);
 
 	void GetSpringPreviewVelocity(float chargeLevel, float& outVelX, float& outVelY) const;
+};
+
+struct PlayerSnapshot {
+	KamataEngine::Vector3 position{};
+	KamataEngine::Vector3 spawnPosition{};
+	KamataEngine::Vector3 scale{1.0f, 1.0f, 1.0f};
+	KamataEngine::Vector3 rotation{};
+	float velocityX = 0.0f;
+	float velocityY = 0.0f;
+	bool onGround = true;
+	int hp = 3;
+	int spikeRespawnCooldown = 0;
+	Player::SpringChargePhase springChargePhase = Player::SpringChargePhase::None;
+	Player::SpringChargeKind springChargeKind = Player::SpringChargeKind::Up;
+	int activeSpringIndex = -1;
+	float springChargePauseTimer = 0.0f;
+	float springChargeLevel = 0.0f;
+	KamataEngine::Vector3 springChargeAnchor{};
+	KamataEngine::Vector3 springPenetrationPrevPos{};
+	bool isSideSpringFlying = false;
+	bool isPortalAbsorbing = false;
+	float portalAbsorbTimer = 0.0f;
+	PortalAbsorptionStyle portalAbsorbStyle = PortalAbsorptionStyle::PlayerSpin;
+	KamataEngine::Vector3 portalAbsorbCenter{};
+	KamataEngine::Vector3 portalAbsorbStartPos{};
+	KamataEngine::Vector3 portalAbsorbStartScale{1.0f, 1.0f, 1.0f};
+	float portalAbsorbStartRotZ = 0.0f;
+	float portalAbsorbSpinZ = 0.0f;
+	float portalAbsorbStartRadius = 0.0f;
+	float portalAbsorbStartAngle = 0.0f;
+	bool isDead = false;
 };

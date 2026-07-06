@@ -51,6 +51,7 @@ SceneStateKind GameScene::GetSceneStateKind() const {
 GameScene::~GameScene() {
 	delete modelCube_;
 	delete modelBlocks_;
+	delete modelDeleteBlocks_;
 	delete modelSpikeTile_;
 	delete modelPortal_;
 	delete modelSpringUp_;
@@ -88,6 +89,18 @@ GameScene::~GameScene() {
 	delete clearEmitter_;
 	delete goalPortalEmitter_;
 	delete clearSprite_;
+	delete stageClearTitleReturnSprite_;
+	delete stageClearNextStageSprite_;
+	delete stageSelectBackgroundSprite_;
+	delete stageSelectCursorSprite_;
+	delete spikeRewindDimSprite_;
+	for (StageSelectSlotUi& ui : stageSelectSlotUi_) {
+		for (int d = 0; d < ui.digitCount; ++d) {
+			delete ui.digitSprites[d];
+			ui.digitSprites[d] = nullptr;
+		}
+		ui.digitCount = 0;
+	}
 	for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
 		delete sprite;
 	}
@@ -129,6 +142,7 @@ void GameScene::Initialize() {
 
 	modelCube_ = KamataEngine::Model::CreateFromOBJ("cube", true);
 	modelBlocks_ = KamataEngine::Model::CreateFromOBJ("blocks", true);
+	modelDeleteBlocks_ = KamataEngine::Model::CreateFromOBJ("deleteblocks", true);
 	modelSpikeTile_ = KamataEngine::Model::CreateFromOBJ("needle", true);
 	modelPortal_ = KamataEngine::Model::CreateFromOBJ("portal", true);
 	goalPortalEmitter_ = new ParticleEmitter();
@@ -165,6 +179,14 @@ void GameScene::Initialize() {
 	transitionSprite_->SetAnchorPoint({0.5f, 0.5f});
 	transitionSprite_->SetSize({0.0f, 0.0f});
 
+	spikeRewindDimSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
+	if (spikeRewindDimSprite_) {
+		spikeRewindDimSprite_->SetAnchorPoint({0.0f, 0.0f});
+		spikeRewindDimSprite_->SetPosition({0.0f, 0.0f});
+		spikeRewindDimSprite_->SetSize({static_cast<float>(WinApp::kWindowWidth), static_cast<float>(WinApp::kWindowHeight)});
+		spikeRewindDimSprite_->SetColor({0.0f, 0.0f, 0.0f, 0.0f});
+	}
+
 	reticleTextureHandle_ = KamataEngine::TextureManager::Load("reticle.png");
 	reticleSprite_ = KamataEngine::Sprite::Create(reticleTextureHandle_, {0, 0});
 	reticleSprite_->SetPosition(screenCenter);
@@ -192,6 +214,21 @@ void GameScene::Initialize() {
 		clearSprite_->SetPosition({0.0f, 0.0f});
 		clearSprite_->SetSize({(float)WinApp::kWindowWidth, (float)WinApp::kWindowHeight});
 	}
+
+	stageClearTitleReturnTextureHandle_ = KamataEngine::TextureManager::Load("title.png");
+	stageClearTitleReturnSprite_ = KamataEngine::Sprite::Create(stageClearTitleReturnTextureHandle_, {0, 0});
+	if (stageClearTitleReturnSprite_) {
+		stageClearTitleReturnSprite_->SetAnchorPoint({0.0f, 0.0f});
+		stageClearTitleReturnSprite_->SetSize({320.0f, 80.0f});
+	}
+
+	stageClearNextStageTextureHandle_ = KamataEngine::TextureManager::Load("nextstage.png");
+	stageClearNextStageSprite_ = KamataEngine::Sprite::Create(stageClearNextStageTextureHandle_, {0, 0});
+	if (stageClearNextStageSprite_) {
+		stageClearNextStageSprite_->SetAnchorPoint({0.0f, 0.0f});
+		stageClearNextStageSprite_->SetSize({320.0f, 80.0f});
+	}
+	LayoutStageClearButtons();
 
 	clearEmitter_ = new ParticleEmitter();
 	if (clearEmitter_) {
@@ -322,6 +359,76 @@ void GameScene::Initialize() {
 
 	// ホーミング弾生成タイマー初期化
 	homingSpawnTimer_ = balanceTable_.GetInt("homingIntervalFrames", kHomingIntervalFrames_);
+
+	for (int i = 0; i < 10; ++i) {
+		const std::string path = "bitmapfont/" + std::to_string(i) + ".png";
+		stageSelectDigitTextureHandles_[static_cast<size_t>(i)] = KamataEngine::TextureManager::Load(path.c_str());
+		if (stageSelectDigitTextureHandles_[static_cast<size_t>(i)] != 0) {
+			isStageSelectFontReady_ = true;
+		}
+	}
+
+	constexpr float kStageSelectRow1Y = 280.0f;
+	constexpr float kStageSelectRow2Y = 520.0f;
+	constexpr float kStageSelectColStartX = 160.0f;
+	constexpr float kStageSelectColSpacing = 240.0f;
+	constexpr float kStageSelectSlotHalfW = 96.0f;
+	constexpr float kStageSelectSlotHalfH = 60.0f;
+	for (int i = 0; i < kStageCount; ++i) {
+		const int row = i / kStageSelectColsPerRow;
+		const int col = i % kStageSelectColsPerRow;
+		stageSelectSlots_[static_cast<size_t>(i)].displayNumber = i + 1;
+		stageSelectSlots_[static_cast<size_t>(i)].centerX = kStageSelectColStartX + kStageSelectColSpacing * static_cast<float>(col);
+		stageSelectSlots_[static_cast<size_t>(i)].centerY = (row == 0) ? kStageSelectRow1Y : kStageSelectRow2Y;
+		stageSelectSlots_[static_cast<size_t>(i)].halfW = kStageSelectSlotHalfW;
+		stageSelectSlots_[static_cast<size_t>(i)].halfH = kStageSelectSlotHalfH;
+	}
+
+	for (int i = 0; i < kStageCount; ++i) {
+		StageSelectSlotUi& ui = stageSelectSlotUi_[static_cast<size_t>(i)];
+		ui.digitCount = 0;
+		const std::string label = std::to_string(i + 1);
+		for (char ch : label) {
+			if (ui.digitCount >= 2) {
+				break;
+			}
+			if (ch < '0' || ch > '9') {
+				continue;
+			}
+			const int digit = ch - '0';
+			const uint32_t textureHandle = stageSelectDigitTextureHandles_[static_cast<size_t>(digit)];
+			if (textureHandle == 0) {
+				continue;
+			}
+
+			ui.digitSprites[ui.digitCount] = KamataEngine::Sprite::Create(textureHandle, {-100.0f, -100.0f});
+			if (!ui.digitSprites[ui.digitCount]) {
+				continue;
+			}
+
+			ui.digitSprites[ui.digitCount]->SetAnchorPoint({0.0f, 0.5f});
+			ui.digitSprites[ui.digitCount]->SetSize({kStageSelectDigitSize, kStageSelectDigitSize});
+			ui.digitCount++;
+			isStageSelectFontReady_ = true;
+		}
+	}
+
+	if (transitionTextureHandle_ != 0) {
+		stageSelectBackgroundSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
+		if (stageSelectBackgroundSprite_) {
+			stageSelectBackgroundSprite_->SetAnchorPoint({0.0f, 0.0f});
+			stageSelectBackgroundSprite_->SetPosition({0.0f, 0.0f});
+			stageSelectBackgroundSprite_->SetSize(
+			    {static_cast<float>(WinApp::kWindowWidth), static_cast<float>(WinApp::kWindowHeight)});
+		}
+	}
+
+	if (greenBoxTextureHandle_ != 0) {
+		stageSelectCursorSprite_ = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0, 0});
+		if (stageSelectCursorSprite_) {
+			stageSelectCursorSprite_->SetAnchorPoint({0.5f, 0.5f});
+		}
+	}
 }
 
 namespace {
@@ -329,24 +436,66 @@ const char* const kStageMapPaths[GameScene::kStageCount] = {
     "Resources/map.csv",
     "Resources/map2.csv",
     "Resources/map3.csv",
+    "Resources/map4.csv",
+    "Resources/map5.csv",
+    "Resources/map6.csv",
+    "Resources/map7.csv",
+    "Resources/map8.csv",
+    "Resources/map9.csv",
+    "Resources/map10.csv",
 };
 const char* const kStageMapPathsAlt[GameScene::kStageCount] = {
     "DirectXGame/Resources/map.csv",
     "DirectXGame/Resources/map2.csv",
     "DirectXGame/Resources/map3.csv",
+    "DirectXGame/Resources/map4.csv",
+    "DirectXGame/Resources/map5.csv",
+    "DirectXGame/Resources/map6.csv",
+    "DirectXGame/Resources/map7.csv",
+    "DirectXGame/Resources/map8.csv",
+    "DirectXGame/Resources/map9.csv",
+    "DirectXGame/Resources/map10.csv",
 };
+const char* const kStageMapFallbackPaths[3] = {
+    "Resources/map.csv",
+    "Resources/map2.csv",
+    "Resources/map3.csv",
+};
+const char* const kStageMapFallbackPathsAlt[3] = {
+    "DirectXGame/Resources/map.csv",
+    "DirectXGame/Resources/map2.csv",
+    "DirectXGame/Resources/map3.csv",
+};
+
+bool TryLoadStageMap(TileMap& tileMap, int stageIndex) {
+	stageIndex = std::clamp(stageIndex, 0, GameScene::kStageCount - 1);
+	if (tileMap.LoadFromFile(kStageMapPaths[stageIndex])) {
+		return true;
+	}
+	if (tileMap.LoadFromFile(kStageMapPathsAlt[stageIndex])) {
+		return true;
+	}
+	const int fallbackIndex = stageIndex % 3;
+	if (tileMap.LoadFromFile(kStageMapFallbackPaths[fallbackIndex])) {
+		return true;
+	}
+	return tileMap.LoadFromFile(kStageMapFallbackPathsAlt[fallbackIndex]);
+}
 } // namespace
 
 void GameScene::LoadStage(int stageIndex) {
 	stageIndex = std::clamp(stageIndex, 0, GameScene::kStageCount - 1);
 	currentStageIndex_ = stageIndex;
 
-	bool loaded = tileMap_.LoadFromFile(kStageMapPaths[stageIndex]);
-	if (!loaded) {
-		tileMap_.LoadFromFile(kStageMapPathsAlt[stageIndex]);
-	}
+	TryLoadStageMap(tileMap_, stageIndex);
 
-	mapRenderer_.Initialize(modelBlocks_, modelSpikeTile_, modelPortal_, tileMap_);
+	gameplayRewindBuffer_.Clear();
+	gameplayRewindSeeded_ = false;
+	isGameplayRewinding_ = false;
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindOverlayAlpha_ = 0.0f;
+
+	mapRenderer_.Initialize(modelBlocks_, modelSpikeTile_, modelPortal_, modelDeleteBlocks_, modelEnemyBullet_, tileMap_);
 	RebuildMinimapTiles();
 	RebuildGoalPositions();
 	if (goalPortalEmitter_) {
@@ -394,7 +543,73 @@ void GameScene::LoadStage(int stageIndex) {
 	UpdateMapCamera();
 }
 
-void GameScene::HandleStageClear() {
+void GameScene::BeginStageFromSelect(int stageIndex) {
+	pendingStageIndex_ = std::clamp(stageIndex, 0, kStageCount - 1);
+	transitionExpandSource_ = TransitionExpandSource::StageSelect;
+	transitionTimer_ = 0.0f;
+	transitionOverlayActive_ = false;
+	gameSceneTimer_ = 0;
+	isGameIntroFinished_ = false;
+	gameIntroTimer_ = 0.0f;
+	ResetTransitionExpandOverlay();
+	ChangeSceneState(SceneStateTransitionToGame::Instance());
+}
+
+void GameScene::ResetTransitionExpandOverlay() {
+	if (transitionSprite_) {
+		transitionSprite_->SetSize({0.0f, 0.0f});
+	}
+}
+
+void GameScene::CommitPendingStageAfterTransitionExpand() {
+	const int stageIndex = std::clamp(pendingStageIndex_, 0, kStageCount - 1);
+
+	if (transitionExpandSource_ == TransitionExpandSource::ClearScreen) {
+		for (Enemy* enemy : enemies_) {
+			delete enemy;
+		}
+		enemies_.clear();
+		for (EnemyBullet* bullet : enemyBullets_) {
+			entityFactory_.ReleaseEnemyBullet(bullet);
+		}
+		enemyBullets_.clear();
+		for (Meteorite* meteor : meteorites_) {
+			delete meteor;
+		}
+		meteorites_.clear();
+		meteoriteSpawnTimer_ = 0;
+		hasSpawnedEnemies_ = false;
+
+		if (railCamera_) {
+			railCamera_->Reset();
+			railCamera_->SetCanMove(false);
+		}
+	}
+
+	currentStageIndex_ = stageIndex;
+	LoadStage(stageIndex);
+	gameSceneTimer_ = 0;
+	isGameIntroFinished_ = false;
+	gameIntroTimer_ = 0.0f;
+	screenTransitionCooldown_ = 0;
+	transitionOverlayActive_ = false;
+
+	if (transitionSprite_) {
+		const float maxScale =
+		    sqrtf(powf(static_cast<float>(WinApp::kWindowWidth), 2.0f) + powf(static_cast<float>(WinApp::kWindowHeight), 2.0f));
+		transitionSprite_->SetSize({maxScale, maxScale});
+	}
+}
+
+bool GameScene::HasNextStageAfterCurrent() const {
+	return currentStageIndex_ + 1 < kStageCount;
+}
+
+void GameScene::AdvanceToNextStageFromClear() {
+	if (!HasNextStageAfterCurrent()) {
+		return;
+	}
+
 	confettiActive_ = false;
 	score_ = 0;
 	UpdateScoreSprites();
@@ -404,6 +619,38 @@ void GameScene::HandleStageClear() {
 	hitCount = 0;
 	hitCount2 = 0;
 
+	pendingStageIndex_ = currentStageIndex_ + 1;
+	transitionExpandSource_ = TransitionExpandSource::ClearScreen;
+	isGameIntroFinished_ = false;
+	gameIntroTimer_ = 0.0f;
+	transitionOverlayActive_ = false;
+	screenTransitionCooldown_ = 0;
+	transitionTimer_ = 0.0f;
+	ResetTransitionExpandOverlay();
+	ChangeSceneState(SceneStateTransitionToGame::Instance());
+}
+
+void GameScene::ReturnToTitleScreen() {
+	confettiActive_ = false;
+	requestSceneClear_ = false;
+	portalAbsorbFinishedPending_ = false;
+	currentStageIndex_ = 0;
+	LoadStage(0);
+	ResetToTitle();
+	focusedStageSelectIndex_ = 0;
+	gameplayRewindBuffer_.Clear();
+	gameplayRewindSeeded_ = false;
+	isGameplayRewinding_ = false;
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindOverlayAlpha_ = 0.0f;
+	ChangeSceneState(SceneStateStart::Instance());
+}
+
+void GameScene::ReturnToTitleFromStageClear() {
+	ReturnToTitleScreen();
+}
+
+void GameScene::ClearStageRuntimeEntities() {
 	for (Enemy* enemy : enemies_) {
 		delete enemy;
 	}
@@ -418,32 +665,59 @@ void GameScene::HandleStageClear() {
 	meteorites_.clear();
 	meteoriteSpawnTimer_ = 0;
 	hasSpawnedEnemies_ = false;
+}
+
+void GameScene::ResetCurrentStage() {
+	requestSceneClear_ = false;
+	portalAbsorbFinishedPending_ = false;
+	score_ = 0;
+	UpdateScoreSprites();
+	gameOverTimer_ = 0;
+	hitCount = 0;
+	hitCount2 = 0;
+
+	ClearStageRuntimeEntities();
 
 	if (railCamera_) {
 		railCamera_->Reset();
 		railCamera_->SetCanMove(false);
 	}
 
-	const int nextStage = currentStageIndex_ + 1;
-	if (nextStage >= GameScene::kStageCount) {
-		currentStageIndex_ = 0;
-		LoadStage(0);
-		ResetToTitle();
-		ChangeSceneState(SceneStateStart::Instance());
+	LoadStage(currentStageIndex_);
+	LoadEnemyPopData();
+
+	isGameIntroFinished_ = false;
+	gameIntroTimer_ = 0.0f;
+	gameSceneTimer_ = 0;
+	transitionOverlayActive_ = false;
+	screenTransitionCooldown_ = 0;
+
+	gameplayRewindBuffer_.Clear();
+	gameplayRewindSeeded_ = false;
+	isGameplayRewinding_ = false;
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindOverlayAlpha_ = 0.0f;
+
+	ChangeSceneState(SceneStateGameIntro::Instance());
+}
+
+void GameScene::HandleGameplayShortcuts() {
+	if (!input_) {
 		return;
 	}
 
-	LoadStage(nextStage);
-	isGameIntroFinished_ = false;
-	gameIntroTimer_ = 0.0f;
-	transitionOverlayActive_ = false;
-	screenTransitionCooldown_ = 0;
-	transitionTimer_ = 0.0f;
-	ChangeSceneState(SceneStateTransitionToGame::Instance());
+	if (input_->TriggerKey(DIK_ESCAPE)) {
+		ReturnToTitleScreen();
+		return;
+	}
+
+	if (input_->TriggerKey(DIK_R)) {
+		ResetCurrentStage();
+	}
 }
 
 void GameScene::AdvanceFromClearScreen() {
-	HandleStageClear();
+	AdvanceToNextStageFromClear();
 }
 
 void GameScene::Update() {
@@ -470,7 +744,7 @@ void GameScene::Update() {
 		requestSceneClear_ = true;
 	}
 	if (requestSceneClear_ && GetSceneStateKind() == SceneStateKind::Game) {
-		HandleStageClear();
+		TransitionToClearScene();
 	}
 }
 
@@ -481,9 +755,10 @@ void GameScene::Draw() {
 
 	KamataEngine::Model::PreDraw(commandList);
 
-	if (GetSceneStateKind() == SceneStateKind::Start || GetSceneStateKind() == SceneStateKind::TransitionToGame) {
+	if (GetSceneStateKind() == SceneStateKind::Start) {
 		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
-	} else if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game || GetSceneStateKind() == SceneStateKind::TransitionFromGame || GetSceneStateKind() == SceneStateKind::Over) {
+	} else if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game ||
+	           GetSceneStateKind() == SceneStateKind::TransitionFromGame || GetSceneStateKind() == SceneStateKind::Over) {
 
 		if (skydome_) {
 			float left = 0.0f;
@@ -524,7 +799,9 @@ void GameScene::Draw() {
 				}
 			}
 		}
-	} else if (GetSceneStateKind() == SceneStateKind::Clear) {
+	} else if (GetSceneStateKind() == SceneStateKind::Clear ||
+	           (GetSceneStateKind() == SceneStateKind::TransitionToGame &&
+	            transitionExpandSource_ == TransitionExpandSource::ClearScreen)) {
 		float left = 0.0f;
 		float bottom = 0.0f;
 		float right = 0.0f;
@@ -542,10 +819,19 @@ void GameScene::Draw() {
 
 	KamataEngine::Sprite::PreDraw(commandList);
 
-	if (GetSceneStateKind() == SceneStateKind::Start || GetSceneStateKind() == SceneStateKind::TransitionToGame) {
+	if (GetSceneStateKind() == SceneStateKind::Start) {
 		if (taitoruSprite_) {
 			taitoruSprite_->Draw();
 		}
+	}
+
+	if (GetSceneStateKind() == SceneStateKind::StageSelect ||
+	    (GetSceneStateKind() == SceneStateKind::TransitionToGame &&
+	     transitionExpandSource_ == TransitionExpandSource::StageSelect)) {
+		if (stageSelectBackgroundSprite_) {
+			stageSelectBackgroundSprite_->Draw();
+		}
+		DrawStageSelectUi();
 	}
 
 	if (GetSceneStateKind() == SceneStateKind::TransitionToGame || GetSceneStateKind() == SceneStateKind::TransitionFromGame || transitionOverlayActive_) {
@@ -591,15 +877,17 @@ void GameScene::Draw() {
 		}
 	}
 
-	if (GetSceneStateKind() == SceneStateKind::Clear) {
-		if (clearSprite_)
-			clearSprite_->Draw();
-		// draw sprite confetti on top of clear sprite
+	if (GetSceneStateKind() == SceneStateKind::Clear ||
+	    (GetSceneStateKind() == SceneStateKind::TransitionToGame &&
+	     transitionExpandSource_ == TransitionExpandSource::ClearScreen)) {
+		DrawStageClearUi();
 		for (auto& c : confettiParticles_) {
 			if (c.active && c.sprite)
 			 c.sprite->Draw();
 		}
 	}
+
+	DrawSpikeRewindOverlay();
 
 	KamataEngine::Sprite::PostDraw();
 }
@@ -767,6 +1055,7 @@ void GameScene::CheckAllCollisions() {
 void GameScene::TransitionToClearScene() {
 	// Change: go to Clear scene so player sees clear screen instead of immediately returning to title
 	ChangeSceneState(SceneStateClear::Instance());
+	LayoutStageClearButtons();
 
 	// reset score on clear
 	score_ = 0;
@@ -1057,7 +1346,9 @@ void GameScene::RebuildMinimapTiles() {
 			const bool isGround = tileMap_.IsGround(col, row);
 			const bool isSpike = tileMap_.IsSpike(col, row);
 			const bool isGoal = tileMap_.IsGoal(col, row);
-			if (!isGround && !isSpike && !isGoal) {
+			const bool isWall = tileMap_.IsDisappearingWallActive(col, row);
+			const bool isButton = tileMap_.IsButton(col, row);
+			if (!isGround && !isSpike && !isGoal && !isWall && !isButton) {
 				continue;
 			}
 
@@ -1072,6 +1363,14 @@ void GameScene::RebuildMinimapTiles() {
 				sprite->SetColor({0.85f, 0.2f, 0.2f, 1.0f});
 			} else if (isGoal) {
 				sprite->SetColor({0.2f, 0.55f, 0.95f, 1.0f});
+			} else if (isButton) {
+				if (tileMap_.IsButtonPressed(col, row)) {
+					sprite->SetColor({0.35f, 0.35f, 0.35f, 1.0f});
+				} else {
+					sprite->SetColor({0.25f, 0.9f, 0.35f, 1.0f});
+				}
+			} else if (isWall) {
+				sprite->SetColor({0.75f, 0.55f, 0.15f, 1.0f});
 			} else {
 				sprite->SetColor({0.6f, 0.45f, 0.25f, 1.0f});
 			}
@@ -1434,6 +1733,238 @@ void GameScene::DrawSpringTrajectoryPreview() {
 	}
 }
 
+void GameScene::CaptureGameplaySnapshot(GameplaySnapshot& outSnapshot) const {
+	if (player_) {
+		player_->CaptureSnapshot(outSnapshot.player);
+	}
+	tileMap_.CaptureGimmickSnapshot(outSnapshot.gimmick);
+	outSnapshot.trampolines.clear();
+	outSnapshot.trampolines.reserve(trampolineSprings_.size());
+	for (const TrampolineSpring& spring : trampolineSprings_) {
+		TrampolineSpringSnapshot springSnapshot;
+		springSnapshot.type = spring.GetType();
+		springSnapshot.center = spring.GetCenter();
+		outSnapshot.trampolines.push_back(springSnapshot);
+	}
+	outSnapshot.currentScreenX = currentScreenX_;
+	outSnapshot.currentScreenY = currentScreenY_;
+	outSnapshot.isFreeCamera = isFreeCamera_;
+	outSnapshot.freeCameraCenterX = freeCameraCenterX_;
+	outSnapshot.freeCameraCenterY = freeCameraCenterY_;
+	outSnapshot.cameraZoomOut = cameraZoomOut_;
+	outSnapshot.score = score_;
+	outSnapshot.hitCount = hitCount;
+	outSnapshot.hitCount2 = hitCount2;
+	outSnapshot.nextTrampolineTypeIndex = nextTrampolineTypeIndex_;
+}
+
+void GameScene::RestoreTrampolinesFromSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings) {
+	trampolineSprings_.clear();
+	const float springLayoutHalfW = TileMap::kSpringReferenceHalfW;
+	const float springLayoutHalfH = TileMap::kSpringReferenceHalfH;
+	trampolineSprings_.reserve(snapshotSprings.size());
+	for (const TrampolineSpringSnapshot& springSnapshot : snapshotSprings) {
+		TrampolineSpring spring;
+		spring.SetType(springSnapshot.type);
+		spring.SetCenter(springSnapshot.center, springLayoutHalfW, springLayoutHalfH);
+		trampolineSprings_.push_back(std::move(spring));
+	}
+}
+
+bool GameScene::TrampolinesMatchSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings) const {
+	if (snapshotSprings.size() != trampolineSprings_.size()) {
+		return false;
+	}
+	for (size_t i = 0; i < snapshotSprings.size(); ++i) {
+		if (snapshotSprings[i].type != trampolineSprings_[i].GetType()) {
+			return false;
+		}
+		const KamataEngine::Vector3 center = trampolineSprings_[i].GetCenter();
+		const KamataEngine::Vector3& snapCenter = snapshotSprings[i].center;
+		if (std::abs(center.x - snapCenter.x) > 0.01f || std::abs(center.y - snapCenter.y) > 0.01f ||
+		    std::abs(center.z - snapCenter.z) > 0.01f) {
+			return false;
+		}
+	}
+	return true;
+}
+
+void GameScene::ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool finalizeSideEffects) {
+	if (player_) {
+		player_->ApplySnapshot(snapshot.player);
+	}
+
+	TileMapGimmickSnapshot gimmickBefore;
+	tileMap_.CaptureGimmickSnapshot(gimmickBefore);
+	tileMap_.ApplyGimmickSnapshot(snapshot.gimmick);
+	if (gimmickBefore.deactivatedWalls != snapshot.gimmick.deactivatedWalls ||
+	    gimmickBefore.pressedButtons != snapshot.gimmick.pressedButtons) {
+		mapRenderer_.ApplyGimmickVisualsFromTileMap(tileMap_);
+	}
+
+	if (!TrampolinesMatchSnapshot(snapshot.trampolines)) {
+		RestoreTrampolinesFromSnapshot(snapshot.trampolines);
+	}
+
+	currentScreenX_ = snapshot.currentScreenX;
+	currentScreenY_ = snapshot.currentScreenY;
+	isFreeCamera_ = snapshot.isFreeCamera;
+	freeCameraCenterX_ = snapshot.freeCameraCenterX;
+	freeCameraCenterY_ = snapshot.freeCameraCenterY;
+	cameraZoomOut_ = snapshot.cameraZoomOut;
+	score_ = snapshot.score;
+	hitCount = snapshot.hitCount;
+	hitCount2 = snapshot.hitCount2;
+	nextTrampolineTypeIndex_ = snapshot.nextTrampolineTypeIndex;
+
+	lastPlayerPos_ = player_ ? player_->GetWorldPosition() : lastPlayerPos_;
+	UpdateMapCamera();
+
+	if (player_ && minimapPlayerSprite_) {
+		minimapPlayerSprite_->SetPosition(ConvertWorldToMinimapPosition(lastPlayerPos_));
+	}
+
+	if (!finalizeSideEffects) {
+		return;
+	}
+
+	UpdateScoreSprites();
+	RebuildMinimapTiles();
+
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindOverlayAlpha_ = 0.0f;
+	portalAbsorbFinishedPending_ = false;
+	requestSceneClear_ = false;
+}
+
+void GameScene::FinalizeGameplayRewindScrub() {
+	UpdateScoreSprites();
+	RebuildMinimapTiles();
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindOverlayAlpha_ = 0.0f;
+}
+
+void GameScene::SeedGameplayRewindSnapshot() {
+	if (gameplayRewindSeeded_ || !player_ || !isGameIntroFinished_) {
+		return;
+	}
+	GameplaySnapshot snapshot;
+	CaptureGameplaySnapshot(snapshot);
+	gameplayRewindBuffer_.ForceRecord(snapshot);
+	gameplayRewindSeeded_ = true;
+}
+
+void GameScene::UpdateGameplayRewindInput() {
+	if (!input_ || GetSceneStateKind() != SceneStateKind::Game || !isGameIntroFinished_ || !player_) {
+		if (isGameplayRewinding_) {
+			FinalizeGameplayRewindScrub();
+		}
+		isGameplayRewinding_ = false;
+		gameplayRewindScrubCooldown_ = 0;
+		return;
+	}
+
+	const bool qHeld = input_->PushKey(DIK_Q);
+	const bool eHeld = input_->PushKey(DIK_E);
+	bool scrubbingThisFrame = false;
+
+	auto tryScrubStep = [&](bool canStep, auto&& stepFn) {
+		if (!canStep) {
+			return;
+		}
+		if (gameplayRewindScrubCooldown_ > 0) {
+			--gameplayRewindScrubCooldown_;
+			return;
+		}
+
+		GameplaySnapshot snapshot;
+		bool moved = false;
+		for (int i = 0; i < GameplayRewindBuffer::kScrubStepsPerApply && stepFn(snapshot); ++i) {
+			moved = true;
+		}
+		if (moved) {
+			ApplyGameplaySnapshot(snapshot, false);
+			gameplayRewindScrubCooldown_ = GameplayRewindBuffer::kScrubFramesPerStep;
+		}
+	};
+
+	if (qHeld) {
+		tryScrubStep(gameplayRewindBuffer_.CanUndo(), [&](GameplaySnapshot& out) { return gameplayRewindBuffer_.Undo(out); });
+		scrubbingThisFrame = true;
+	} else if (eHeld) {
+		tryScrubStep(gameplayRewindBuffer_.CanRedo(), [&](GameplaySnapshot& out) { return gameplayRewindBuffer_.Redo(out); });
+		scrubbingThisFrame = true;
+	} else {
+		gameplayRewindScrubCooldown_ = 0;
+	}
+
+	if (isGameplayRewinding_ && !scrubbingThisFrame) {
+		FinalizeGameplayRewindScrub();
+	}
+
+	isGameplayRewinding_ = scrubbingThisFrame;
+}
+
+void GameScene::UpdateGameplayRewind() {
+	if (GetSceneStateKind() != SceneStateKind::Game || !isGameIntroFinished_ || !player_) {
+		return;
+	}
+
+	SeedGameplayRewindSnapshot();
+
+	if (isGameplayRewinding_) {
+		return;
+	}
+
+	if (isSpikeRewindOverlayActive_) {
+		static constexpr float kTargetAlpha = 0.45f;
+		static constexpr float kFadeSpeed = 0.04f;
+		spikeRewindOverlayAlpha_ = (std::min)(spikeRewindOverlayAlpha_ + kFadeSpeed, kTargetAlpha);
+		return;
+	}
+
+	if (player_->IsPortalAbsorbing()) {
+		return;
+	}
+
+	GameplaySnapshot snapshot;
+	CaptureGameplaySnapshot(snapshot);
+	gameplayRewindBuffer_.Record(snapshot);
+}
+
+void GameScene::DrawSpikeRewindOverlay() {
+	if (!isSpikeRewindOverlayActive_ || !spikeRewindDimSprite_ || spikeRewindOverlayAlpha_ <= 0.0f) {
+		return;
+	}
+	spikeRewindDimSprite_->SetColor({0.0f, 0.0f, 0.0f, spikeRewindOverlayAlpha_});
+	spikeRewindDimSprite_->Draw();
+}
+
+void GameScene::UpdateButtonGimmicks() {
+	if (!player_ || player_->IsPortalAbsorbing()) {
+		return;
+	}
+
+	const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+	const float playerHalfW = player_->GetHalfWidth();
+	const float playerHalfH = player_->GetHalfHeight();
+
+	int buttonCol = 0;
+	int buttonRow = 0;
+	if (!tileMap_.FindOverlappingUnpressedButton(playerPos.x, playerPos.y, playerHalfW, playerHalfH, buttonCol, buttonRow)) {
+		return;
+	}
+
+	if (!tileMap_.PressButton(buttonCol, buttonRow)) {
+		return;
+	}
+
+	tileMap_.DeactivateAllDisappearingWalls();
+	mapRenderer_.DeactivateAllDisappearingWalls();
+	mapRenderer_.SetButtonPressed(buttonCol, buttonRow);
+	RebuildMinimapTiles();
+}
+
 void GameScene::UpdateTrampolinePlacement() {
 	if (!input_ || !isGameIntroFinished_ || !player_) {
 		hasTrampolinePreview_ = false;
@@ -1756,5 +2287,116 @@ void GameScene::UpdateScoreSprites() {
 			// texture missing: hide
 			if (scoreDigitSprites_[i]) scoreDigitSprites_[i]->SetPosition({-100.0f, -100.0f});
 		}
+	}
+}
+
+bool GameScene::IsScreenPointInSprite(const KamataEngine::Sprite* sprite, float screenX, float screenY) const {
+	if (!sprite) {
+		return false;
+	}
+	const KamataEngine::Vector2& pos = sprite->GetPosition();
+	const KamataEngine::Vector2& size = sprite->GetSize();
+	const KamataEngine::Vector2& anchor = sprite->GetAnchorPoint();
+	const float left = pos.x - size.x * anchor.x;
+	const float top = pos.y - size.y * anchor.y;
+	const float right = left + size.x;
+	const float bottom = top + size.y;
+	return screenX >= left && screenX <= right && screenY >= top && screenY <= bottom;
+}
+
+int GameScene::HitTestStageSelectSlot(float screenX, float screenY) const {
+	for (int i = 0; i < kStageCount; ++i) {
+		const StageSelectSlot& slot = stageSelectSlots_[static_cast<size_t>(i)];
+		if (screenX >= slot.centerX - slot.halfW && screenX <= slot.centerX + slot.halfW &&
+		    screenY >= slot.centerY - slot.halfH && screenY <= slot.centerY + slot.halfH) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+void GameScene::MoveStageSelectFocus(int deltaCol, int deltaRow) {
+	int col = focusedStageSelectIndex_ % kStageSelectColsPerRow;
+	int row = focusedStageSelectIndex_ / kStageSelectColsPerRow;
+	col = std::clamp(col + deltaCol, 0, kStageSelectColsPerRow - 1);
+	row = std::clamp(row + deltaRow, 0, (kStageCount - 1) / kStageSelectColsPerRow);
+	focusedStageSelectIndex_ = row * kStageSelectColsPerRow + col;
+	focusedStageSelectIndex_ = std::clamp(focusedStageSelectIndex_, 0, kStageCount - 1);
+}
+
+void GameScene::DrawStageSelectUi() {
+	if (!isStageSelectFontReady_) {
+		return;
+	}
+
+	static constexpr float kFocusedScale = 1.15f;
+
+	if (stageSelectCursorSprite_ && focusedStageSelectIndex_ >= 0 && focusedStageSelectIndex_ < kStageCount) {
+		const StageSelectSlot& focusedSlot = stageSelectSlots_[static_cast<size_t>(focusedStageSelectIndex_)];
+		stageSelectCursorSprite_->SetPosition({focusedSlot.centerX, focusedSlot.centerY});
+		stageSelectCursorSprite_->SetSize({focusedSlot.halfW * 2.0f, focusedSlot.halfH * 2.0f});
+		stageSelectCursorSprite_->Draw();
+	}
+
+	for (int i = 0; i < kStageCount; ++i) {
+		const StageSelectSlot& slot = stageSelectSlots_[static_cast<size_t>(i)];
+		const StageSelectSlotUi& ui = stageSelectSlotUi_[static_cast<size_t>(i)];
+		if (ui.digitCount <= 0) {
+			continue;
+		}
+
+		const bool isFocused = (i == focusedStageSelectIndex_);
+		const float scale = isFocused ? kFocusedScale : 1.0f;
+		const float digitSize = kStageSelectDigitSize * scale;
+		const float digitSpacing = ui.digitCount >= 2 ? kStageSelectMultiDigitSpacing : 0.0f;
+		const float totalWidth =
+		    digitSize * static_cast<float>(ui.digitCount) + digitSpacing * static_cast<float>(ui.digitCount - 1);
+		float cursorX = slot.centerX - totalWidth * 0.5f;
+
+		for (int d = 0; d < ui.digitCount; ++d) {
+			KamataEngine::Sprite* digitSprite = ui.digitSprites[d];
+			if (!digitSprite) {
+				continue;
+			}
+
+			digitSprite->SetSize({digitSize, digitSize});
+			digitSprite->SetPosition({cursorX, slot.centerY});
+			digitSprite->Draw();
+			cursorX += digitSize + digitSpacing;
+		}
+	}
+}
+
+void GameScene::LayoutStageClearButtons() {
+	static constexpr float kBtnW = 320.0f;
+	static constexpr float kBtnH = 80.0f;
+	static constexpr float kBtnGap = 48.0f;
+	static constexpr float kBtnY = 320.0f;
+	const float screenCenterX = static_cast<float>(WinApp::kWindowWidth) * 0.5f;
+
+	if (HasNextStageAfterCurrent()) {
+		const float totalW = kBtnW * 2.0f + kBtnGap;
+		const float leftX = screenCenterX - totalW * 0.5f;
+		if (stageClearTitleReturnSprite_) {
+			stageClearTitleReturnSprite_->SetPosition({leftX, kBtnY});
+			stageClearTitleReturnSprite_->SetSize({kBtnW, kBtnH});
+		}
+		if (stageClearNextStageSprite_) {
+			stageClearNextStageSprite_->SetPosition({leftX + kBtnW + kBtnGap, kBtnY});
+			stageClearNextStageSprite_->SetSize({kBtnW, kBtnH});
+		}
+	} else if (stageClearTitleReturnSprite_) {
+		stageClearTitleReturnSprite_->SetPosition({screenCenterX - kBtnW * 0.5f, kBtnY});
+		stageClearTitleReturnSprite_->SetSize({kBtnW, kBtnH});
+	}
+}
+
+void GameScene::DrawStageClearUi() {
+	LayoutStageClearButtons();
+	if (stageClearTitleReturnSprite_) {
+		stageClearTitleReturnSprite_->Draw();
+	}
+	if (HasNextStageAfterCurrent() && stageClearNextStageSprite_) {
+		stageClearNextStageSprite_->Draw();
 	}
 }

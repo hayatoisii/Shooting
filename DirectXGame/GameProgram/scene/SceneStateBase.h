@@ -5,6 +5,7 @@ class GameScene;
 // シーン状態の種別（旧 SceneState enum に相当）
 enum class SceneStateKind {
 	Start,
+	StageSelect,
 	TransitionToGame,
 	TransitionFromGame,
 	GameIntro,
@@ -35,6 +36,17 @@ public:
 private:
 	SceneStateStart() = default;
 	static SceneStateStart instance_;
+};
+
+class SceneStateStageSelect : public SceneStateBase {
+public:
+	static SceneStateStageSelect* Instance();
+	void Update(GameScene& scene) override;
+	SceneStateKind GetKind() const override { return SceneStateKind::StageSelect; }
+
+private:
+	SceneStateStageSelect() = default;
+	static SceneStateStageSelect instance_;
 };
 
 class SceneStateTransitionToGame : public SceneStateBase {

@@ -19,6 +19,57 @@ void GameScene::UpdateStateBody_Start() {
 	UpdateTitleCamera();
 }
 
+// ステージ選択画面の更新本体
+void GameScene::UpdateStateBody_StageSelect() {
+	const KamataEngine::Vector2 mousePos = GetClientMousePosition();
+	const int mouseHit = HitTestStageSelectSlot(mousePos.x, mousePos.y);
+	if (mouseHit >= 0) {
+		focusedStageSelectIndex_ = mouseHit;
+	}
+
+	auto tryBeginStage = [&](int displayNumber) {
+		if (displayNumber < kStageSelectDisplayMin || displayNumber > kStageSelectDisplayMax) {
+			return;
+		}
+		BeginStageFromSelect(displayNumber - 1);
+	};
+
+	if (input_->TriggerKey(DIK_A)) {
+		MoveStageSelectFocus(-1, 0);
+	}
+	if (input_->TriggerKey(DIK_D)) {
+		MoveStageSelectFocus(1, 0);
+	}
+	if (input_->TriggerKey(DIK_W)) {
+		MoveStageSelectFocus(0, -1);
+	}
+	if (input_->TriggerKey(DIK_S)) {
+		MoveStageSelectFocus(0, 1);
+	}
+
+	if (input_->IsTriggerMouse(0)) {
+		if (mouseHit >= 0) {
+			tryBeginStage(stageSelectSlots_[static_cast<size_t>(mouseHit)].displayNumber);
+		}
+	}
+
+	if (input_->TriggerKey(DIK_SPACE) || input_->TriggerKey(DIK_RETURN)) {
+		if (focusedStageSelectIndex_ >= 0 && focusedStageSelectIndex_ < kStageCount) {
+			tryBeginStage(stageSelectSlots_[static_cast<size_t>(focusedStageSelectIndex_)].displayNumber);
+		}
+	}
+
+	for (int displayNumber = 1; displayNumber <= 9; ++displayNumber) {
+		if (input_->TriggerKey(static_cast<BYTE>(DIK_1 + displayNumber - 1))) {
+			tryBeginStage(displayNumber);
+			break;
+		}
+	}
+	if (input_->TriggerKey(DIK_0)) {
+		tryBeginStage(10);
+	}
+}
+
 // 画面遷移（拡大）の更新本体
 void GameScene::UpdateStateBody_TransitionToGame() {
 	transitionTimer_++;
@@ -27,7 +78,6 @@ void GameScene::UpdateStateBody_TransitionToGame() {
 	float easedProgress = 1.0f - cosf(progress * 3.14159265f / 2.0f);
 	float scale = easedProgress * maxScale;
 	transitionSprite_->SetSize({scale, scale});
-	UpdateTitleCamera();
 }
 
 // 画面遷移（縮小）の更新本体
@@ -84,6 +134,11 @@ void GameScene::UpdateTransitionOverlayIfActive() {
 
 // ゲーム開始前イントロの更新本体
 void GameScene::UpdateStateBody_GameIntro() {
+	HandleGameplayShortcuts();
+	if (GetSceneStateKind() != SceneStateKind::GameIntro) {
+		return;
+	}
+
 	gameIntroTimer_++;
 
 	float t = gameIntroTimer_ / kGameIntroDuration_;
@@ -104,11 +159,18 @@ void GameScene::UpdateStateBody_GameIntro() {
 
 // 本編ゲームプレイの更新本体
 void GameScene::UpdateStateBody_Game() {
+	HandleGameplayShortcuts();
+	if (GetSceneStateKind() != SceneStateKind::Game) {
+		return;
+	}
+
+	UpdateGameplayRewindInput();
+
 	UpdateCameraControl();
 	UpdateMapCamera();
 
 	const bool isPortalAbsorbing = player_ && player_->IsPortalAbsorbing();
-	if (!isPortalAbsorbing) {
+	if (!isPortalAbsorbing && !isGameplayRewinding_) {
 		UpdateTrampolinePlacement();
 	}
 
@@ -122,22 +184,35 @@ void GameScene::UpdateStateBody_Game() {
 				if (player_->UpdatePortalAbsorption()) {
 					portalAbsorbFinishedPending_ = true;
 				}
-			} else {
-				player_->Update();
-				UpdatePlayerScreenTransition();
+			} else if (!isGameplayRewinding_) {
+				if (!isSpikeRewindOverlayActive_) {
+					player_->Update();
+					UpdatePlayerScreenTransition();
 
-				const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-				const float playerHalfW = player_->GetHalfWidth();
-				const float playerHalfH = player_->GetHalfHeight();
-				if (tileMap_.OverlapsGoal(playerPos.x, playerPos.y, playerHalfW, playerHalfH)) {
-					if (BeginPortalAbsorption()) {
-						player_->UpdatePortalAbsorption();
+					const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+					const float playerHalfW = player_->GetHalfWidth();
+					const float playerHalfH = player_->GetHalfHeight();
+					if (tileMap_.OverlapsGoal(playerPos.x, playerPos.y, playerHalfW, playerHalfH)) {
+						if (BeginPortalAbsorption()) {
+							player_->UpdatePortalAbsorption();
+						}
 					}
+
+					UpdateButtonGimmicks();
+				}
+
+				if (player_->ConsumeSpikeHitEvent()) {
+					isSpikeRewindOverlayActive_ = true;
+					spikeRewindOverlayAlpha_ = 0.0f;
 				}
 			}
 		}
 
-		UpdateMapCamera();
+		UpdateGameplayRewind();
+
+		if (!isGameplayRewinding_) {
+			UpdateMapCamera();
+		}
 
 		if (player_ && minimapPlayerSprite_) {
 			KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
@@ -217,6 +292,18 @@ void GameScene::UpdateStateBody_Clear() {
 		if (c.age > c.life) {
 			c.active = false;
 			c.sprite->SetPosition({-100.0f, -100.0f});
+		}
+	}
+
+	if (input_->IsTriggerMouse(0)) {
+		const KamataEngine::Vector2 mousePos = GetClientMousePosition();
+		if (IsScreenPointInSprite(stageClearTitleReturnSprite_, mousePos.x, mousePos.y)) {
+			ReturnToTitleFromStageClear();
+			return;
+		}
+		if (HasNextStageAfterCurrent() &&
+		    IsScreenPointInSprite(stageClearNextStageSprite_, mousePos.x, mousePos.y)) {
+			AdvanceToNextStageFromClear();
 		}
 	}
 }

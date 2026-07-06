@@ -54,6 +54,8 @@ bool TileMap::LoadFromFile(const char* filePath) {
 		return false;
 	}
 
+	ResetGimmickState();
+
 	tileWidth_ = kTileWidth;
 	tileHeight_ = kTileHeight;
 
@@ -89,6 +91,66 @@ bool TileMap::IsGround(int col, int row) const { return GetTile(col, row) == 1; 
 bool TileMap::IsSpike(int col, int row) const { return GetTile(col, row) == 2; }
 
 bool TileMap::IsGoal(int col, int row) const { return GetTile(col, row) == 3; }
+
+bool TileMap::IsDisappearingWall(int col, int row) const { return GetTile(col, row) == 4; }
+
+bool TileMap::IsButton(int col, int row) const { return GetTile(col, row) == 5; }
+
+int TileMap::EncodeTileKey(int col, int row) { return col + row * 100000; }
+
+void TileMap::ResetGimmickState() {
+	deactivatedWallKeys_.clear();
+	pressedButtonKeys_.clear();
+}
+
+bool TileMap::IsDisappearingWallActive(int col, int row) const {
+	if (!IsDisappearingWall(col, row)) {
+		return false;
+	}
+	return deactivatedWallKeys_.find(EncodeTileKey(col, row)) == deactivatedWallKeys_.end();
+}
+
+bool TileMap::IsButtonPressed(int col, int row) const {
+	if (!IsButton(col, row)) {
+		return false;
+	}
+	return pressedButtonKeys_.find(EncodeTileKey(col, row)) != pressedButtonKeys_.end();
+}
+
+bool TileMap::IsSolidForCollision(int col, int row) const {
+	if (IsGround(col, row)) {
+		return true;
+	}
+	return IsDisappearingWallActive(col, row);
+}
+
+void TileMap::DeactivateAllDisappearingWalls() {
+	for (int row = 0; row < height_; ++row) {
+		for (int col = 0; col < width_; ++col) {
+			if (IsDisappearingWall(col, row)) {
+				deactivatedWallKeys_.insert(EncodeTileKey(col, row));
+			}
+		}
+	}
+}
+
+bool TileMap::PressButton(int col, int row) {
+	if (!IsButton(col, row) || IsButtonPressed(col, row)) {
+		return false;
+	}
+	pressedButtonKeys_.insert(EncodeTileKey(col, row));
+	return true;
+}
+
+void TileMap::CaptureGimmickSnapshot(TileMapGimmickSnapshot& outSnapshot) const {
+	outSnapshot.deactivatedWalls = deactivatedWallKeys_;
+	outSnapshot.pressedButtons = pressedButtonKeys_;
+}
+
+void TileMap::ApplyGimmickSnapshot(const TileMapGimmickSnapshot& snapshot) {
+	deactivatedWallKeys_ = snapshot.deactivatedWalls;
+	pressedButtonKeys_ = snapshot.pressedButtons;
+}
 
 float TileMap::GetGoalModelRaiseOffsetY(float tileHeight) {
 	return tileHeight * kGoalHitScaleY * kGoalModelRaiseRatio;
@@ -408,13 +470,42 @@ bool TileMap::FindOverlappingGoalCenter(float worldX, float worldY, float halfWi
 	return false;
 }
 
+bool TileMap::FindOverlappingUnpressedButton(float worldX, float worldY, float halfWidth, float halfHeight, int& outCol, int& outRow) const {
+	const float playerMinX = worldX - halfWidth;
+	const float playerMaxX = worldX + halfWidth;
+	const float playerMinY = worldY - halfHeight;
+	const float playerMaxY = worldY + halfHeight;
+
+	for (int row = 0; row < height_; ++row) {
+		for (int col = 0; col < width_; ++col) {
+			if (!IsButton(col, row) || IsButtonPressed(col, row)) {
+				continue;
+			}
+
+			float tMinX = 0.0f;
+			float tMinY = 0.0f;
+			float tMaxX = 0.0f;
+			float tMaxY = 0.0f;
+			GetTileWorldRect(col, row, tMinX, tMinY, tMaxX, tMaxY);
+
+			if (playerMaxX > tMinX && playerMinX < tMaxX && playerMaxY > tMinY && playerMinY < tMaxY) {
+				outCol = col;
+				outRow = row;
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
 void TileMap::ResolveCollisionX(float& x, float y, float halfWidth, float halfHeight) const {
 	const float playerMinY = y - halfHeight;
 	const float playerMaxY = y + halfHeight;
 
 	for (int row = 0; row < height_; ++row) {
 		for (int col = 0; col < width_; ++col) {
-			if (!IsGround(col, row)) {
+			if (!IsSolidForCollision(col, row)) {
 				continue;
 			}
 
@@ -448,7 +539,7 @@ void TileMap::ResolveCollisionY(float& y, float x, float halfWidth, float halfHe
 
 	for (int row = 0; row < height_; ++row) {
 		for (int col = 0; col < width_; ++col) {
-			if (!IsGround(col, row)) {
+			if (!IsSolidForCollision(col, row)) {
 				continue;
 			}
 
