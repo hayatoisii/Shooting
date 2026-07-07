@@ -63,3 +63,11 @@ bool GameplayRewindBuffer::Redo(GameplaySnapshot& outSnapshot) {
 	outSnapshot = snapshots_[static_cast<size_t>(timelineIndex_)];
 	return true;
 }
+
+bool GameplayRewindBuffer::GetSnapshotAt(int index, GameplaySnapshot& outSnapshot) const {
+	if (index < 0 || index >= static_cast<int>(snapshots_.size())) {
+		return false;
+	}
+	outSnapshot = snapshots_[static_cast<size_t>(index)];
+	return true;
+}

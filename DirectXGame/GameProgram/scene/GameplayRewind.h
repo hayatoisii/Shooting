@@ -31,9 +31,11 @@ class GameplayRewindBuffer {
 public:
 	static constexpr int kSnapshotIntervalFrames = 2;
 	static constexpr int kMaxSnapshots = 300;
-	static constexpr int kScrubStepsPerApply = 1;
-	static constexpr int kScrubFramesPerStep = 3;
+	static constexpr float kScrubSnapshotsPerFrame = 0.52f;
+	static constexpr float kSecondsPerSnapshot = static_cast<float>(kSnapshotIntervalFrames) / 60.0f;
 	static constexpr float kHistorySeconds = 10.0f;
+	static constexpr float kRewindFuelMaxSeconds = 10.0f;
+	static constexpr float kRewindRechargeSeconds = 10.0f;
 
 	void Clear();
 	void ForceRecord(const GameplaySnapshot& snapshot);
@@ -44,6 +46,7 @@ public:
 	bool Redo(GameplaySnapshot& outSnapshot);
 	int GetTimelineIndex() const { return timelineIndex_; }
 	int GetSnapshotCount() const { return static_cast<int>(snapshots_.size()); }
+	bool GetSnapshotAt(int index, GameplaySnapshot& outSnapshot) const;
 
 private:
 	std::vector<GameplaySnapshot> snapshots_;

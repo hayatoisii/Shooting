@@ -160,52 +160,18 @@ void Player::BeginSpringPenetration(int springIndex, SpringChargeKind kind, cons
 	springChargeLevel_ = 0.0f;
 	onGround_ = false;
 	springPenetrationPrevPos_ = pos;
-
-	TrampolineSpring* spring = GetActiveSpringMutable();
-	if (!spring) {
-		return;
-	}
-
-	if (kind == SpringChargeKind::Up || kind == SpringChargeKind::Down) {
-		velocityX_ = 0.0f;
-		if (!spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
-			const float centerY = spring->GetCenter().y;
-			if (centerY > pos.y + 0.5f) {
-				velocityY_ = kSpringPenetrationSpeed;
-			} else if (centerY < pos.y - 0.5f) {
-				velocityY_ = -kSpringPenetrationSpeed;
-			} else {
-				velocityY_ = 0.0f;
-			}
-		} else {
-			velocityY_ = 0.0f;
-		}
-	} else {
-		if (!spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
-			const float centerX = spring->GetCenter().x;
-			if (centerX > pos.x + 0.5f) {
-				velocityX_ = kSpringPenetrationSpeed;
-			} else if (centerX < pos.x - 0.5f) {
-				velocityX_ = -kSpringPenetrationSpeed;
-			} else {
-				velocityX_ = 0.0f;
-			}
-		} else {
-			velocityX_ = 0.0f;
-		}
-		velocityY_ = 0.0f;
-	}
+	// 実際の移動量は UpdateSpringCharge() が毎フレーム中央へ向けて計算する
+	velocityX_ = 0.0f;
+	velocityY_ = 0.0f;
 }
 
 void Player::BeginSpringPauseAt(const KamataEngine::Vector3& pos) {
 	springChargeAnchor_ = pos;
 	if (const TrampolineSpring* spring = GetActiveSpring()) {
+		// 端に張り付かないよう、バネの中央にぴったり移動する
 		const KamataEngine::Vector3& center = spring->GetCenter();
-		if (springChargeKind_ == SpringChargeKind::Up || springChargeKind_ == SpringChargeKind::Down) {
-			springChargeAnchor_.y = center.y;
-		} else {
-			springChargeAnchor_.x = center.x;
-		}
+		springChargeAnchor_.x = center.x;
+		springChargeAnchor_.y = center.y;
 	}
 	springChargeAnchor_.z = 1.0f;
 	springChargePhase_ = SpringChargePhase::Pause;
@@ -344,6 +310,48 @@ void Player::ApplySnapshot(const PlayerSnapshot& snapshot) {
 	worldtransfrom_.UpdateMatrix();
 }
 
+namespace {
+float LerpFloat(float from, float to, float t) { return from + (to - from) * t; }
+
+KamataEngine::Vector3 LerpVector3(const KamataEngine::Vector3& from, const KamataEngine::Vector3& to, float t) {
+	return {LerpFloat(from.x, to.x, t), LerpFloat(from.y, to.y, t), LerpFloat(from.z, to.z, t)};
+}
+} // namespace
+
+void LerpPlayerSnapshot(const PlayerSnapshot& from, const PlayerSnapshot& to, float t, PlayerSnapshot& outSnapshot) {
+	const float clampedT = (std::max)(0.0f, (std::min)(t, 1.0f));
+	outSnapshot.position = LerpVector3(from.position, to.position, clampedT);
+	outSnapshot.spawnPosition = LerpVector3(from.spawnPosition, to.spawnPosition, clampedT);
+	outSnapshot.scale = LerpVector3(from.scale, to.scale, clampedT);
+	outSnapshot.rotation = LerpVector3(from.rotation, to.rotation, clampedT);
+	outSnapshot.velocityX = LerpFloat(from.velocityX, to.velocityX, clampedT);
+	outSnapshot.velocityY = LerpFloat(from.velocityY, to.velocityY, clampedT);
+	outSnapshot.springChargePauseTimer = LerpFloat(from.springChargePauseTimer, to.springChargePauseTimer, clampedT);
+	outSnapshot.springChargeLevel = LerpFloat(from.springChargeLevel, to.springChargeLevel, clampedT);
+	outSnapshot.springChargeAnchor = LerpVector3(from.springChargeAnchor, to.springChargeAnchor, clampedT);
+	outSnapshot.springPenetrationPrevPos = LerpVector3(from.springPenetrationPrevPos, to.springPenetrationPrevPos, clampedT);
+	outSnapshot.portalAbsorbTimer = LerpFloat(from.portalAbsorbTimer, to.portalAbsorbTimer, clampedT);
+	outSnapshot.portalAbsorbCenter = LerpVector3(from.portalAbsorbCenter, to.portalAbsorbCenter, clampedT);
+	outSnapshot.portalAbsorbStartPos = LerpVector3(from.portalAbsorbStartPos, to.portalAbsorbStartPos, clampedT);
+	outSnapshot.portalAbsorbStartScale = LerpVector3(from.portalAbsorbStartScale, to.portalAbsorbStartScale, clampedT);
+	outSnapshot.portalAbsorbStartRotZ = LerpFloat(from.portalAbsorbStartRotZ, to.portalAbsorbStartRotZ, clampedT);
+	outSnapshot.portalAbsorbSpinZ = LerpFloat(from.portalAbsorbSpinZ, to.portalAbsorbSpinZ, clampedT);
+	outSnapshot.portalAbsorbStartRadius = LerpFloat(from.portalAbsorbStartRadius, to.portalAbsorbStartRadius, clampedT);
+	outSnapshot.portalAbsorbStartAngle = LerpFloat(from.portalAbsorbStartAngle, to.portalAbsorbStartAngle, clampedT);
+
+	const bool useTo = clampedT >= 0.5f;
+	outSnapshot.onGround = useTo ? to.onGround : from.onGround;
+	outSnapshot.hp = useTo ? to.hp : from.hp;
+	outSnapshot.spikeRespawnCooldown = useTo ? to.spikeRespawnCooldown : from.spikeRespawnCooldown;
+	outSnapshot.springChargePhase = useTo ? to.springChargePhase : from.springChargePhase;
+	outSnapshot.springChargeKind = useTo ? to.springChargeKind : from.springChargeKind;
+	outSnapshot.activeSpringIndex = useTo ? to.activeSpringIndex : from.activeSpringIndex;
+	outSnapshot.isSideSpringFlying = useTo ? to.isSideSpringFlying : from.isSideSpringFlying;
+	outSnapshot.isPortalAbsorbing = useTo ? to.isPortalAbsorbing : from.isPortalAbsorbing;
+	outSnapshot.portalAbsorbStyle = useTo ? to.portalAbsorbStyle : from.portalAbsorbStyle;
+	outSnapshot.isDead = useTo ? to.isDead : from.isDead;
+}
+
 bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 	const float kDeltaSec = 1.0f / 60.0f;
 	const TrampolineSpring* spring = GetActiveSpring();
@@ -354,47 +362,28 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 			return false;
 		}
 
-		const float prevX = springPenetrationPrevPos_.x;
-		const float prevY = springPenetrationPrevPos_.y;
+		// バネの中央へ両軸をなめらかに寄せる（端に張り付かず、ぬるっと中央へめり込む）
+		const KamataEngine::Vector3 center = spring->GetCenter();
+		auto moveToward = [](float current, float target, float maxStep) -> float {
+			const float diff = target - current;
+			if (std::abs(diff) <= maxStep) {
+				return target;
+			}
+			return current + (diff > 0.0f ? maxStep : -maxStep);
+		};
 
-		if (springChargeKind_ == SpringChargeKind::Up || springChargeKind_ == SpringChargeKind::Down) {
-			if (spring && !spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
-				const float centerY = spring->GetCenter().y;
-				if (centerY > pos.y + 0.5f) {
-					velocityY_ = kSpringPenetrationSpeed;
-				} else if (centerY < pos.y - 0.5f) {
-					velocityY_ = -kSpringPenetrationSpeed;
-				}
-			}
-			velocityX_ = 0.0f;
-		} else {
-			if (spring && !spring->IsPlayerCenterInStopZone(pos.x, pos.y)) {
-				const float centerX = spring->GetCenter().x;
-				if (centerX > pos.x + 0.5f) {
-					velocityX_ = kSpringPenetrationSpeed;
-				} else if (centerX < pos.x - 0.5f) {
-					velocityX_ = -kSpringPenetrationSpeed;
-				}
-			}
-			velocityY_ = 0.0f;
-		}
-		pos.x += velocityX_;
+		const float newX = moveToward(pos.x, center.x, kSpringPenetrationSpeed);
+		const float newY = moveToward(pos.y, center.y, kSpringPenetrationSpeed);
+		velocityX_ = newX - pos.x;
+		velocityY_ = newY - pos.y;
+
+		pos.x = newX;
 		tileMap_->ResolveCollisionX(pos.x, pos.y, halfWidth_, halfHeight_);
 
-		pos.y += velocityY_;
+		pos.y = newY;
 		bool landed = false;
 		tileMap_->ResolveCollisionY(pos.y, pos.x, halfWidth_, halfHeight_, velocityY_, landed);
-		if (landed) {
-			velocityY_ = 0.0f;
-			if (springChargeKind_ == SpringChargeKind::Right || springChargeKind_ == SpringChargeKind::Left) {
-				onGround_ = false;
-			} else {
-				velocityX_ = 0.0f;
-				onGround_ = true;
-			}
-		} else {
-			onGround_ = false;
-		}
+		onGround_ = false;
 
 		if (!spring->IsPlayerOverlapping(pos.x, pos.y, halfWidth_, halfHeight_)) {
 			TrampolineSpring* mutableSpring = GetActiveSpringMutable();
@@ -406,7 +395,9 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 			return false;
 		}
 
-		if (spring->DidEnterOrCrossStopZone(prevX, prevY, pos.x, pos.y)) {
+		// 中央に到達してからチャージ待ちを開始する（端で即チャージさせない）
+		const float kCenterEpsilon = 0.75f;
+		if (std::abs(pos.x - center.x) <= kCenterEpsilon && std::abs(pos.y - center.y) <= kCenterEpsilon) {
 			BeginSpringPauseAt(pos);
 			springPenetrationPrevPos_ = pos;
 			return true;
@@ -693,9 +684,6 @@ void Player::UpdateMovement() {
 			const TrampolineBounceResult result = spring.TryBounce(prevX, prevY, pos.x, pos.y, halfWidth_, halfHeight_);
 			if (result == TrampolineBounceResult::EnterUp) {
 				BeginSpringPenetration(static_cast<int>(i), SpringChargeKind::Up, pos);
-				if (spring.DidEnterOrCrossStopZone(pos.x, pos.y, pos.x, pos.y)) {
-					BeginSpringPauseAt(pos);
-				}
 				if (UpdateSpringCharge(pos)) {
 					worldtransfrom_.translation_ = pos;
 					worldtransfrom_.translation_.z = 1.0f;
@@ -706,9 +694,6 @@ void Player::UpdateMovement() {
 			}
 			if (result == TrampolineBounceResult::EnterDown) {
 				BeginSpringPenetration(static_cast<int>(i), SpringChargeKind::Down, pos);
-				if (spring.DidEnterOrCrossStopZone(pos.x, pos.y, pos.x, pos.y)) {
-					BeginSpringPauseAt(pos);
-				}
 				if (UpdateSpringCharge(pos)) {
 					worldtransfrom_.translation_ = pos;
 					worldtransfrom_.translation_.z = 1.0f;
@@ -720,9 +705,6 @@ void Player::UpdateMovement() {
 			if (result == TrampolineBounceResult::EnterSide) {
 				const SpringChargeKind kind = spring.GetType() == TrampolineSpringType::Right ? SpringChargeKind::Right : SpringChargeKind::Left;
 				BeginSpringPenetration(static_cast<int>(i), kind, pos);
-				if (spring.DidEnterOrCrossStopZone(pos.x, pos.y, pos.x, pos.y)) {
-					BeginSpringPauseAt(pos);
-				}
 				if (UpdateSpringCharge(pos)) {
 					worldtransfrom_.translation_ = pos;
 					worldtransfrom_.translation_.z = 1.0f;

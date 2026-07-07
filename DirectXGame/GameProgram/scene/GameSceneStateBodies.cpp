@@ -202,8 +202,13 @@ void GameScene::UpdateStateBody_Game() {
 				}
 
 				if (player_->ConsumeSpikeHitEvent()) {
-					isSpikeRewindOverlayActive_ = true;
-					spikeRewindOverlayAlpha_ = 0.0f;
+					if (spikeLivesRemaining_ <= 0) {
+						TransitionToClearScene2();
+					} else {
+						spikeLivesRemaining_--;
+						isSpikeRewindOverlayActive_ = true;
+						spikeRewindOverlayAlpha_ = 0.0f;
+					}
 				}
 			}
 		}

@@ -222,7 +222,7 @@ private:
 	static constexpr float kSpringMaxLaunchSpeed = 28.0f * 1.1f;
 	static constexpr float kSideSpringMinLaunchSpeed = 7.0f;
 	static constexpr float kSideSpringMaxLaunchSpeed = 24.0f;
-	static constexpr float kSpringPenetrationSpeed = 3.5f * 1.3f;
+	static constexpr float kSpringPenetrationSpeed = 3.5f * 1.3f * 1.2f;
 	static constexpr int kSpikeRespawnInvulnFrames = 45;
 	static constexpr float kPortalAbsorbDuration = 105.0f;
 
@@ -275,3 +275,5 @@ struct PlayerSnapshot {
 	float portalAbsorbStartAngle = 0.0f;
 	bool isDead = false;
 };
+
+void LerpPlayerSnapshot(const PlayerSnapshot& from, const PlayerSnapshot& to, float t, PlayerSnapshot& outSnapshot);

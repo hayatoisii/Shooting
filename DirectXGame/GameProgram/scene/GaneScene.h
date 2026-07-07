@@ -70,6 +70,10 @@ public:
 	void CaptureGameplaySnapshot(GameplaySnapshot& outSnapshot) const;
 	void ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool finalizeSideEffects = true);
 	void FinalizeGameplayRewindScrub();
+	void ApplyRewindScrubInterpolation(float tTowardTarget, bool undoDirection);
+	void UpdateRewindFuelRecharge();
+	void DrawRewindGauge();
+	void DrawSpikeLifeHearts();
 	bool TrampolinesMatchSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings) const;
 	void RestoreTrampolinesFromSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings);
 	void DrawSpikeRewindOverlay();
@@ -94,14 +98,21 @@ public:
 	void SpawnMeteorite();
 	void UpdateMeteorites();
 
+	void DrawZoomOutMarginFill(float viewLeft, float viewBottom, float viewRight, float viewTop);
 	void UpdateMapCamera();
 	void UpdateTitleCamera();
 	void UpdateCameraControl();
 	void UpdatePlayerScreenTransition();
 	void UpdateTrampolinePlacement();
+	void AdvanceToNextAvailableTrampolineType();
+	void SyncTrampolinePlacementType();
+	bool HasAnySpringPlacementRemaining() const;
 	void UpdateTrampolineArrowAnimations();
 	void UpdateButtonGimmicks();
 	void DrawTrampolineSprings();
+	void DrawSpringPlacementHud();
+	void InitializeSpringPlacementHud();
+	int GetRemainingSpringPlacementCount(TrampolineSpringType type) const;
 	void DrawJumpSpringChargeCircle();
 	void DrawSpringTrajectoryPreview();
 	void DrawStageSelectUi();
@@ -113,9 +124,7 @@ public:
 	KamataEngine::Vector3 ConvertScreenToWorld(float screenX, float screenY);
 	KamataEngine::Vector2 ConvertWorldToScreen(float worldX, float worldY);
 	void ComputeCameraBounds(float& left, float& bottom, float& right, float& top);
-	void SyncFreeCameraFromPlayerScreen();
 	void ComputeFreeCameraViewSize(float& viewW, float& viewH) const;
-	void ClampFreeCameraCenter(float viewW, float viewH);
 
 	void RequestExplosion(const KamataEngine::Vector3& position);
 
@@ -274,6 +283,10 @@ private:
 
 	KamataEngine::Sprite* clearSprite_ = nullptr;
 	uint32_t clearTextureHandle_ = 0;
+	KamataEngine::Sprite* gameOverSprite_ = nullptr;
+	uint32_t gameOverTextureHandle_ = 0;
+	KamataEngine::Sprite* clearScreenBackgroundSprite_ = nullptr;
+	std::array<KamataEngine::Sprite*, 4> zoomMarginFillSprites_{};
 	KamataEngine::Sprite* stageClearTitleReturnSprite_ = nullptr;
 	KamataEngine::Sprite* stageClearNextStageSprite_ = nullptr;
 	uint32_t stageClearTitleReturnTextureHandle_ = 0;
@@ -321,9 +334,16 @@ private:
 
 	uint32_t minimapTextureHandle_ = 0;
 	uint32_t greenBoxTextureHandle_ = 0;
+	static constexpr int kSpikeLivesMax_ = 20;
 	KamataEngine::Sprite* minimapSprite_ = nullptr;       // ミニマップ背景
 	KamataEngine::Sprite* minimapPlayerSprite_ = nullptr; // ミニマップ上の自機アイコン
 	KamataEngine::Sprite* jumpSpringChargeSprite_ = nullptr;
+	KamataEngine::Sprite* rewindGaugeBgSprite_ = nullptr;
+	KamataEngine::Sprite* rewindGaugeFillSprite_ = nullptr;
+	KamataEngine::Sprite* spikeLifeHeartIconSprite_ = nullptr;
+	KamataEngine::Sprite* spikeLifeMultiplySprite_ = nullptr;
+	KamataEngine::Sprite* spikeLifeTensDigitSprite_ = nullptr;
+	KamataEngine::Sprite* spikeLifeOnesDigitSprite_ = nullptr;
 
 	uint32_t minimapPlayerTextureHandle_ = 0;
 
@@ -335,10 +355,14 @@ private:
 	static const size_t kMaxMinimapEnemyBullets_ = 100;
 	std::vector<KamataEngine::Sprite*> minimapEnemyBulletSprites_;
 	uint32_t minimapEnemyBulletTextureHandle_ = 0;
+	uint32_t heartTextureHandle_ = 0;
 
 	// ミニマップ設定値（36×20タイルに合わせた縦横比）
 	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 10.0f}; // 描画基準位置 (左上)
 	const KamataEngine::Vector2 kMinimapSize_ = {162.0f, 90.0f};     // 1タイル約4.5px
+	const KamataEngine::Vector2 kRewindGaugeBarSize_ = {50.4f, 8.0f};
+	const KamataEngine::Vector2 kHeartIconSize_ = {28.0f, 28.0f};
+	const float kHeartRowGap_ = 10.0f;
 
 	void RebuildMinimapTiles();
 	void RebuildGoalPositions();
@@ -407,11 +431,31 @@ private:
 	int middleMouseWheelSuppressFrames_ = 0;
 
 	std::vector<TrampolineSpring> trampolineSprings_;
+	static constexpr int kSpringPlacementLimitPerType_ = 10;
+	static constexpr float kSpringHudMinimapGapX_ = 8.0f;
+	static constexpr float kSpringHudIconAspectRatio_ = 2.2f;
+	static constexpr float kSpringHudMultiplyScale_ = 0.55f;
+	static constexpr float kSpringHudDigitScale_ = 0.65f;
+	static constexpr float kSpringHudDigitSpacing_ = 2.0f;
+	static constexpr float kSpringHudRowSpacing_ = 4.0f;
+	static constexpr float kSpringHudInnerSpacing_ = 4.0f;
+	struct SpringPlacementHudUi {
+		KamataEngine::Sprite* iconSprite = nullptr;
+		KamataEngine::Sprite* multiplySprite = nullptr;
+		KamataEngine::Sprite* tensDigitSprite = nullptr;
+		KamataEngine::Sprite* onesDigitSprite = nullptr;
+	};
+	std::array<SpringPlacementHudUi, 4> springPlacementHudUi_{};
+	std::array<uint32_t, 4> springHudIconTextureHandles_{};
+	uint32_t springMultiplyTextureHandle_ = 0;
 
 	GameplayRewindBuffer gameplayRewindBuffer_;
 	bool isGameplayRewinding_ = false;
 	bool gameplayRewindSeeded_ = false;
-	int gameplayRewindScrubCooldown_ = 0;
+	float gameplayRewindScrubAccumulator_ = 0.0f;
+	bool isRewindGaugeVisible_ = false;
+	float rewindFuelSeconds_ = GameplayRewindBuffer::kRewindFuelMaxSeconds;
+	int spikeLivesRemaining_ = kSpikeLivesMax_;
 	bool isSpikeRewindOverlayActive_ = false;
 	float spikeRewindOverlayAlpha_ = 0.0f;
 	KamataEngine::Sprite* spikeRewindDimSprite_ = nullptr;
