@@ -133,12 +133,16 @@ public:
 	void CaptureSnapshot(PlayerSnapshot& outSnapshot) const;
 	void ApplySnapshot(const PlayerSnapshot& snapshot);
 
+	// 巻き戻しを止めた瞬間に上昇速度などを引き継いで跳ねないよう、運動量をリセットする
+	void CancelMotionAfterRewindStop();
+
 	bool UpdateSpringCharge(KamataEngine::Vector3& pos);
 	void BeginSpringPenetration(int springIndex, SpringChargeKind kind, const KamataEngine::Vector3& pos);
 	void BeginSpringPauseAt(const KamataEngine::Vector3& pos);
 	void LaunchFromSpringCharge(bool useCharge);
 	const TrampolineSpring* GetActiveSpring() const;
 	TrampolineSpring* GetActiveSpringMutable();
+	int GetActiveSpringIndex() const { return activeSpringIndex_; }
 	void GetSpringTrajectoryOrigin(KamataEngine::Vector3& outOrigin) const;
 
 private:
@@ -207,6 +211,8 @@ private:
 	int activeSpringIndex_ = -1;
 	float springChargePauseTimer_ = 0.0f;
 	float springChargeLevel_ = 0.0f;
+	// めり込み(中央移動)中にSPACEが押されたら記憶し、中央到達時にそのままチャージへ移行する
+	bool springChargeSpaceLatched_ = false;
 	KamataEngine::Vector3 springChargeAnchor_ = {};
 	KamataEngine::Vector3 springPenetrationPrevPos_ = {};
 	bool isSideSpringFlying_ = false;

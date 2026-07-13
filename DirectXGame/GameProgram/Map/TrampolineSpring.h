@@ -187,6 +187,12 @@ public:
 
 	TrampolineSpringType GetType() const { return type_; }
 
+	bool IsUsedByPlayer() const { return usedByPlayer_; }
+
+	void SetUsedByPlayer(bool used) { usedByPlayer_ = used; }
+
+	void MarkUsedByPlayer() { usedByPlayer_ = true; }
+
 
 
 
@@ -281,6 +287,8 @@ private:
 
 
 	mutable bool isPlayerInside_ = false;
+
+	bool usedByPlayer_ = false;
 
 	float arrowAnimOffset_ = 0.0f;
 	bool arrowAnimOffsetSet_ = false;

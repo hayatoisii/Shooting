@@ -150,6 +150,7 @@ void GameScene::UpdateStateBody_GameIntro() {
 		player_->RefreshWorldMatrix();
 	}
 
+	UpdateCameraControl();
 	UpdateMapCamera();
 
 	if (explosionEmitter_) {
@@ -170,7 +171,9 @@ void GameScene::UpdateStateBody_Game() {
 	UpdateMapCamera();
 
 	const bool isPortalAbsorbing = player_ && player_->IsPortalAbsorbing();
-	if (!isPortalAbsorbing && !isGameplayRewinding_) {
+	// Q（巻き戻し）を押している間、およびQ離し直後の余韻中はバネを置けない
+	const bool qHeld = input_ && input_->PushKey(DIK_Q);
+	if (!isPortalAbsorbing && !isGameplayRewinding_ && !qHeld && !IsRewindPostReleaseLocked()) {
 		UpdateTrampolinePlacement();
 	}
 
@@ -184,8 +187,10 @@ void GameScene::UpdateStateBody_Game() {
 				if (player_->UpdatePortalAbsorption()) {
 					portalAbsorbFinishedPending_ = true;
 				}
-			} else if (!isGameplayRewinding_) {
-				if (!isSpikeRewindOverlayActive_) {
+			} else if (!isGameplayRewinding_ && !IsRewindPostReleaseLocked()) {
+				// 針被弾後は巻き戻しを始めるまで操作停止。巻き戻し開始後はQを離せばすぐ動ける。
+				const bool spikeAwaitingRewind = isSpikeRewindOverlayActive_ && !spikeRewindScrubStarted_;
+				if (!spikeAwaitingRewind) {
 					player_->Update();
 					UpdatePlayerScreenTransition();
 
@@ -208,6 +213,8 @@ void GameScene::UpdateStateBody_Game() {
 						spikeLivesRemaining_--;
 						isSpikeRewindOverlayActive_ = true;
 						spikeRewindOverlayAlpha_ = 0.0f;
+						rewindOverlayAlpha_ = 0.0f;
+						spikeRewindScrubStarted_ = false;
 					}
 				}
 			}

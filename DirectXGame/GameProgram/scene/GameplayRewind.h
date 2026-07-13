@@ -9,6 +9,7 @@
 struct TrampolineSpringSnapshot {
 	TrampolineSpringType type = TrampolineSpringType::Up;
 	KamataEngine::Vector3 center{};
+	bool usedByPlayer = false;
 };
 
 struct GameplaySnapshot {
@@ -30,12 +31,8 @@ struct GameplaySnapshot {
 class GameplayRewindBuffer {
 public:
 	static constexpr int kSnapshotIntervalFrames = 2;
-	static constexpr int kMaxSnapshots = 300;
-	static constexpr float kScrubSnapshotsPerFrame = 0.52f;
+	static constexpr float kScrubSnapshotsPerFrame = 0.624f; // 0.52 × 1.2
 	static constexpr float kSecondsPerSnapshot = static_cast<float>(kSnapshotIntervalFrames) / 60.0f;
-	static constexpr float kHistorySeconds = 10.0f;
-	static constexpr float kRewindFuelMaxSeconds = 10.0f;
-	static constexpr float kRewindRechargeSeconds = 10.0f;
 
 	void Clear();
 	void ForceRecord(const GameplaySnapshot& snapshot);

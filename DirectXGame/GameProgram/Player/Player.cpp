@@ -85,6 +85,7 @@ void Player::TeleportForScreenWrap(const KamataEngine::Vector3& position, bool p
 	if (tileMap_) {
 		tileMap_->ClampPositionToMapBounds(worldtransfrom_.translation_.x, worldtransfrom_.translation_.y, halfWidth_, halfHeight_);
 	}
+	worldtransfrom_.UpdateMatrix();
 }
 
 void Player::ResetStats() {
@@ -158,6 +159,7 @@ void Player::BeginSpringPenetration(int springIndex, SpringChargeKind kind, cons
 	springChargeKind_ = kind;
 	springChargePhase_ = SpringChargePhase::Penetrating;
 	springChargeLevel_ = 0.0f;
+	springChargeSpaceLatched_ = false;
 	onGround_ = false;
 	springPenetrationPrevPos_ = pos;
 	// 実際の移動量は UpdateSpringCharge() が毎フレーム中央へ向けて計算する
@@ -168,10 +170,18 @@ void Player::BeginSpringPenetration(int springIndex, SpringChargeKind kind, cons
 void Player::BeginSpringPauseAt(const KamataEngine::Vector3& pos) {
 	springChargeAnchor_ = pos;
 	if (const TrampolineSpring* spring = GetActiveSpring()) {
-		// 端に張り付かないよう、バネの中央にぴったり移動する
+		// 端に張り付かないよう、可能な範囲でバネの中央へスナップする。
+		// ただし地面/壁で寄り切れなかった軸(pos が中央から離れている軸)は現在位置を保持する。
+		// 中央へ強制移動して再衝突解決すると、中央が地形にめり込んでいる場合に
+		// 横方向へ大きく押し出され、別座標へ瞬間移動してしまうため。
 		const KamataEngine::Vector3& center = spring->GetCenter();
-		springChargeAnchor_.x = center.x;
-		springChargeAnchor_.y = center.y;
+		const float kSnapEpsilon = 0.75f;
+		if (std::abs(pos.x - center.x) <= kSnapEpsilon) {
+			springChargeAnchor_.x = center.x;
+		}
+		if (std::abs(pos.y - center.y) <= kSnapEpsilon) {
+			springChargeAnchor_.y = center.y;
+		}
 	}
 	springChargeAnchor_.z = 1.0f;
 	springChargePhase_ = SpringChargePhase::Pause;
@@ -181,9 +191,14 @@ void Player::BeginSpringPauseAt(const KamataEngine::Vector3& pos) {
 }
 
 void Player::LaunchFromSpringCharge(bool useCharge) {
+	if (TrampolineSpring* spring = GetActiveSpringMutable()) {
+		spring->MarkUsedByPlayer();
+	}
+
 	const SpringChargeKind kind = springChargeKind_;
 	springChargePhase_ = SpringChargePhase::None;
 	activeSpringIndex_ = -1;
+	springChargeSpaceLatched_ = false;
 
 	const float t = useCharge ? std::clamp(springChargeLevel_, 0.0f, 1.0f) : 0.0f;
 
@@ -285,11 +300,14 @@ void Player::ApplySnapshot(const PlayerSnapshot& snapshot) {
 	onGround_ = snapshot.onGround;
 	hp_ = snapshot.hp;
 	spikeRespawnCooldown_ = snapshot.spikeRespawnCooldown;
-	springChargePhase_ = snapshot.springChargePhase;
-	springChargeKind_ = snapshot.springChargeKind;
-	activeSpringIndex_ = snapshot.activeSpringIndex;
-	springChargePauseTimer_ = snapshot.springChargePauseTimer;
-	springChargeLevel_ = snapshot.springChargeLevel;
+	// チャージ状態は巻き戻さない（巻き戻し中にチャージ円が逆再生されると見づらいため）。
+	// 位置・速度だけを復元し、チャージ関連は常に未チャージ状態へクリアする。
+	springChargePhase_ = SpringChargePhase::None;
+	springChargeKind_ = SpringChargeKind::Up;
+	activeSpringIndex_ = -1;
+	springChargePauseTimer_ = 0.0f;
+	springChargeLevel_ = 0.0f;
+	springChargeSpaceLatched_ = false;
 	springChargeAnchor_ = snapshot.springChargeAnchor;
 	springPenetrationPrevPos_ = snapshot.springPenetrationPrevPos;
 	isSideSpringFlying_ = snapshot.isSideSpringFlying;
@@ -308,6 +326,17 @@ void Player::ApplySnapshot(const PlayerSnapshot& snapshot) {
 	worldtransfrom_.parent_ = nullptr;
 	ChangeState(PlayerStateNormal::Instance());
 	worldtransfrom_.UpdateMatrix();
+}
+
+void Player::CancelMotionAfterRewindStop() {
+	// 空中ではスナップショットの速度・バネ飛行状態を維持する（一瞬Qで勢いを消す抜け道を防ぐ）。
+	// 地上にいるときだけ運動量をクリアし、巻き戻し停止地点で意図しない跳ねを防ぐ。
+	if (!onGround_) {
+		return;
+	}
+	velocityX_ = 0.0f;
+	velocityY_ = 0.0f;
+	isSideSpringFlying_ = false;
 }
 
 namespace {
@@ -362,6 +391,11 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 			return false;
 		}
 
+		// めり込み中にSPACEが押されたら記憶しておく（中央到達前の早押しを取りこぼさない）
+		if (input_ && input_->PushKey(DIK_SPACE)) {
+			springChargeSpaceLatched_ = true;
+		}
+
 		// バネの中央へ両軸をなめらかに寄せる（端に張り付かず、ぬるっと中央へめり込む）
 		const KamataEngine::Vector3 center = spring->GetCenter();
 		auto moveToward = [](float current, float target, float maxStep) -> float {
@@ -371,6 +405,9 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 			}
 			return current + (diff > 0.0f ? maxStep : -maxStep);
 		};
+
+		const float posBeforeX = pos.x;
+		const float posBeforeY = pos.y;
 
 		const float newX = moveToward(pos.x, center.x, kSpringPenetrationSpeed);
 		const float newY = moveToward(pos.y, center.y, kSpringPenetrationSpeed);
@@ -397,9 +434,27 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 
 		// 中央に到達してからチャージ待ちを開始する（端で即チャージさせない）
 		const float kCenterEpsilon = 0.75f;
-		if (std::abs(pos.x - center.x) <= kCenterEpsilon && std::abs(pos.y - center.y) <= kCenterEpsilon) {
+		const bool reachedCenter =
+		    std::abs(pos.x - center.x) <= kCenterEpsilon && std::abs(pos.y - center.y) <= kCenterEpsilon;
+
+		// 地面や壁ギリギリにバネがあると、中央へ寄せても衝突で押し戻され中央に届かない。
+		// 中央へ動こうとしたのに衝突でほぼ進めなかった場合は「到達」とみなし、チャージ待ちへ進める。
+		const float movedThisFrame =
+		    std::abs(pos.x - posBeforeX) + std::abs(pos.y - posBeforeY);
+		const float wantedToMove = std::abs(newX - posBeforeX) + std::abs(newY - posBeforeY);
+		const float kBlockedMoveEpsilon = 0.02f;
+		const bool blockedByGeometry =
+		    wantedToMove > kBlockedMoveEpsilon && movedThisFrame < kBlockedMoveEpsilon;
+
+		if (reachedCenter || blockedByGeometry) {
 			BeginSpringPauseAt(pos);
 			springPenetrationPrevPos_ = pos;
+			// めり込み中に既にSPACEが押されていた場合は、そのままチャージへ移行する
+			// （そうしないと早押しが無視され、Pauseのタイムアウトでチャージ無しに飛ばされてしまう）
+			if (springChargeSpaceLatched_ || (input_ && input_->PushKey(DIK_SPACE))) {
+				springChargePhase_ = SpringChargePhase::Charging;
+				springChargeLevel_ = 0.0f;
+			}
 			return true;
 		}
 

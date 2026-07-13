@@ -63,7 +63,7 @@ GameScene::~GameScene() {
 	delete modelRaycasting_;
 	modelPlayer_ = nullptr;
 	delete modelEnemy_;
-	delete modelSkydome_;
+	delete modelWall_;
 	delete modelTitleObject_;
 	delete modelMeteorite_;
 	delete modelEnemyBullet_; // 敵弾モデルを解放（追加）
@@ -86,8 +86,6 @@ GameScene::~GameScene() {
 	delete minimapSprite_;
 	delete minimapPlayerSprite_;
 	delete jumpSpringChargeSprite_;
-	delete rewindGaugeBgSprite_;
-	delete rewindGaugeFillSprite_;
 	// シーンのクリア
 	delete clearEmitter_;
 	delete goalPortalEmitter_;
@@ -187,7 +185,7 @@ void GameScene::Initialize() {
 	}
 	modelPlayer_ = modelCube_;
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
-	modelSkydome_ = Model::CreateFromOBJ("skydome", true);
+	modelWall_ = Model::CreateFromOBJ("wall2", false);
 	modelTitleObject_ = Model::CreateFromOBJ("title", true);
 
 	// 敵弾用のOBJモデルを読み込む（ファイル名: Resources/bulletEnemy.obj を想定）
@@ -329,16 +327,6 @@ void GameScene::Initialize() {
 	jumpSpringChargeSprite_->SetAnchorPoint({0.5f, 0.5f});
 	jumpSpringChargeSprite_->SetColor({0.6f, 0.45f, 0.25f, 0.75f});
 
-	rewindGaugeBgSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0.0f, 0.0f});
-	rewindGaugeBgSprite_->SetAnchorPoint({0.5f, 0.5f});
-	rewindGaugeBgSprite_->SetColor({0.35f, 0.35f, 0.4f, 0.85f});
-	rewindGaugeBgSprite_->SetSize(kRewindGaugeBarSize_);
-
-	rewindGaugeFillSprite_ = KamataEngine::Sprite::Create(minimapTextureHandle_, {0.0f, 0.0f});
-	rewindGaugeFillSprite_->SetAnchorPoint({0.0f, 0.5f});
-	rewindGaugeFillSprite_->SetColor({0.55f, 0.85f, 1.0f, 0.95f});
-	rewindGaugeFillSprite_->SetSize(kRewindGaugeBarSize_);
-
 	// 残機表示: ハート×数字（ビットマップフォント）
 	spikeLifeHeartIconSprite_ = KamataEngine::Sprite::Create(heartTextureHandle_, {0.0f, 0.0f});
 	if (spikeLifeHeartIconSprite_) {
@@ -414,7 +402,8 @@ void GameScene::Initialize() {
 
 	LoadStage(0);
 
-	skydome_->Initialize(modelBlocks_, &camera_);
+	skydome_->Initialize(&camera_);
+	skydome_->SetWallBackdrop(modelWall_);
 	worldTransformTitleObject_.Initialize();
 	worldTransformTitleObject_.translation_ = {0.0f, 0.0f, -43.0f};
 	worldTransformTitleObject_.UpdateMatrix();
@@ -572,11 +561,15 @@ void GameScene::LoadStage(int stageIndex) {
 	gameplayRewindSeeded_ = false;
 	isGameplayRewinding_ = false;
 	gameplayRewindScrubAccumulator_ = 0.0f;
-	isRewindGaugeVisible_ = false;
-	rewindFuelSeconds_ = GameplayRewindBuffer::kRewindFuelMaxSeconds;
 	spikeLivesRemaining_ = kSpikeLivesMax_;
 	isSpikeRewindOverlayActive_ = false;
 	spikeRewindOverlayAlpha_ = 0.0f;
+	spikeRewindScrubStarted_ = false;
+	rewindOverlayAlpha_ = 0.0f;
+	rewindMinimapDirty_ = false;
+	pendingRewindPostReleaseLock_ = false;
+	rewindPostReleaseLockSeconds_ = 0.0f;
+	rewindPostReleaseDimAlpha_ = 0.0f;
 
 	mapRenderer_.Initialize(modelBlocks_, modelSpikeTile_, modelPortal_, modelDeleteBlocks_, modelEnemyBullet_, tileMap_);
 	RebuildMinimapTiles();
@@ -593,7 +586,6 @@ void GameScene::LoadStage(int stageIndex) {
 	portalAbsorbFinishedPending_ = false;
 	currentScreenX_ = 0;
 	currentScreenY_ = 0;
-	screenTransitionCooldown_ = 0;
 	isFreeCamera_ = false;
 	cameraZoomOut_ = 0.0f;
 
@@ -674,7 +666,6 @@ void GameScene::CommitPendingStageAfterTransitionExpand() {
 	gameSceneTimer_ = 0;
 	isGameIntroFinished_ = false;
 	gameIntroTimer_ = 0.0f;
-	screenTransitionCooldown_ = 0;
 	transitionOverlayActive_ = false;
 
 	if (transitionSprite_) {
@@ -707,7 +698,6 @@ void GameScene::AdvanceToNextStageFromClear() {
 	isGameIntroFinished_ = false;
 	gameIntroTimer_ = 0.0f;
 	transitionOverlayActive_ = false;
-	screenTransitionCooldown_ = 0;
 	transitionTimer_ = 0.0f;
 	ResetTransitionExpandOverlay();
 	ChangeSceneState(SceneStateTransitionToGame::Instance());
@@ -725,11 +715,15 @@ void GameScene::ReturnToTitleScreen() {
 	gameplayRewindSeeded_ = false;
 	isGameplayRewinding_ = false;
 	gameplayRewindScrubAccumulator_ = 0.0f;
-	isRewindGaugeVisible_ = false;
-	rewindFuelSeconds_ = GameplayRewindBuffer::kRewindFuelMaxSeconds;
 	spikeLivesRemaining_ = kSpikeLivesMax_;
 	isSpikeRewindOverlayActive_ = false;
 	spikeRewindOverlayAlpha_ = 0.0f;
+	spikeRewindScrubStarted_ = false;
+	rewindOverlayAlpha_ = 0.0f;
+	rewindMinimapDirty_ = false;
+	pendingRewindPostReleaseLock_ = false;
+	rewindPostReleaseLockSeconds_ = 0.0f;
+	rewindPostReleaseDimAlpha_ = 0.0f;
 	ChangeSceneState(SceneStateStart::Instance());
 }
 
@@ -777,17 +771,20 @@ void GameScene::ResetCurrentStage() {
 	gameIntroTimer_ = 0.0f;
 	gameSceneTimer_ = 0;
 	transitionOverlayActive_ = false;
-	screenTransitionCooldown_ = 0;
 
 	gameplayRewindBuffer_.Clear();
 	gameplayRewindSeeded_ = false;
 	isGameplayRewinding_ = false;
 	gameplayRewindScrubAccumulator_ = 0.0f;
-	isRewindGaugeVisible_ = false;
-	rewindFuelSeconds_ = GameplayRewindBuffer::kRewindFuelMaxSeconds;
 	spikeLivesRemaining_ = kSpikeLivesMax_;
 	isSpikeRewindOverlayActive_ = false;
 	spikeRewindOverlayAlpha_ = 0.0f;
+	spikeRewindScrubStarted_ = false;
+	rewindOverlayAlpha_ = 0.0f;
+	rewindMinimapDirty_ = false;
+	pendingRewindPostReleaseLock_ = false;
+	rewindPostReleaseLockSeconds_ = 0.0f;
+	rewindPostReleaseDimAlpha_ = 0.0f;
 
 	ChangeSceneState(SceneStateGameIntro::Instance());
 }
@@ -812,8 +809,6 @@ void GameScene::AdvanceFromClearScreen() {
 }
 
 void GameScene::Update() {
-	skydome_->Update();
-
 	// State Pattern: 現在のシーン状態に更新を委譲（ポリモーフィズム）
 	if (sceneState_) {
 		sceneState_->Update(*this);
@@ -858,8 +853,7 @@ void GameScene::Draw() {
 		ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
 
 		if (skydome_) {
-			skydome_->SetViewBounds((viewLeft + viewRight) * 0.5f, (viewBottom + viewTop) * 0.5f, viewRight - viewLeft,
-			    viewTop - viewBottom);
+			skydome_->DrawAt((viewLeft + viewRight) * 0.5f, (viewBottom + viewTop) * 0.5f);
 			skydome_->Draw();
 		}
 
@@ -895,12 +889,13 @@ void GameScene::Draw() {
 	} else if (GetSceneStateKind() == SceneStateKind::Clear ||
 	           (GetSceneStateKind() == SceneStateKind::TransitionToGame &&
 	            transitionExpandSource_ == TransitionExpandSource::ClearScreen)) {
+		float viewLeft = 0.0f;
+		float viewBottom = 0.0f;
+		float viewRight = 0.0f;
+		float viewTop = 0.0f;
+		ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
 		if (skydome_) {
-			const float winW = static_cast<float>(WinApp::kWindowWidth);
-			const float winH = static_cast<float>(WinApp::kWindowHeight);
-			const float viewH = 100.0f;
-			const float viewW = viewH * (winW / winH);
-			skydome_->SetViewBounds(0.0f, 0.0f, viewW, viewH);
+			skydome_->DrawAt((viewLeft + viewRight) * 0.5f, (viewBottom + viewTop) * 0.5f);
 			skydome_->Draw();
 		}
 		if (clearEmitter_) {
@@ -944,35 +939,40 @@ void GameScene::Draw() {
 	// ミニマップはゲームシーンのみ表示
 	if (GetSceneStateKind() == SceneStateKind::Game && isGameIntroFinished_) {
 		DrawJumpSpringChargeCircle();
-		DrawRewindGauge();
 
-		if (minimapSprite_) {
-			minimapSprite_->Draw(); // 背景枠
+		if (kShowMinimap_) {
+			if (minimapSprite_) {
+				minimapSprite_->Draw(); // 背景枠
+			}
+			for (KamataEngine::Sprite* sprite : minimapGroundSprites_) {
+				if (sprite) {
+					sprite->Draw();
+				}
+			}
+			// 敵アイコン (背景より手前、自機より奥)
+			for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
+				if (sprite) {
+					sprite->Draw();
+				}
+			}
+			// 敵弾アイコン (背景より手前、自機より奥)
+			for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
+				if (sprite) {
+					sprite->Draw();
+				}
+			}
+			// 自機アイコン (最前面)
+			if (minimapPlayerSprite_) {
+				minimapPlayerSprite_->Draw();
+			}
 		}
+
 		DrawSpikeLifeHearts();
-		for (KamataEngine::Sprite* sprite : minimapGroundSprites_) {
-			if (sprite) {
-				sprite->Draw();
-			}
-		}
-		// 敵アイコン (背景より手前、自機より奥)
-		for (KamataEngine::Sprite* sprite : minimapEnemySprites_) {
-			if (sprite) {
-				sprite->Draw();
-			}
-		}
-		// 敵弾アイコン (背景より手前、自機より奥)
-		for (KamataEngine::Sprite* sprite : minimapEnemyBulletSprites_) {
-			if (sprite) {
-				sprite->Draw();
-			}
-		}
-		// 自機アイコン (最前面)
-		if (minimapPlayerSprite_) {
-			minimapPlayerSprite_->Draw();
-		}
+		DrawSpringPreviewPlacementLabel();
 
-		DrawSpringPlacementHud();
+		if (kShowSpringPlacementHud_) {
+			DrawSpringPlacementHud();
+		}
 	}
 
 	// Draw score digits on top-right（一時非表示・処理は維持）
@@ -1462,7 +1462,7 @@ void GameScene::RebuildMinimapTiles() {
 
 	for (int row = 0; row < tileMap_.GetHeight(); ++row) {
 		for (int col = 0; col < tileMap_.GetWidth(); ++col) {
-			const bool isGround = tileMap_.IsGround(col, row);
+			const bool isGround = tileMap_.GetTile(col, row) == 1;
 			const bool isSpike = tileMap_.IsSpike(col, row);
 			const bool isGoal = tileMap_.IsGoal(col, row);
 			const bool isWall = tileMap_.IsDisappearingWallActive(col, row);
@@ -1558,9 +1558,14 @@ bool GameScene::BeginPortalAbsorption() {
 	gameplayRewindScrubAccumulator_ = 0.0f;
 	gameplayRewindBuffer_.Clear();
 	gameplayRewindSeeded_ = false;
-	isRewindGaugeVisible_ = false;
 	isSpikeRewindOverlayActive_ = false;
 	spikeRewindOverlayAlpha_ = 0.0f;
+	spikeRewindScrubStarted_ = false;
+	rewindOverlayAlpha_ = 0.0f;
+	rewindMinimapDirty_ = false;
+	pendingRewindPostReleaseLock_ = false;
+	rewindPostReleaseLockSeconds_ = 0.0f;
+	rewindPostReleaseDimAlpha_ = 0.0f;
 
 	return true;
 }
@@ -1638,7 +1643,7 @@ void GameScene::ComputeCameraBounds(float& left, float& bottom, float& right, fl
 	top = 0.0f;
 	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, left, bottom, right, top);
 
-	if (!isFreeCamera_) {
+	if (cameraZoomOut_ <= 0.0001f) {
 		return;
 	}
 
@@ -1720,13 +1725,10 @@ KamataEngine::Vector2 GameScene::ConvertWorldToScreen(float worldX, float worldY
 	float top = 0.0f;
 	ComputeCameraBounds(left, bottom, right, top);
 
-	float winW = 0.0f;
-	float winH = 0.0f;
-	GetClientSize(winW, winH);
-	if (winW <= 0.0f || winH <= 0.0f) {
-		winW = static_cast<float>(WinApp::kWindowWidth);
-		winH = static_cast<float>(WinApp::kWindowHeight);
-	}
+	// スプライトは固定のウィンドウ座標系（kWindowWidth/kWindowHeight）で描画されるため、
+	// 実クライアントサイズではなくこの固定値で変換しないと、ウィンドウリサイズ時にずれる
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
 	const float screenX = (worldX - left) / (right - left) * winW;
 	const float screenY = (top - worldY) / (top - bottom) * winH;
 	return {screenX, screenY};
@@ -1750,12 +1752,8 @@ void GameScene::DrawJumpSpringChargeCircle() {
 	float right = 0.0f;
 	float top = 0.0f;
 	ComputeCameraBounds(left, bottom, right, top);
-	float winW = 0.0f;
-	float winH = 0.0f;
-	GetClientSize(winW, winH);
-	if (winW <= 0.0f) {
-		winW = static_cast<float>(WinApp::kWindowWidth);
-	}
+	// 位置(ConvertWorldToScreen)と同じ固定ウィンドウ座標系で直径を求める
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
 	const float worldPerPixel = (right - left) / winW;
 	const float diameterPx = (radiusWorld * 2.0f) / worldPerPixel;
 
@@ -1860,6 +1858,7 @@ void GameScene::CaptureGameplaySnapshot(GameplaySnapshot& outSnapshot) const {
 		TrampolineSpringSnapshot springSnapshot;
 		springSnapshot.type = spring.GetType();
 		springSnapshot.center = spring.GetCenter();
+		springSnapshot.usedByPlayer = spring.IsUsedByPlayer();
 		outSnapshot.trampolines.push_back(springSnapshot);
 	}
 	outSnapshot.currentScreenX = currentScreenX_;
@@ -1883,6 +1882,7 @@ void GameScene::RestoreTrampolinesFromSnapshot(const std::vector<TrampolineSprin
 		TrampolineSpring spring;
 		spring.SetType(springSnapshot.type);
 		spring.SetCenter(springSnapshot.center, springLayoutHalfW, springLayoutHalfH);
+		spring.SetUsedByPlayer(springSnapshot.usedByPlayer);
 		trampolineSprings_.push_back(std::move(spring));
 	}
 }
@@ -1893,6 +1893,9 @@ bool GameScene::TrampolinesMatchSnapshot(const std::vector<TrampolineSpringSnaps
 	}
 	for (size_t i = 0; i < snapshotSprings.size(); ++i) {
 		if (snapshotSprings[i].type != trampolineSprings_[i].GetType()) {
+			return false;
+		}
+		if (snapshotSprings[i].usedByPlayer != trampolineSprings_[i].IsUsedByPlayer()) {
 			return false;
 		}
 		const KamataEngine::Vector3 center = trampolineSprings_[i].GetCenter();
@@ -1906,6 +1909,12 @@ bool GameScene::TrampolinesMatchSnapshot(const std::vector<TrampolineSpringSnaps
 }
 
 void GameScene::ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool finalizeSideEffects) {
+	// ズームはプレイヤー視点の設定なので巻き戻しで上書きしない（ズームイン不能バグの原因）
+	const bool preserveFreeCamera = isFreeCamera_;
+	const float preserveZoom = cameraZoomOut_;
+	const float preserveCenterX = freeCameraCenterX_;
+	const float preserveCenterY = freeCameraCenterY_;
+
 	if (player_) {
 		player_->ApplySnapshot(snapshot.player);
 	}
@@ -1916,6 +1925,9 @@ void GameScene::ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool fin
 	if (gimmickBefore.deactivatedWalls != snapshot.gimmick.deactivatedWalls ||
 	    gimmickBefore.pressedButtons != snapshot.gimmick.pressedButtons) {
 		mapRenderer_.ApplyGimmickVisualsFromTileMap(tileMap_);
+		if (!finalizeSideEffects) {
+			rewindMinimapDirty_ = true;
+		}
 	}
 
 	if (!TrampolinesMatchSnapshot(snapshot.trampolines)) {
@@ -1924,10 +1936,10 @@ void GameScene::ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool fin
 
 	currentScreenX_ = snapshot.currentScreenX;
 	currentScreenY_ = snapshot.currentScreenY;
-	isFreeCamera_ = snapshot.isFreeCamera;
-	freeCameraCenterX_ = snapshot.freeCameraCenterX;
-	freeCameraCenterY_ = snapshot.freeCameraCenterY;
-	cameraZoomOut_ = snapshot.cameraZoomOut;
+	isFreeCamera_ = preserveFreeCamera;
+	freeCameraCenterX_ = preserveCenterX;
+	freeCameraCenterY_ = preserveCenterY;
+	cameraZoomOut_ = preserveZoom;
 	score_ = snapshot.score;
 	hitCount = snapshot.hitCount;
 	hitCount2 = snapshot.hitCount2;
@@ -1947,17 +1959,48 @@ void GameScene::ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool fin
 	UpdateScoreSprites();
 	RebuildMinimapTiles();
 
-	isSpikeRewindOverlayActive_ = false;
-	spikeRewindOverlayAlpha_ = 0.0f;
+	ClearRewindOverlayImmediate();
+	rewindMinimapDirty_ = false;
 	portalAbsorbFinishedPending_ = false;
 	requestSceneClear_ = false;
 }
 
-void GameScene::FinalizeGameplayRewindScrub() {
-	UpdateScoreSprites();
-	RebuildMinimapTiles();
-	isSpikeRewindOverlayActive_ = false;
+void GameScene::ClearRewindOverlayImmediate() {
+	rewindOverlayAlpha_ = 0.0f;
 	spikeRewindOverlayAlpha_ = 0.0f;
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindScrubStarted_ = false;
+	pendingRewindPostReleaseLock_ = false;
+	rewindPostReleaseLockSeconds_ = 0.0f;
+	rewindPostReleaseDimAlpha_ = 0.0f;
+}
+
+void GameScene::FinalizeGameplayRewindScrub() {
+	// Qを離してからの短い余韻用に、暗転レベルを覚えておく（タイマーはQ離し時に開始）
+	rewindPostReleaseDimAlpha_ = rewindOverlayAlpha_;
+	if (rewindPostReleaseDimAlpha_ <= 0.0f) {
+		rewindPostReleaseDimAlpha_ =
+		    (isSpikeRewindOverlayActive_ || spikeRewindScrubStarted_) ? kSpikeRewindDimAlpha_ : kNormalRewindDimAlpha_;
+	}
+	pendingRewindPostReleaseLock_ = true;
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindScrubStarted_ = false;
+
+	UpdateScoreSprites();
+
+	// 巻き戻し中はPlayer更新が止まるため、バネ側の接触フラグ(isPlayerInside_)が
+	// 巻き戻し前の状態のまま残ってしまう。Playerがバネと無関係な状態(None)に戻ったら
+	// 接触状態をクリアして、再びバネへ触れたときに確実に発火できるようにする。
+	if (player_ && player_->GetSpringChargePhase() == Player::SpringChargePhase::None) {
+		for (TrampolineSpring& spring : trampolineSprings_) {
+			spring.ResetPlayerContact();
+		}
+	}
+
+	// 地上停止時のみ運動量をクリア（空中のバネ飛行などはスナップショットの速度を維持）
+	if (player_) {
+		player_->CancelMotionAfterRewindStop();
+	}
 }
 
 void GameScene::SeedGameplayRewindSnapshot() {
@@ -2002,28 +2045,15 @@ void GameScene::ApplyRewindScrubInterpolation(float tTowardTarget, bool undoDire
 	}
 }
 
-void GameScene::UpdateRewindFuelRecharge() {
-	if (rewindFuelSeconds_ >= GameplayRewindBuffer::kRewindFuelMaxSeconds) {
-		isRewindGaugeVisible_ = false;
-		return;
-	}
-
-	rewindFuelSeconds_ += GameplayRewindBuffer::kRewindFuelMaxSeconds / GameplayRewindBuffer::kRewindRechargeSeconds / 60.0f;
-	if (rewindFuelSeconds_ >= GameplayRewindBuffer::kRewindFuelMaxSeconds) {
-		rewindFuelSeconds_ = GameplayRewindBuffer::kRewindFuelMaxSeconds;
-		isRewindGaugeVisible_ = false;
-	}
-}
-
 void GameScene::DrawSpikeLifeHearts() {
 	const float iconH = kHeartIconSize_.y;
-	const float rowCenterY = kMinimapPosition_.y + kMinimapSize_.y + 6.0f + iconH * 0.5f;
+	const float rowCenterY = kHeartUiPosition_.y;
 	const float multiplySize = iconH * 0.55f;
 	const float digitSize = iconH * 0.75f;
 	const float innerGap = 4.0f;
 	const float digitGap = 2.0f;
 
-	float x = kMinimapPosition_.x;
+	float x = kHeartUiPosition_.x;
 
 	// ハートアイコン
 	if (spikeLifeHeartIconSprite_) {
@@ -2073,52 +2103,6 @@ void GameScene::DrawSpikeLifeHearts() {
 	}
 }
 
-void GameScene::DrawRewindGauge() {
-	if (!isRewindGaugeVisible_ || !player_) {
-		return;
-	}
-
-	// ズームアウトしてもゲージがプレイヤーに対して大きくならないよう、表示倍率に合わせて縮小する
-	float zoomScale = 1.0f;
-	{
-		float sl = 0.0f, sb = 0.0f, sr = 0.0f, st = 0.0f;
-		tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, sl, sb, sr, st);
-		const float baseW = sr - sl;
-		float vl = 0.0f, vb = 0.0f, vr = 0.0f, vt = 0.0f;
-		ComputeCameraBounds(vl, vb, vr, vt);
-		const float viewW = vr - vl;
-		if (viewW > 0.0f && baseW > 0.0f) {
-			zoomScale = baseW / viewW;
-		}
-	}
-
-	const KamataEngine::Vector3 worldPos = player_->GetWorldPosition();
-	const float barH = kRewindGaugeBarSize_.y * zoomScale;
-	KamataEngine::Vector2 screenPos =
-	    ConvertWorldToScreen(worldPos.x, worldPos.y + player_->GetHalfHeight() * 1.2f);
-	screenPos.y -= barH;
-
-	const float barW = kRewindGaugeBarSize_.x * zoomScale;
-	const float fillRatio =
-	    rewindFuelSeconds_ / GameplayRewindBuffer::kRewindFuelMaxSeconds;
-
-	if (rewindGaugeBgSprite_) {
-		rewindGaugeBgSprite_->SetPosition(screenPos);
-		rewindGaugeBgSprite_->SetSize({barW, barH});
-		rewindGaugeBgSprite_->SetTextureRect({0.0f, 0.0f}, kMinimapSize_);
-		rewindGaugeBgSprite_->Draw();
-	}
-
-	if (rewindGaugeFillSprite_ && fillRatio > 0.001f) {
-		const float fillW = barW * fillRatio;
-		const float leftX = screenPos.x - barW * 0.5f;
-		rewindGaugeFillSprite_->SetPosition({leftX, screenPos.y});
-		rewindGaugeFillSprite_->SetSize({fillW, barH});
-		rewindGaugeFillSprite_->SetTextureRect({0.0f, 0.0f}, {kMinimapSize_.x * fillRatio, kMinimapSize_.y});
-		rewindGaugeFillSprite_->Draw();
-	}
-}
-
 void GameScene::UpdateGameplayRewindInput() {
 	if (!input_ || GetSceneStateKind() != SceneStateKind::Game || !isGameIntroFinished_ || !player_) {
 		if (isGameplayRewinding_) {
@@ -2146,35 +2130,19 @@ void GameScene::UpdateGameplayRewindInput() {
 	const bool spikeRewindActive = isSpikeRewindOverlayActive_;
 
 	if (qHeld) {
-		if (!spikeRewindActive && rewindFuelSeconds_ < GameplayRewindBuffer::kRewindFuelMaxSeconds) {
-			isRewindGaugeVisible_ = true;
-		}
-
-		const bool canScrubUndo = gameplayRewindBuffer_.CanUndo() &&
-		                          (spikeRewindActive || rewindFuelSeconds_ > 0.0f);
-		if (canScrubUndo) {
-			if (!spikeRewindActive) {
-				isRewindGaugeVisible_ = true;
-				const float fuelSnapshotsRemaining = rewindFuelSeconds_ / GameplayRewindBuffer::kSecondsPerSnapshot;
-				const float advance = (std::min)(GameplayRewindBuffer::kScrubSnapshotsPerFrame, fuelSnapshotsRemaining);
-				gameplayRewindScrubAccumulator_ += advance;
-				rewindFuelSeconds_ = (std::max)(0.0f, rewindFuelSeconds_ - advance * GameplayRewindBuffer::kSecondsPerSnapshot);
-			} else {
-				gameplayRewindScrubAccumulator_ += GameplayRewindBuffer::kScrubSnapshotsPerFrame;
-			}
-
+		if (gameplayRewindBuffer_.CanUndo()) {
+			gameplayRewindScrubAccumulator_ += GameplayRewindBuffer::kScrubSnapshotsPerFrame;
 			scrubbingThisFrame = true;
 
 			while (gameplayRewindScrubAccumulator_ >= 1.0f && gameplayRewindBuffer_.CanUndo()) {
-				if (!spikeRewindActive && rewindFuelSeconds_ <= 0.0f) {
-					gameplayRewindScrubAccumulator_ = (std::min)(gameplayRewindScrubAccumulator_, 1.0f);
-					break;
-				}
-
 				GameplaySnapshot snapshot;
 				if (!gameplayRewindBuffer_.Undo(snapshot)) {
 					gameplayRewindScrubAccumulator_ = 0.0f;
 					break;
+				}
+
+				if (spikeRewindActive) {
+					spikeRewindScrubStarted_ = true;
 				}
 
 				ApplyGameplaySnapshot(snapshot, false);
@@ -2187,7 +2155,12 @@ void GameScene::UpdateGameplayRewindInput() {
 		}
 	} else {
 		gameplayRewindScrubAccumulator_ = 0.0f;
-		UpdateRewindFuelRecharge();
+		// Qを離した瞬間に、巻き戻し終了後の短い余韻（暗転＋操作停止）を開始
+		if (pendingRewindPostReleaseLock_ && rewindPostReleaseLockSeconds_ <= 0.0f) {
+			rewindPostReleaseLockSeconds_ = kRewindPostReleaseLockSeconds_;
+			pendingRewindPostReleaseLock_ = false;
+			rewindOverlayAlpha_ = rewindPostReleaseDimAlpha_;
+		}
 	}
 
 	if (isGameplayRewinding_ && !scrubbingThisFrame) {
@@ -2195,6 +2168,7 @@ void GameScene::UpdateGameplayRewindInput() {
 	}
 
 	isGameplayRewinding_ = scrubbingThisFrame;
+	UpdateRewindOverlay();
 }
 
 void GameScene::UpdateGameplayRewind() {
@@ -2208,10 +2182,14 @@ void GameScene::UpdateGameplayRewind() {
 		return;
 	}
 
-	if (isSpikeRewindOverlayActive_) {
-		static constexpr float kTargetAlpha = 0.62f;
-		static constexpr float kFadeSpeed = 0.04f;
-		spikeRewindOverlayAlpha_ = (std::min)(spikeRewindOverlayAlpha_ + kFadeSpeed, kTargetAlpha);
+	// ボタン/消える壁の状態が巻き戻しで変わった場合のみ、次フレーム以降でミニマップを再構築する
+	if (rewindMinimapDirty_) {
+		rewindMinimapDirty_ = false;
+		RebuildMinimapTiles();
+	}
+
+	// 針被弾後・巻き戻し開始前の待機中は記録しない
+	if (isSpikeRewindOverlayActive_ && !spikeRewindScrubStarted_) {
 		return;
 	}
 
@@ -2224,11 +2202,37 @@ void GameScene::UpdateGameplayRewind() {
 	gameplayRewindBuffer_.Record(snapshot);
 }
 
+void GameScene::UpdateRewindOverlay() {
+	if (rewindPostReleaseLockSeconds_ > 0.0f) {
+		rewindPostReleaseLockSeconds_ -= 1.0f / 60.0f;
+		if (rewindPostReleaseLockSeconds_ <= 0.0f) {
+			rewindPostReleaseLockSeconds_ = 0.0f;
+			rewindOverlayAlpha_ = 0.0f;
+		} else {
+			rewindOverlayAlpha_ = rewindPostReleaseDimAlpha_;
+		}
+	} else if (pendingRewindPostReleaseLock_) {
+		rewindOverlayAlpha_ = rewindPostReleaseDimAlpha_;
+	} else if (isGameplayRewinding_) {
+		const float target = (isSpikeRewindOverlayActive_ || spikeRewindScrubStarted_) ? kSpikeRewindDimAlpha_
+		                                                                                 : kNormalRewindDimAlpha_;
+		rewindOverlayAlpha_ = (std::min)(rewindOverlayAlpha_ + kRewindOverlayFadeInSpeed_, target);
+	} else if (isSpikeRewindOverlayActive_ && !spikeRewindScrubStarted_) {
+		// 針被弾後、Qで巻き戻すまでの待機中
+		rewindOverlayAlpha_ = (std::min)(rewindOverlayAlpha_ + kRewindOverlayFadeInSpeed_, kSpikeRewindDimAlpha_);
+	} else {
+		rewindOverlayAlpha_ = 0.0f;
+	}
+
+	spikeRewindOverlayAlpha_ = rewindOverlayAlpha_;
+}
+
 void GameScene::DrawSpikeRewindOverlay() {
-	if (!isSpikeRewindOverlayActive_ || !spikeRewindDimSprite_ || spikeRewindOverlayAlpha_ <= 0.0f) {
+	if (!spikeRewindDimSprite_ || rewindOverlayAlpha_ <= 0.0f) {
 		return;
 	}
-	spikeRewindDimSprite_->SetColor({0.0f, 0.0f, 0.0f, spikeRewindOverlayAlpha_});
+
+	spikeRewindDimSprite_->SetColor({0.0f, 0.0f, 0.0f, rewindOverlayAlpha_});
 	spikeRewindDimSprite_->Draw();
 }
 
@@ -2268,22 +2272,16 @@ void GameScene::UpdateTrampolinePlacement() {
 		return;
 	}
 
-	if (!HasAnySpringPlacementRemaining()) {
+	if (!HasAnySpringPlacementRemaining() && !HasAnyCollectableSpringOnMap()) {
 		hasTrampolinePreview_ = false;
 		return;
 	}
 
 	if (input_->IsTriggerMouse(1) && !input_->IsPressMouse(2)) {
-		AdvanceToNextAvailableTrampolineType();
+		nextTrampolineTypeIndex_++;
 	}
-
-	SyncTrampolinePlacementType();
 
 	const TrampolineSpringType nextType = TrampolineSpring::GetPlacementType(nextTrampolineTypeIndex_);
-	if (GetRemainingSpringPlacementCount(nextType) <= 0) {
-		hasTrampolinePreview_ = false;
-		return;
-	}
 
 	const KamataEngine::Vector2 mousePos = GetClientMousePosition();
 	trampolinePreviewPos_ = ConvertScreenToWorld(mousePos.x, mousePos.y);
@@ -2303,13 +2301,72 @@ void GameScene::UpdateTrampolinePlacement() {
 	tileMap_.ClampPositionToMapBounds(trampolinePreviewPos_.x, trampolinePreviewPos_.y, springHalfW, springHalfH);
 	trampolinePreview_.SetCenter(trampolinePreviewPos_, springLayoutHalfW, springLayoutHalfH);
 
+	size_t collectIndex = 0;
+	const bool canCollect =
+	    FindCollectableSpringAtCursor(nextType, trampolinePreviewPos_.x, trampolinePreviewPos_.y, springLayoutHalfW, springLayoutHalfH, collectIndex);
+	const bool placementBlocked =
+	    IsSpringPlacementBlockedAtCursor(nextType, trampolinePreviewPos_.x, trampolinePreviewPos_.y, springLayoutHalfW, springLayoutHalfH);
+	const bool canPlace = GetRemainingSpringPlacementCount(nextType) > 0 && !placementBlocked;
+
 	if (input_->IsTriggerMouse(0) && !input_->IsPressMouse(1) && !input_->IsPressMouse(2)) {
-		TrampolineSpring spring;
-		spring.SetType(nextType);
-		spring.SetCenter(trampolinePreviewPos_, springLayoutHalfW, springLayoutHalfH);
-		trampolineSprings_.push_back(std::move(spring));
-		SyncTrampolinePlacementType();
+		if (canCollect) {
+			trampolineSprings_.erase(trampolineSprings_.begin() + static_cast<std::ptrdiff_t>(collectIndex));
+			SyncTrampolinePlacementType();
+			return;
+		}
+		if (canPlace) {
+			TrampolineSpring spring;
+			spring.SetType(nextType);
+			spring.SetCenter(trampolinePreviewPos_, springLayoutHalfW, springLayoutHalfH);
+			trampolineSprings_.push_back(std::move(spring));
+			SyncTrampolinePlacementType();
+		}
 	}
+}
+
+bool GameScene::HasAnyCollectableSpringOnMap() const {
+	for (const TrampolineSpring& spring : trampolineSprings_) {
+		if (!spring.IsUsedByPlayer()) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool GameScene::FindCollectableSpringAtCursor(TrampolineSpringType cursorType, float cursorX, float cursorY, float cursorHalfW, float cursorHalfH,
+    size_t& outIndex) const {
+	if (player_ && player_->GetSpringChargePhase() != Player::SpringChargePhase::None) {
+		return false;
+	}
+
+	for (size_t i = 0; i < trampolineSprings_.size(); ++i) {
+		const TrampolineSpring& spring = trampolineSprings_[i];
+		if (spring.IsUsedByPlayer()) {
+			continue;
+		}
+		if (spring.GetType() != cursorType) {
+			continue;
+		}
+		if (!spring.IsPlayerOverlapping(cursorX, cursorY, cursorHalfW, cursorHalfH)) {
+			continue;
+		}
+		outIndex = i;
+		return true;
+	}
+	return false;
+}
+
+bool GameScene::IsSpringPlacementBlockedAtCursor(TrampolineSpringType cursorType, float cursorX, float cursorY, float cursorHalfW, float cursorHalfH) const {
+	for (const TrampolineSpring& spring : trampolineSprings_) {
+		if (!spring.IsPlayerOverlapping(cursorX, cursorY, cursorHalfW, cursorHalfH)) {
+			continue;
+		}
+		if (!spring.IsUsedByPlayer() && spring.GetType() == cursorType) {
+			continue;
+		}
+		return true;
+	}
+	return false;
 }
 
 bool GameScene::HasAnySpringPlacementRemaining() const {
@@ -2426,6 +2483,104 @@ int GameScene::GetRemainingSpringPlacementCount(TrampolineSpringType type) const
 		}
 	}
 	return (std::max)(0, kSpringPlacementLimitPerType_ - placedCount);
+}
+
+void GameScene::DrawSpringPreviewPlacementLabel() {
+	if (!hasTrampolinePreview_ || !isGameIntroFinished_) {
+		return;
+	}
+
+	const TrampolineSpringType springType = trampolinePreview_.GetType();
+	const int remaining = GetRemainingSpringPlacementCount(springType);
+	if (remaining <= 0) {
+		return;
+	}
+
+	int hudIndex = 0;
+	switch (springType) {
+	case TrampolineSpringType::Up:
+		hudIndex = 0;
+		break;
+	case TrampolineSpringType::Down:
+		hudIndex = 1;
+		break;
+	case TrampolineSpringType::Left:
+		hudIndex = 2;
+		break;
+	case TrampolineSpringType::Right:
+		hudIndex = 3;
+		break;
+	}
+
+	SpringPlacementHudUi& ui = springPlacementHudUi_[static_cast<size_t>(hudIndex)];
+	if (!ui.multiplySprite) {
+		return;
+	}
+
+	float zoomScale = 1.0f;
+	{
+		float sl = 0.0f, sb = 0.0f, sr = 0.0f, st = 0.0f;
+		tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, sl, sb, sr, st);
+		const float baseW = sr - sl;
+		float vl = 0.0f, vb = 0.0f, vr = 0.0f, vt = 0.0f;
+		ComputeCameraBounds(vl, vb, vr, vt);
+		const float viewW = vr - vl;
+		if (viewW > 0.0f && baseW > 0.0f) {
+			zoomScale = baseW / viewW;
+		}
+	}
+
+	const KamataEngine::Vector2 screenPos = ConvertWorldToScreen(trampolinePreviewPos_.x, trampolinePreviewPos_.y);
+	const float labelH = 18.0f * zoomScale;
+	const float multiplySize = labelH * kSpringHudMultiplyScale_;
+	const float digitSize = labelH * kSpringHudDigitScale_ * kSpringPreviewDigitScaleBoost_;
+	const float innerGap = 3.0f * zoomScale;
+	const float digitGap = kSpringHudDigitSpacing_ * zoomScale;
+	const float digitY = screenPos.y + kSpringPreviewDigitOffsetY_ * zoomScale;
+
+	const int tens = remaining / 10;
+	const int ones = remaining % 10;
+
+	float contentW = multiplySize + innerGap + digitSize;
+	if (tens > 0) {
+		contentW += digitGap + digitSize;
+	}
+
+	float x = screenPos.x - contentW * 0.5f;
+	const float multiplyY = screenPos.y;
+
+	ui.multiplySprite->SetAnchorPoint({0.0f, 0.5f});
+	ui.multiplySprite->SetSize({multiplySize, multiplySize});
+	ui.multiplySprite->SetPosition({x, multiplyY});
+	ui.multiplySprite->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+	ui.multiplySprite->Draw();
+	x += multiplySize + innerGap;
+
+	auto drawDigitAt = [&](KamataEngine::Sprite* sprite, int digit, float digitX) {
+		if (!sprite || digit < 0 || digit > 9) {
+			return;
+		}
+		const uint32_t handle = stageSelectDigitTextureHandles_[static_cast<size_t>(digit)] != 0
+		                            ? stageSelectDigitTextureHandles_[static_cast<size_t>(digit)]
+		                            : digitTextureHandles_[static_cast<size_t>(digit)];
+		if (handle == 0) {
+			return;
+		}
+		sprite->SetAnchorPoint({0.0f, 0.5f});
+		sprite->SetTextureHandle(handle);
+		sprite->SetSize({digitSize, digitSize});
+		sprite->SetPosition({digitX, digitY});
+		sprite->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+		sprite->Draw();
+	};
+
+	if (tens > 0) {
+		drawDigitAt(ui.tensDigitSprite, tens, x);
+		x += digitSize + digitGap;
+		drawDigitAt(ui.onesDigitSprite, ones, x);
+	} else {
+		drawDigitAt(ui.onesDigitSprite, ones, x);
+	}
 }
 
 void GameScene::DrawSpringPlacementHud() {
@@ -2606,21 +2761,55 @@ void GameScene::UpdateMapCamera() {
 	camera_.TransferMatrix();
 }
 
+bool GameScene::CanCameraZoomOut() const {
+	if (tileMap_.GetScreenCountX() <= 1 && tileMap_.GetScreenCountY() <= 1) {
+		return false;
+	}
+
+	float screenLeft = 0.0f;
+	float screenBottom = 0.0f;
+	float screenRight = 0.0f;
+	float screenTop = 0.0f;
+	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, screenLeft, screenBottom, screenRight, screenTop);
+	const float baseW = screenRight - screenLeft;
+	const float baseH = screenTop - screenBottom;
+
+	float mapMinX = 0.0f;
+	float mapMinY = 0.0f;
+	float mapMaxX = 0.0f;
+	float mapMaxY = 0.0f;
+	tileMap_.GetMapWorldBounds(mapMinX, mapMinY, mapMaxX, mapMaxY);
+	const float mapW = mapMaxX - mapMinX;
+	const float mapH = mapMaxY - mapMinY;
+
+	const float scaleToFitMapW = baseW > 0.0f ? mapW / baseW : 1.0f;
+	const float scaleToFitMapH = baseH > 0.0f ? mapH / baseH : 1.0f;
+	const float maxScale = (std::max)(scaleToFitMapW, scaleToFitMapH);
+	return maxScale > 1.01f;
+}
+
 void GameScene::UpdateCameraControl() {
 	if (!input_) {
 		return;
 	}
 
+	const SceneStateKind stateKind = GetSceneStateKind();
+	if (stateKind != SceneStateKind::Game && stateKind != SceneStateKind::GameIntro) {
+		return;
+	}
+
+	if (!CanCameraZoomOut()) {
+		isFreeCamera_ = false;
+		cameraZoomOut_ = 0.0f;
+		return;
+	}
+
 	const int32_t wheel = input_->GetWheel();
 	if (wheel != 0) {
-		// ズームの中心は常にPlayerのいる画面。ズームインでその画面へ戻る。
-		isFreeCamera_ = true;
 		cameraZoomOut_ -= static_cast<float>(wheel) / 120.0f * 0.12f;
 		cameraZoomOut_ = std::clamp(cameraZoomOut_, 0.0f, 1.0f);
-		if (cameraZoomOut_ <= 0.0f) {
-			isFreeCamera_ = false;
-		}
 	}
+	isFreeCamera_ = cameraZoomOut_ > 0.0001f;
 }
 
 void GameScene::UpdatePlayerScreenTransition() {
@@ -2628,71 +2817,27 @@ void GameScene::UpdatePlayerScreenTransition() {
 		return;
 	}
 
-	if (screenTransitionCooldown_ > 0) {
-		screenTransitionCooldown_--;
-	}
-
 	if (player_->IsSpikeInvulnerable()) {
 		return;
 	}
 
-	KamataEngine::Vector3 pos = player_->GetLocalPosition();
-	const float halfW = player_->GetHalfWidth();
-	const float halfH = player_->GetHalfHeight();
-
-	float left = 0.0f;
-	float bottom = 0.0f;
-	float right = 0.0f;
-	float top = 0.0f;
-	tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, left, bottom, right, top);
-
-	if (screenTransitionCooldown_ > 0) {
+	if (tileMap_.GetScreenCountX() <= 1 && tileMap_.GetScreenCountY() <= 1) {
 		return;
 	}
 
-	int newScreenX = currentScreenX_;
-	int newScreenY = currentScreenY_;
-	bool transitioned = false;
+	// 1枚のCSVで連続したワールド座標なので、プレイヤーはテレポートしない。
+	// いる座標から画面番号だけを更新し、カメラ追従を切り替える。
+	const KamataEngine::Vector3 pos = player_->GetLocalPosition();
+	int screenX = 0;
+	int screenY = 0;
+	tileMap_.GetScreenFromWorld(pos.x, pos.y, screenX, screenY);
 
-	if (pos.x - halfW < left && currentScreenX_ > 0) {
-		newScreenX = currentScreenX_ - 1;
-		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
-		pos.x = right - halfW - 2.0f;
-		transitioned = true;
-	} else if (pos.x + halfW > right && currentScreenX_ < tileMap_.GetScreenCountX() - 1) {
-		newScreenX = currentScreenX_ + 1;
-		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
-		pos.x = left + halfW + 2.0f;
-		transitioned = true;
-	}
-
-	if (pos.y - halfH < bottom && currentScreenY_ < tileMap_.GetScreenCountY() - 1) {
-		newScreenY = currentScreenY_ + 1;
-		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
-		pos.y = top - halfH - 4.0f;
-		currentScreenX_ = newScreenX;
-		currentScreenY_ = newScreenY;
-		player_->TeleportForScreenWrap(pos, player_->IsSideSpringFlying());
-		if (!player_->IsSideSpringFlying()) {
-			player_->SetVelocityY(-2.0f);
-		}
-		screenTransitionCooldown_ = kScreenTransitionCooldownFrames;
+	if (screenX == currentScreenX_ && screenY == currentScreenY_) {
 		return;
 	}
 
-	if (pos.y + halfH > top && currentScreenY_ > 0) {
-		newScreenY = currentScreenY_ - 1;
-		tileMap_.GetScreenViewportBounds(newScreenX, newScreenY, left, bottom, right, top);
-		pos.y = bottom + halfH + 4.0f;
-		transitioned = true;
-	}
-
-	if (transitioned) {
-		currentScreenX_ = newScreenX;
-		currentScreenY_ = newScreenY;
-		player_->TeleportForScreenWrap(pos, player_->IsSideSpringFlying());
-		screenTransitionCooldown_ = kScreenTransitionCooldownFrames;
-	}
+	currentScreenX_ = screenX;
+	currentScreenY_ = screenY;
 }
 
 // データドリブン: イベント種別ごとの処理テーブル（switch 分岐の代替）

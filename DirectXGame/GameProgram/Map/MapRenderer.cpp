@@ -7,7 +7,8 @@ constexpr float kGroundModelExtent = 8.271102f;
 constexpr float kSpikeModelExtent = 6.673206f;
 constexpr float kGoalModelExtent = 8.0f;
 constexpr float kButtonModelExtent = 15.390686f;
-constexpr float kSpikeHeightScale = 0.5f;
+constexpr float kSpikeHeightScale = 0.82f;
+constexpr float kSpikeWidthScale = 1.05f;
 
 KamataEngine::Vector3 MakeGoalScale(float tileW, float tileH, float modelExtent) {
 	const float scaleX = tileW / modelExtent * TileMap::kGoalHitScaleX;
@@ -21,7 +22,7 @@ KamataEngine::Vector3 MakeTileScale(float tileW, float tileH, float modelExtent)
 }
 
 KamataEngine::Vector3 MakeSpikeScale(float tileW, float tileH, float modelExtent) {
-	const float scaleX = tileW / modelExtent;
+	const float scaleX = tileW / modelExtent * kSpikeWidthScale;
 	const float scaleY = tileH / modelExtent * kSpikeHeightScale;
 	return {scaleX, scaleY, 1.0f};
 }
@@ -133,7 +134,7 @@ void MapRenderer::Initialize(KamataEngine::Model* groundModel, KamataEngine::Mod
 
 	for (int row = 0; row < tileMap.GetHeight(); ++row) {
 		for (int col = 0; col < tileMap.GetWidth(); ++col) {
-			if (tileMap.IsGround(col, row)) {
+			if (tileMap.GetTile(col, row) == 1) {
 				AddGroundTile(tileMap, col, row);
 			} else if (tileMap.IsSpike(col, row)) {
 				AddSpikeTile(tileMap, col, row);

@@ -71,12 +71,13 @@ public:
 	void ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool finalizeSideEffects = true);
 	void FinalizeGameplayRewindScrub();
 	void ApplyRewindScrubInterpolation(float tTowardTarget, bool undoDirection);
-	void UpdateRewindFuelRecharge();
-	void DrawRewindGauge();
 	void DrawSpikeLifeHearts();
 	bool TrampolinesMatchSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings) const;
 	void RestoreTrampolinesFromSnapshot(const std::vector<TrampolineSpringSnapshot>& snapshotSprings);
 	void DrawSpikeRewindOverlay();
+	void UpdateRewindOverlay();
+	void ClearRewindOverlayImmediate();
+	bool IsRewindPostReleaseLocked() const { return rewindPostReleaseLockSeconds_ > 0.0f; }
 	bool HasNextStageAfterCurrent() const;
 	static constexpr int kStageCount = 10;
 	static constexpr int kStageSelectDisplayMin = 1;
@@ -102,15 +103,21 @@ public:
 	void UpdateMapCamera();
 	void UpdateTitleCamera();
 	void UpdateCameraControl();
+	bool CanCameraZoomOut() const;
 	void UpdatePlayerScreenTransition();
 	void UpdateTrampolinePlacement();
 	void AdvanceToNextAvailableTrampolineType();
 	void SyncTrampolinePlacementType();
 	bool HasAnySpringPlacementRemaining() const;
+	bool HasAnyCollectableSpringOnMap() const;
+	bool FindCollectableSpringAtCursor(TrampolineSpringType cursorType, float cursorX, float cursorY, float cursorHalfW, float cursorHalfH,
+	    size_t& outIndex) const;
+	bool IsSpringPlacementBlockedAtCursor(TrampolineSpringType cursorType, float cursorX, float cursorY, float cursorHalfW, float cursorHalfH) const;
 	void UpdateTrampolineArrowAnimations();
 	void UpdateButtonGimmicks();
 	void DrawTrampolineSprings();
 	void DrawSpringPlacementHud();
+	void DrawSpringPreviewPlacementLabel();
 	void InitializeSpringPlacementHud();
 	int GetRemainingSpringPlacementCount(TrampolineSpringType type) const;
 	void DrawJumpSpringChargeCircle();
@@ -152,7 +159,7 @@ private:
 
 	Player* player_ = nullptr;
 	Skydome* skydome_ = nullptr;
-	Model* modelSkydome_ = nullptr;
+	Model* modelWall_ = nullptr;
 	RailCamera* railCamera_ = nullptr;
 
 	KamataEngine::Sprite* reticleSprite_ = nullptr;
@@ -338,8 +345,6 @@ private:
 	KamataEngine::Sprite* minimapSprite_ = nullptr;       // ミニマップ背景
 	KamataEngine::Sprite* minimapPlayerSprite_ = nullptr; // ミニマップ上の自機アイコン
 	KamataEngine::Sprite* jumpSpringChargeSprite_ = nullptr;
-	KamataEngine::Sprite* rewindGaugeBgSprite_ = nullptr;
-	KamataEngine::Sprite* rewindGaugeFillSprite_ = nullptr;
 	KamataEngine::Sprite* spikeLifeHeartIconSprite_ = nullptr;
 	KamataEngine::Sprite* spikeLifeMultiplySprite_ = nullptr;
 	KamataEngine::Sprite* spikeLifeTensDigitSprite_ = nullptr;
@@ -358,9 +363,11 @@ private:
 	uint32_t heartTextureHandle_ = 0;
 
 	// ミニマップ設定値（36×20タイルに合わせた縦横比）
+	static constexpr bool kShowMinimap_ = false;
+	static constexpr bool kShowSpringPlacementHud_ = false;
 	const KamataEngine::Vector2 kMinimapPosition_ = {10.0f, 10.0f}; // 描画基準位置 (左上)
 	const KamataEngine::Vector2 kMinimapSize_ = {162.0f, 90.0f};     // 1タイル約4.5px
-	const KamataEngine::Vector2 kRewindGaugeBarSize_ = {50.4f, 8.0f};
+	const KamataEngine::Vector2 kHeartUiPosition_ = {10.0f, 24.0f}; // 残機表示（左上）
 	const KamataEngine::Vector2 kHeartIconSize_ = {28.0f, 28.0f};
 	const float kHeartRowGap_ = 10.0f;
 
@@ -422,13 +429,10 @@ private:
 
 	int currentScreenX_ = 0;
 	int currentScreenY_ = 0;
-	int screenTransitionCooldown_ = 0;
-	static constexpr int kScreenTransitionCooldownFrames = 45;
 	bool isFreeCamera_ = false;
 	float freeCameraCenterX_ = 0.0f;
 	float freeCameraCenterY_ = 0.0f;
 	float cameraZoomOut_ = 0.0f;
-	int middleMouseWheelSuppressFrames_ = 0;
 
 	std::vector<TrampolineSpring> trampolineSprings_;
 	static constexpr int kSpringPlacementLimitPerType_ = 10;
@@ -439,6 +443,8 @@ private:
 	static constexpr float kSpringHudDigitSpacing_ = 2.0f;
 	static constexpr float kSpringHudRowSpacing_ = 4.0f;
 	static constexpr float kSpringHudInnerSpacing_ = 4.0f;
+	static constexpr float kSpringPreviewDigitScaleBoost_ = 1.18f;
+	static constexpr float kSpringPreviewDigitOffsetY_ = -0.4f;
 	struct SpringPlacementHudUi {
 		KamataEngine::Sprite* iconSprite = nullptr;
 		KamataEngine::Sprite* multiplySprite = nullptr;
@@ -453,11 +459,19 @@ private:
 	bool isGameplayRewinding_ = false;
 	bool gameplayRewindSeeded_ = false;
 	float gameplayRewindScrubAccumulator_ = 0.0f;
-	bool isRewindGaugeVisible_ = false;
-	float rewindFuelSeconds_ = GameplayRewindBuffer::kRewindFuelMaxSeconds;
 	int spikeLivesRemaining_ = kSpikeLivesMax_;
 	bool isSpikeRewindOverlayActive_ = false;
 	float spikeRewindOverlayAlpha_ = 0.0f;
+	bool spikeRewindScrubStarted_ = false;
+	float rewindOverlayAlpha_ = 0.0f;
+	bool rewindMinimapDirty_ = false;
+	bool pendingRewindPostReleaseLock_ = false;
+	float rewindPostReleaseLockSeconds_ = 0.0f;
+	float rewindPostReleaseDimAlpha_ = 0.0f;
+	static constexpr float kRewindPostReleaseLockSeconds_ = 0.2f;
+	static constexpr float kNormalRewindDimAlpha_ = 0.28f;
+	static constexpr float kSpikeRewindDimAlpha_ = 0.62f;
+	static constexpr float kRewindOverlayFadeInSpeed_ = 0.06f;
 	KamataEngine::Sprite* spikeRewindDimSprite_ = nullptr;
 	TrampolineSpring trampolinePreview_;
 	KamataEngine::Vector3 trampolinePreviewPos_ = {};

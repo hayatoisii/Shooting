@@ -14,9 +14,6 @@ void GameplayRewindBuffer::ForceRecord(const GameplaySnapshot& snapshot) {
 	}
 
 	snapshots_.push_back(snapshot);
-	if (static_cast<int>(snapshots_.size()) > kMaxSnapshots) {
-		snapshots_.erase(snapshots_.begin());
-	}
 
 	timelineIndex_ = static_cast<int>(snapshots_.size()) - 1;
 }
@@ -33,9 +30,6 @@ void GameplayRewindBuffer::Record(const GameplaySnapshot& snapshot) {
 	}
 
 	snapshots_.push_back(snapshot);
-	if (static_cast<int>(snapshots_.size()) > kMaxSnapshots) {
-		snapshots_.erase(snapshots_.begin());
-	}
 
 	timelineIndex_ = static_cast<int>(snapshots_.size()) - 1;
 }

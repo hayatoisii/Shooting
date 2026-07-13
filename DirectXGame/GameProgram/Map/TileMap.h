@@ -9,7 +9,7 @@ struct TileMapGimmickSnapshot {
 	std::unordered_set<int> pressedButtons;
 };
 
-// CSVマップ（0=空白, 1=地面, 2=トゲ, 3=ゴール, 4=消える壁, 5=ボタン）
+// CSVマップ（0=空白, 1=地面, 2=トゲ, 3=ゴール, 4=消える壁, 5=ボタン, 7=Player初期位置）
 class TileMap {
 public:
 	static constexpr float kTileWidth = 42.0f;
@@ -19,14 +19,15 @@ public:
 	// バネサイズ用（Player拡大前の基準半幅）
 	static constexpr float kSpringReferenceHalfW = kTileWidth * 0.375f;
 	static constexpr float kSpringReferenceHalfH = kTileHeight * 0.375f;
-	static constexpr float kSpikeVerticalHitScale = 0.5f;
+	static constexpr float kSpikeVerticalHitScale = 0.72f;
 	static constexpr float kGoalHitScaleX = 1.3f;
 	static constexpr float kGoalHitScaleY = 1.4f;
 	// portal 見た目：下にはみ出す分を上にずらす（スケール後の高さに対する比率）
 	static constexpr float kGoalModelRaiseRatio = 0.05f;
 	// パーティクル基準点：モデル中心からわずかに下（上下とも隠す）
 	static constexpr float kGoalParticleLowerRatio = 0.05f;
-	// Player 初期位置（TileMap::FindSpawnPosition / GaneScene::LoadStage）
+	static constexpr int kSpawnTile = 7; // マップ上に置いた7番チップがPlayer初期位置
+	// 7番チップが無いときのフォールバック（TileMap::FindSpawnPosition）
 	static constexpr int kSpawnColumn = 0; // 列（0=左端）。負の値なら下から最初に見つかった地面
 	static constexpr int kSpawnPlatformTiers = 2; // 足場の段数（下の段から数える）
 
@@ -39,6 +40,7 @@ public:
 	int GetHeight() const { return height_; }
 	int GetTile(int col, int row) const;
 	bool IsGround(int col, int row) const;
+	bool IsSpawnMarker(int col, int row) const;
 	bool IsSpike(int col, int row) const;
 	bool IsGoal(int col, int row) const;
 	bool IsDisappearingWall(int col, int row) const;

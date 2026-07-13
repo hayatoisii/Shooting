@@ -3,6 +3,7 @@
 #include "base/WinApp.h"
 
 #include <algorithm>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 
@@ -88,6 +89,8 @@ int TileMap::GetTile(int col, int row) const {
 
 bool TileMap::IsGround(int col, int row) const { return GetTile(col, row) == 1; }
 
+bool TileMap::IsSpawnMarker(int col, int row) const { return GetTile(col, row) == kSpawnTile; }
+
 bool TileMap::IsSpike(int col, int row) const { return GetTile(col, row) == 2; }
 
 bool TileMap::IsGoal(int col, int row) const { return GetTile(col, row) == 3; }
@@ -118,7 +121,7 @@ bool TileMap::IsButtonPressed(int col, int row) const {
 }
 
 bool TileMap::IsSolidForCollision(int col, int row) const {
-	if (IsGround(col, row)) {
+	if (IsGround(col, row) || IsSpawnMarker(col, row)) {
 		return true;
 	}
 	return IsDisappearingWallActive(col, row);
@@ -189,10 +192,17 @@ void TileMap::WorldToTile(float worldX, float worldY, int& col, int& row) const 
 }
 
 void TileMap::GetScreenFromWorld(float worldX, float worldY, int& screenX, int& screenY) const {
-	const float localX = worldX - offsetX_ + GetViewportMarginX();
-	const float localY = worldY - offsetY_ + GetViewportMarginY();
+	// GetScreenViewportBounds と同じ座標系（余白マージンは含めない）
+	const float localX = worldX - offsetX_;
+	const float localY = worldY - offsetY_;
 	const float screenW = GetScreenWorldWidth();
 	const float screenH = GetScreenWorldHeight();
+
+	if (screenW <= 0.0f || screenH <= 0.0f) {
+		screenX = 0;
+		screenY = 0;
+		return;
+	}
 
 	screenX = static_cast<int>(localX / screenW);
 	screenY = GetScreenCountY() - 1 - static_cast<int>(localY / screenH);
@@ -217,6 +227,26 @@ void TileMap::GetScreenViewportBounds(int screenX, int screenY, float& left, flo
 
 KamataEngine::Vector3 TileMap::FindSpawnPosition(float halfWidth, float halfHeight) const {
 	(void)halfWidth;
+
+	for (int row = 0; row < height_; ++row) {
+		for (int col = 0; col < width_; ++col) {
+			if (!IsSpawnMarker(col, row)) {
+				continue;
+			}
+
+			float minX = 0.0f;
+			float minY = 0.0f;
+			float maxX = 0.0f;
+			float maxY = 0.0f;
+			GetTileWorldRect(col, row, minX, minY, maxX, maxY);
+
+			KamataEngine::Vector3 pos;
+			pos.x = (minX + maxX) * 0.5f;
+			pos.y = maxY + halfHeight;
+			pos.z = 1.0f;
+			return pos;
+		}
+	}
 
 	const int screenEndRow = IsMultiScreenMap() ? kScreenTilesH - 1 : height_ - 1;
 	const int screenEndCol = IsMultiScreenMap() ? kScreenTilesW - 1 : width_ - 1;
@@ -300,57 +330,90 @@ void TileMap::ClampPositionToMapBounds(float& x, float& y, float halfWidth, floa
 
 namespace {
 constexpr float kPi = 3.14159265f;
+// 左右の壁用：needleモデルは横向きだけ180°ずれている
+constexpr float kSpikeHorizontalRotationOffset = kPi;
+
+float ComputeSpikeFacingZ(int col, int row, int width, const TileMap& tileMap) {
+	const auto isWall = [&tileMap](int c, int r) { return tileMap.IsSolidForCollision(c, r); };
+
+	const bool south = isWall(col, row + 1);
+	const bool north = isWall(col, row - 1);
+	const bool west = isWall(col - 1, row);
+	const bool east = isWall(col + 1, row);
+
+	// 縦壁（下に床がない）→ 横向き
+	if (!south) {
+		if (east && !west) {
+			return (col <= 0) ? kPi * 0.5f : -kPi * 0.5f;
+		}
+		if (west && !east) {
+			return (col + 1 >= width) ? -kPi * 0.5f : kPi * 0.5f;
+		}
+	}
+
+	// 床
+	if (south) {
+		return 0.0f;
+	}
+
+	// 天井
+	if (north) {
+		return kPi;
+	}
+
+	// 横に壁のみ
+	if (east && !west) {
+		return (col <= 0) ? kPi * 0.5f : -kPi * 0.5f;
+	}
+	if (west && !east) {
+		return (col + 1 >= width) ? -kPi * 0.5f : kPi * 0.5f;
+	}
+
+	return 0.0f;
+}
 } // namespace
 
 float TileMap::GetSpikeRotationZ(int col, int row) const {
-	const bool groundBelow = IsGround(col, row + 1);
-	const bool groundAbove = IsGround(col, row - 1);
-	const bool groundLeft = IsGround(col - 1, row);
-	const bool groundRight = IsGround(col + 1, row);
-
-	if (groundBelow && groundLeft) {
-		return -kPi * 0.5f;
+	const float facing = ComputeSpikeFacingZ(col, row, width_, *this);
+	// 床(0°)・天井(180°)はそのまま。左右の壁(±90°)だけモデル向きを補正
+	if (std::abs(std::cos(facing)) < 0.001f) {
+		return facing + kSpikeHorizontalRotationOffset;
 	}
-	if (groundBelow && groundRight) {
-		return kPi * 0.5f;
-	}
-	if (groundAbove && groundLeft) {
-		return -kPi * 0.5f;
-	}
-	if (groundAbove && groundRight) {
-		return kPi * 0.5f;
-	}
-
-	if (groundBelow) {
-		return 0.0f;
-	}
-	if (groundAbove) {
-		return kPi;
-	}
-	if (groundLeft) {
-		return -kPi * 0.5f;
-	}
-	if (groundRight) {
-		return kPi * 0.5f;
-	}
-	return 0.0f;
+	return facing;
 }
 
 void TileMap::GetSpikeAnchorOffset(int col, int row, float& offsetX, float& offsetY) const {
 	offsetX = 0.0f;
 	offsetY = 0.0f;
 
-	const float rotZ = GetSpikeRotationZ(col, row);
+	const auto isWall = [this](int c, int r) { return IsSolidForCollision(c, r); };
+
+	const bool south = isWall(col, row + 1);
+	const bool north = isWall(col, row - 1);
+	const bool west = isWall(col - 1, row);
+	const bool east = isWall(col + 1, row);
+
 	const float anchorOffset = tileHeight_ * (1.0f - kSpikeVerticalHitScale) * 0.5f;
 
-	if (std::abs(rotZ) < 0.01f) {
-		offsetY = -anchorOffset;
-	} else if (std::abs(rotZ - kPi) < 0.01f) {
-		offsetY = anchorOffset;
-	} else if (rotZ < 0.0f) {
-		offsetX = -anchorOffset;
-	} else {
-		offsetX = anchorOffset;
+	float dirX = 0.0f;
+	float dirY = 0.0f;
+	if (south) {
+		dirY -= 1.0f;
+	}
+	if (north) {
+		dirY += 1.0f;
+	}
+	if (west) {
+		dirX -= 1.0f;
+	}
+	if (east) {
+		dirX += 1.0f;
+	}
+
+	const float len = std::sqrt(dirX * dirX + dirY * dirY);
+	if (len > 0.0f) {
+		offsetX = dirX / len * anchorOffset;
+		offsetY = dirY / len * anchorOffset;
 	}
 }
 
@@ -372,19 +435,25 @@ bool TileMap::OverlapsSpike(float worldX, float worldY, float halfWidth, float h
 			float tMaxY = 0.0f;
 			GetTileWorldRect(col, row, tMinX, tMinY, tMaxX, tMaxY);
 
+			const float tileW = tMaxX - tMinX;
 			const float tileH = tMaxY - tMinY;
-			const float hitH = tileH * kSpikeVerticalHitScale;
-			const float centerY = (tMinY + tMaxY) * 0.5f;
-			tMinY = centerY - hitH * 0.5f;
-			tMaxY = centerY + hitH * 0.5f;
+			const float rotZ = GetSpikeRotationZ(col, row);
+			const float spikeLen = tileH * kSpikeVerticalHitScale;
+			const float spikeThick = tileW * 0.42f;
+			const float absCos = std::abs(std::cos(rotZ));
+			const float absSin = std::abs(std::sin(rotZ));
+			const float halfW = spikeLen * 0.5f * absSin + spikeThick * 0.5f * absCos;
+			const float halfH = spikeLen * 0.5f * absCos + spikeThick * 0.5f * absSin;
 
 			float anchorOffsetX = 0.0f;
 			float anchorOffsetY = 0.0f;
 			GetSpikeAnchorOffset(col, row, anchorOffsetX, anchorOffsetY);
-			tMinX += anchorOffsetX;
-			tMaxX += anchorOffsetX;
-			tMinY += anchorOffsetY;
-			tMaxY += anchorOffsetY;
+			const float centerX = (tMinX + tMaxX) * 0.5f + anchorOffsetX;
+			const float centerY = (tMinY + tMaxY) * 0.5f + anchorOffsetY;
+			tMinX = centerX - halfW;
+			tMaxX = centerX + halfW;
+			tMinY = centerY - halfH;
+			tMaxY = centerY + halfH;
 
 			if (playerMaxX > tMinX && playerMinX < tMaxX && playerMaxY > tMinY && playerMinY < tMaxY) {
 				return true;

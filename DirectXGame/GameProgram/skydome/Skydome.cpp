@@ -1,52 +1,92 @@
 #include "Skydome.h"
 #include "KamataEngine.h"
 
+#include <3d/Mesh.h>
+
+#include <algorithm>
+#include <cfloat>
+
 namespace {
-// 正のZ＝奥（マップ z=0 より後ろ）
-constexpr float kSkydomeDepthZ = 90.0f;
-// blocks.obj など 8 単位キューブの一辺
-constexpr float kBackdropModelExtent = 8.0f;
-// 1.0 = 画面ぴったり / 10.0 = 約10倍（テクスチャが拡大表示される）
-constexpr float kSkydomeSizeScale = 1.0f;
+// マップ(z=0)より奥。値を大きくするほど奥になる
+constexpr float kWallDepthZ = 60.0f;
+constexpr float kWallScaleX = 4.0f;
+constexpr float kWallScaleY = 4.0f;
+constexpr float kWallScaleZ = 1.0f;
 } // namespace
 
-void Skydome::Initialize(KamataEngine::Model* backdropModel, KamataEngine::Camera* camera) {
-	worldtransfrom_.Initialize();
-	backdropModel_ = backdropModel;
+void Skydome::Initialize(KamataEngine::Camera* camera) {
+	wallWorldTransform_.Initialize();
 	camera_ = camera;
-	LoadSkyTexture();
+	wallTextureHandle_ = KamataEngine::TextureManager::Load("wall2/backrock.png");
 }
 
-void Skydome::LoadSkyTexture() {
-	hasSkyTexture_ = false;
-	skyTextureHandle_ = KamataEngine::TextureManager::Load("skydome/sky_sphere.png");
-	hasSkyTexture_ = true;
+void Skydome::SetWallBackdrop(KamataEngine::Model* wallModel) {
+	wallModel_ = wallModel;
+	RecomputeWallModelBounds();
 }
 
-void Skydome::Update() {
-	worldtransfrom_.UpdateMatrix();
+void Skydome::RecomputeWallModelBounds() {
+	wallModelCenterX_ = 0.0f;
+	wallModelCenterY_ = 0.0f;
+	wallModelCenterZ_ = 0.0f;
+
+	if (!wallModel_) {
+		return;
+	}
+
+	float minX = FLT_MAX;
+	float maxX = -FLT_MAX;
+	float minY = FLT_MAX;
+	float maxY = -FLT_MAX;
+	float minZ = FLT_MAX;
+	float maxZ = -FLT_MAX;
+	bool hasVertex = false;
+
+	for (const std::unique_ptr<KamataEngine::Mesh>& mesh : wallModel_->GetMeshes()) {
+		for (const KamataEngine::Mesh::VertexPosNormalUv& vertex : mesh->GetVertices()) {
+			hasVertex = true;
+			minX = (std::min)(minX, vertex.pos.x);
+			maxX = (std::max)(maxX, vertex.pos.x);
+			minY = (std::min)(minY, vertex.pos.y);
+			maxY = (std::max)(maxY, vertex.pos.y);
+			minZ = (std::min)(minZ, vertex.pos.z);
+			maxZ = (std::max)(maxZ, vertex.pos.z);
+		}
+	}
+
+	if (!hasVertex) {
+		return;
+	}
+
+	wallModelCenterX_ = (minX + maxX) * 0.5f;
+	wallModelCenterY_ = (minY + maxY) * 0.5f;
+	wallModelCenterZ_ = (minZ + maxZ) * 0.5f;
 }
 
-void Skydome::SetViewBounds(float centerX, float centerY, float viewW, float viewH) {
-	const float coverW = viewW * 1.05f * kSkydomeSizeScale;
-	const float coverH = viewH * 1.05f * kSkydomeSizeScale;
+void Skydome::DrawAt(float centerX, float centerY) {
+	if (!wallModel_) {
+		return;
+	}
 
-	// 球体ではなく +Z 面の板としてビュー全体を覆う（正射影向け）
-	worldtransfrom_.translation_ = {centerX, centerY, kSkydomeDepthZ};
-	worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
-	worldtransfrom_.scale_ = {coverW / kBackdropModelExtent, coverH / kBackdropModelExtent, 0.02f};
-	worldtransfrom_.UpdateMatrix();
+	wallWorldTransform_.rotation_ = {0.0f, 0.0f, 0.0f};
+	// Zを負にして表をカメラ側へ向ける（裏面カリング対策）
+	wallWorldTransform_.scale_ = {kWallScaleX, kWallScaleY, -kWallScaleZ};
+	wallWorldTransform_.translation_ = {
+	    centerX - wallModelCenterX_ * kWallScaleX,
+	    centerY - wallModelCenterY_ * kWallScaleY,
+	    kWallDepthZ + wallModelCenterZ_ * kWallScaleZ,
+	};
+	wallWorldTransform_.UpdateMatrix();
 }
 
 void Skydome::Draw() {
-	if (!backdropModel_ || !camera_) {
+	if (!wallModel_ || !camera_) {
 		return;
 	}
 
-	if (hasSkyTexture_) {
-		backdropModel_->Draw(worldtransfrom_, *camera_, skyTextureHandle_);
-		return;
+	if (wallTextureHandle_ != 0) {
+		wallModel_->Draw(wallWorldTransform_, *camera_, wallTextureHandle_);
+	} else {
+		wallModel_->Draw(wallWorldTransform_, *camera_);
 	}
-
-	backdropModel_->Draw(worldtransfrom_, *camera_);
 }
