@@ -121,7 +121,8 @@ bool TileMap::IsButtonPressed(int col, int row) const {
 }
 
 bool TileMap::IsSolidForCollision(int col, int row) const {
-	if (IsGround(col, row) || IsSpawnMarker(col, row)) {
+	// 7番はPlayer初期位置マーカーのみ。見た目も当たり判定も持たない
+	if (IsGround(col, row)) {
 		return true;
 	}
 	return IsDisappearingWallActive(col, row);
@@ -242,7 +243,8 @@ KamataEngine::Vector3 TileMap::FindSpawnPosition(float halfWidth, float halfHeig
 
 			KamataEngine::Vector3 pos;
 			pos.x = (minX + maxX) * 0.5f;
-			pos.y = maxY + halfHeight;
+			// 7番マスの下端に足が来るように配置（7自体はブロックではない）
+			pos.y = minY + halfHeight;
 			pos.z = 1.0f;
 			return pos;
 		}
@@ -334,7 +336,8 @@ constexpr float kPi = 3.14159265f;
 constexpr float kSpikeHorizontalRotationOffset = kPi;
 
 float ComputeSpikeFacingZ(int col, int row, int width, const TileMap& tileMap) {
-	const auto isWall = [&tileMap](int c, int r) { return tileMap.IsSolidForCollision(c, r); };
+	// 消える壁にはトゲをくっつけない（通常の地面ブロックのみ）
+	const auto isWall = [&tileMap](int c, int r) { return tileMap.IsGround(c, r); };
 
 	const bool south = isWall(col, row + 1);
 	const bool north = isWall(col, row - 1);
@@ -386,7 +389,8 @@ void TileMap::GetSpikeAnchorOffset(int col, int row, float& offsetX, float& offs
 	offsetX = 0.0f;
 	offsetY = 0.0f;
 
-	const auto isWall = [this](int c, int r) { return IsSolidForCollision(c, r); };
+	// 消える壁にはトゲをくっつけない（通常の地面ブロックのみ）
+	const auto isWall = [this](int c, int r) { return IsGround(c, r); };
 
 	const bool south = isWall(col, row + 1);
 	const bool north = isWall(col, row - 1);
@@ -395,25 +399,29 @@ void TileMap::GetSpikeAnchorOffset(int col, int row, float& offsetX, float& offs
 
 	const float anchorOffset = tileHeight_ * (1.0f - kSpikeVerticalHitScale) * 0.5f;
 
+	// ComputeSpikeFacingZ と同じ優先で「1方向だけ」寄せる
+	// （床＋横壁などを合算すると中空に浮いて見える）
 	float dirX = 0.0f;
 	float dirY = 0.0f;
-	if (south) {
-		dirY -= 1.0f;
-	}
-	if (north) {
-		dirY += 1.0f;
-	}
-	if (west) {
-		dirX -= 1.0f;
-	}
-	if (east) {
-		dirX += 1.0f;
+	if (!south) {
+		if (east && !west) {
+			dirX = 1.0f;
+		} else if (west && !east) {
+			dirX = -1.0f;
+		} else if (north) {
+			dirY = 1.0f;
+		} else if (east) {
+			dirX = 1.0f;
+		} else if (west) {
+			dirX = -1.0f;
+		}
+	} else {
+		dirY = -1.0f;
 	}
 
-	const float len = std::sqrt(dirX * dirX + dirY * dirY);
-	if (len > 0.0f) {
-		offsetX = dirX / len * anchorOffset;
-		offsetY = dirY / len * anchorOffset;
+	if (dirX != 0.0f || dirY != 0.0f) {
+		offsetX = dirX * anchorOffset;
+		offsetY = dirY * anchorOffset;
 	}
 }
 
@@ -572,6 +580,12 @@ void TileMap::ResolveCollisionX(float& x, float y, float halfWidth, float halfHe
 	const float playerMinY = y - halfHeight;
 	const float playerMaxY = y + halfHeight;
 
+	// 複数タイルを順番に押し続けると端まで連鎖テレポートするので、
+	// いちばん浅いめり込み1件だけを解消する
+	float bestPen = 3.4e38f;
+	float bestDelta = 0.0f;
+	bool found = false;
+
 	for (int row = 0; row < height_; ++row) {
 		for (int col = 0; col < width_; ++col) {
 			if (!IsSolidForCollision(col, row)) {
@@ -592,12 +606,17 @@ void TileMap::ResolveCollisionX(float& x, float y, float halfWidth, float halfHe
 
 			const float overlapLeft = playerMaxX - tMinX;
 			const float overlapRight = tMaxX - playerMinX;
-			if (overlapLeft < overlapRight) {
-				x -= overlapLeft;
-			} else {
-				x += overlapRight;
+			const float pen = (overlapLeft < overlapRight) ? overlapLeft : overlapRight;
+			if (pen < bestPen) {
+				bestPen = pen;
+				bestDelta = (overlapLeft < overlapRight) ? -overlapLeft : overlapRight;
+				found = true;
 			}
 		}
+	}
+
+	if (found) {
+		x += bestDelta;
 	}
 }
 
@@ -605,6 +624,11 @@ void TileMap::ResolveCollisionY(float& y, float x, float halfWidth, float halfHe
 	onGround = false;
 	const float playerMinX = x - halfWidth;
 	const float playerMaxX = x + halfWidth;
+
+	float bestPen = 3.4e38f;
+	float bestY = y;
+	bool bestOnGround = false;
+	bool found = false;
 
 	for (int row = 0; row < height_; ++row) {
 		for (int col = 0; col < width_; ++col) {
@@ -624,8 +648,8 @@ void TileMap::ResolveCollisionY(float& y, float x, float halfWidth, float halfHe
 				continue;
 			}
 
-			const float overlapBottom = playerMaxY - tMinY;
-			const float overlapTop = tMaxY - playerMinY;
+			const float overlapBottom = playerMaxY - tMinY; // タイル下端から上へのめり込み（天井側）
+			const float overlapTop = tMaxY - playerMinY;    // タイル上端から下へのめり込み（着地側）
 
 			if (velocityY > 0.0f) {
 				// 上昇中は足元の地面では解決しない（ジャンプ直後に押し戻されるのを防ぐ）
@@ -634,18 +658,37 @@ void TileMap::ResolveCollisionY(float& y, float x, float halfWidth, float halfHe
 				}
 				// 頭上の天井だけ解決
 				if (overlapBottom < overlapTop) {
-					y = tMinY - halfHeight;
+					if (overlapBottom < bestPen) {
+						bestPen = overlapBottom;
+						bestY = tMinY - halfHeight;
+						bestOnGround = false;
+						found = true;
+					}
 				}
 				continue;
 			}
 
+			// 着地（上から）か天井（下から）かをめり込み量で判定する
 			if (overlapTop <= overlapBottom) {
-				y = tMaxY + halfHeight;
-				onGround = true;
+				if (overlapTop < bestPen) {
+					bestPen = overlapTop;
+					bestY = tMaxY + halfHeight;
+					bestOnGround = true;
+					found = true;
+				}
 			} else {
-				y = tMaxY + halfHeight;
-				onGround = true;
+				if (overlapBottom < bestPen) {
+					bestPen = overlapBottom;
+					bestY = tMinY - halfHeight;
+					bestOnGround = false;
+					found = true;
+				}
 			}
 		}
+	}
+
+	if (found) {
+		y = bestY;
+		onGround = bestOnGround;
 	}
 }

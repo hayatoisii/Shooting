@@ -63,17 +63,20 @@ void Skydome::RecomputeWallModelBounds() {
 	wallModelCenterZ_ = (minZ + maxZ) * 0.5f;
 }
 
-void Skydome::DrawAt(float centerX, float centerY) {
+void Skydome::DrawAt(float centerX, float centerY, float viewScale) {
 	if (!wallModel_) {
 		return;
 	}
 
+	const float scaleX = kWallScaleX * viewScale;
+	const float scaleY = kWallScaleY * viewScale;
+
 	wallWorldTransform_.rotation_ = {0.0f, 0.0f, 0.0f};
 	// Zを負にして表をカメラ側へ向ける（裏面カリング対策）
-	wallWorldTransform_.scale_ = {kWallScaleX, kWallScaleY, -kWallScaleZ};
+	wallWorldTransform_.scale_ = {scaleX, scaleY, -kWallScaleZ};
 	wallWorldTransform_.translation_ = {
-	    centerX - wallModelCenterX_ * kWallScaleX,
-	    centerY - wallModelCenterY_ * kWallScaleY,
+	    centerX - wallModelCenterX_ * scaleX,
+	    centerY - wallModelCenterY_ * scaleY,
 	    kWallDepthZ + wallModelCenterZ_ * kWallScaleZ,
 	};
 	wallWorldTransform_.UpdateMatrix();

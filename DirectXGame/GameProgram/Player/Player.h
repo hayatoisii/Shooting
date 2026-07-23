@@ -43,6 +43,41 @@ public:
 	SpringChargePhase GetSpringChargePhase() const { return springChargePhase_; }
 	SpringChargeKind GetSpringChargeKind() const { return springChargeKind_; }
 	float GetJumpSpringChargeLevel() const { return springChargeLevel_; }
+	// チュートリアル用: この値未満では SPACE 離しで発射しない（0で無効）
+	void SetMinSpringChargeToLaunch(float minCharge) {
+		if (minCharge < 0.0f) {
+			minCharge = 0.0f;
+		}
+		if (minCharge > 1.0f) {
+			minCharge = 1.0f;
+		}
+		minSpringChargeToLaunch_ = minCharge;
+	}
+	float GetMinSpringChargeToLaunch() const { return minSpringChargeToLaunch_; }
+	// チュートリアル用: Pause タイムアウトでの無チャージ発射を禁止
+	void SetBlockUnchargedSpringLaunch(bool block) { blockUnchargedSpringLaunch_ = block; }
+	// チュートリアル用: バネ接触反応のON/OFF
+	void SetSpringInteractionEnabled(bool enabled) { springInteractionEnabled_ = enabled; }
+	bool IsSpringInteractionEnabled() const { return springInteractionEnabled_; }
+	// チュートリアル用: 棘接触反応のON/OFF
+	void SetSpikeInteractionEnabled(bool enabled) { spikeInteractionEnabled_ = enabled; }
+	bool IsSpikeInteractionEnabled() const { return spikeInteractionEnabled_; }
+	// チュートリアル用: A/D左右移動のON/OFF
+	void SetHorizontalMoveEnabled(bool enabled) { horizontalMoveEnabled_ = enabled; }
+	bool IsHorizontalMoveEnabled() const { return horizontalMoveEnabled_; }
+	// 一時停止に入るとき、短押しのチャージ予約を破棄する
+	void ClearSpringSpaceHold() {
+		springSpaceHoldSec_ = 0.0f;
+		springChargeSpaceLatched_ = false;
+	}
+	// チュートリアル用: チャージ開始までの押し込み待ち（0なら即チャージ）
+	void SetSpringChargeStartHoldSec(float seconds) {
+		springChargeStartHoldSec_ = (seconds < 0.0f) ? 0.0f : seconds;
+	}
+	void ResetSpringChargeStartHoldSec() { springChargeStartHoldSec_ = kSpringChargeStartHoldSec; }
+	// チュートリアル用: バネ中央到達後すぐ自然に発射
+	void SetInstantSpringLaunch(bool enabled) { instantSpringLaunch_ = enabled; }
+	bool IsInstantSpringLaunch() const { return instantSpringLaunch_; }
 	const KamataEngine::Vector3& GetJumpSpringAnchor() const { return springChargeAnchor_; }
 	float GetJumpSpringCircleRadiusWorld() const;
 	bool ShouldShowSpringTrajectory() const;
@@ -65,6 +100,7 @@ public:
 	void TeleportForScreenWrap(const KamataEngine::Vector3& position, bool preserveVelocity);
 	bool IsSpikeInvulnerable() const { return spikeRespawnCooldown_ > 0; }
 	bool IsSideSpringFlying() const { return isSideSpringFlying_; }
+	bool IsOnGround() const { return onGround_; }
 	const KamataEngine::Vector3& GetLocalPosition() const { return worldtransfrom_.translation_; }
 	void RefreshWorldMatrix() { worldtransfrom_.UpdateMatrix(); }
 
@@ -88,6 +124,8 @@ public:
 	bool IsMovingInput() const;
 	void SetVelocityY(float velocityY) { velocityY_ = velocityY; }
 	void SetVelocityX(float velocityX) { velocityX_ = velocityX; }
+	float GetVelocityX() const { return velocityX_; }
+	float GetVelocityY() const { return velocityY_; }
 
 	void SetVisualModel(KamataEngine::Model* model);
 	void SetSpawnPosition(const KamataEngine::Vector3& pos);
@@ -137,7 +175,7 @@ public:
 	void CancelMotionAfterRewindStop();
 
 	bool UpdateSpringCharge(KamataEngine::Vector3& pos);
-	void BeginSpringPenetration(int springIndex, SpringChargeKind kind, const KamataEngine::Vector3& pos);
+	void BeginSpringPenetration(int springIndex, SpringChargeKind kind, KamataEngine::Vector3& pos);
 	void BeginSpringPauseAt(const KamataEngine::Vector3& pos);
 	void LaunchFromSpringCharge(bool useCharge);
 	const TrampolineSpring* GetActiveSpring() const;
@@ -211,8 +249,15 @@ private:
 	int activeSpringIndex_ = -1;
 	float springChargePauseTimer_ = 0.0f;
 	float springChargeLevel_ = 0.0f;
+	float minSpringChargeToLaunch_ = 0.0f;
+	bool blockUnchargedSpringLaunch_ = false;
+	bool springInteractionEnabled_ = true;
+	bool spikeInteractionEnabled_ = true;
+	bool horizontalMoveEnabled_ = true;
+	bool instantSpringLaunch_ = false;
 	// めり込み(中央移動)中にSPACEが押されたら記憶し、中央到達時にそのままチャージへ移行する
 	bool springChargeSpaceLatched_ = false;
+	float springSpaceHoldSec_ = 0.0f;
 	KamataEngine::Vector3 springChargeAnchor_ = {};
 	KamataEngine::Vector3 springPenetrationPrevPos_ = {};
 	bool isSideSpringFlying_ = false;
@@ -224,6 +269,9 @@ private:
 	static constexpr float kPlayerVisualScale = 2.0f;
 	static constexpr float kSpringPauseDuration = 0.3f;
 	static constexpr float kSpringMaxChargeTime = 1.2f;
+	// これ未満のSPACE押しはチャージ開始せず、一時停止の短押し判定に回す
+	static constexpr float kSpringChargeStartHoldSec = 0.16f;
+	float springChargeStartHoldSec_ = kSpringChargeStartHoldSec;
 	static constexpr float kSpringMinLaunchSpeed = 7.0f;
 	static constexpr float kSpringMaxLaunchSpeed = 28.0f * 1.1f;
 	static constexpr float kSideSpringMinLaunchSpeed = 7.0f;

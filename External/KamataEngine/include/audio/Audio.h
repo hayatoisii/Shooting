@@ -94,9 +94,37 @@ public:
 	uint32_t PlayWave(uint32_t soundDataHandle, bool loopFlag = false, float volume = 1.0f);
 
 	void playAudio(int& Audio, int& AudioHandle, bool loopFlag, float volume = 1.0f) {
-		if (IsPlaying(Audio) == 0 || Audio == -1) {
-			Audio = PlayWave(AudioHandle, loopFlag, volume);
+		if (Audio == -1 || IsPlaying(Audio) == 0) {
+			Audio = static_cast<int>(PlayWave(static_cast<uint32_t>(AudioHandle), loopFlag, volume));
 		}
+	}
+
+	/// <summary>
+	/// ワンショットSE: 同じボイスが再生中なら止めてから再生（連続再生可・二重重ねなし）
+	/// </summary>
+	void playAudioOneShot(int& voice, int& soundHandle, float volume = 1.0f) {
+		if (voice != -1 && IsPlaying(static_cast<uint32_t>(voice))) {
+			StopWave(static_cast<uint32_t>(voice));
+		}
+		voice = static_cast<int>(PlayWave(static_cast<uint32_t>(soundHandle), false, volume));
+	}
+
+	/// <summary>
+	/// ループBGM: 未再生のときだけ開始（毎フレーム呼んでも二重にならない）
+	/// </summary>
+	void ensureLoopPlaying(int& voice, int& soundHandle, float volume = 1.0f) {
+		if (voice != -1 && IsPlaying(static_cast<uint32_t>(voice))) {
+			return;
+		}
+		voice = static_cast<int>(PlayWave(static_cast<uint32_t>(soundHandle), true, volume));
+	}
+
+	void stopAudio(int& voice) {
+		if (voice == -1) {
+			return;
+		}
+		StopWave(static_cast<uint32_t>(voice));
+		voice = -1;
 	}
 
 	/// <summary>

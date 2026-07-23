@@ -35,6 +35,7 @@ public:
 	static constexpr float kSecondsPerSnapshot = static_cast<float>(kSnapshotIntervalFrames) / 60.0f;
 
 	void Clear();
+	void SetMaxRewindSeconds(float seconds);
 	void ForceRecord(const GameplaySnapshot& snapshot);
 	void Record(const GameplaySnapshot& snapshot);
 	bool CanUndo() const;
@@ -43,10 +44,13 @@ public:
 	bool Redo(GameplaySnapshot& outSnapshot);
 	int GetTimelineIndex() const { return timelineIndex_; }
 	int GetSnapshotCount() const { return static_cast<int>(snapshots_.size()); }
+	int GetMinUndoTimelineIndex() const;
 	bool GetSnapshotAt(int index, GameplaySnapshot& outSnapshot) const;
 
 private:
 	std::vector<GameplaySnapshot> snapshots_;
 	int timelineIndex_ = -1;
 	int recordFrameAccumulator_ = 0;
+	float maxRewindSeconds_ = -1.0f; // 0未満なら無制限
+	void TrimOldSnapshots();
 };

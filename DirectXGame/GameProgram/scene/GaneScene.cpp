@@ -13,6 +13,7 @@
 #include <fstream>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 KamataEngine::Vector3 Lerp(const KamataEngine::Vector3& start, const KamataEngine:: Vector3& end, float t) {
 	t = std::clamp(t, 0.0f, 1.0f);
@@ -50,11 +51,18 @@ SceneStateKind GameScene::GetSceneStateKind() const {
 }
 
 GameScene::~GameScene() {
+	StopStageBgm();
+	if (osCursorHidden_) {
+		while (ShowCursor(TRUE) < 0) {
+		}
+		osCursorHidden_ = false;
+	}
 	delete modelCube_;
 	delete modelBlocks_;
 	delete modelDeleteBlocks_;
 	delete modelSpikeTile_;
 	delete modelPortal_;
+	delete modelKey_;
 	delete modelSpringUp_;
 	delete modelSpringDown_;
 	delete modelSpringRight_;
@@ -64,7 +72,8 @@ GameScene::~GameScene() {
 	modelPlayer_ = nullptr;
 	delete modelEnemy_;
 	delete modelWall_;
-	delete modelTitleObject_;
+	delete title2DSprite_;
+	title2DSprite_ = nullptr;
 	delete modelMeteorite_;
 	delete modelEnemyBullet_; // 敵弾モデルを解放（追加）
 	for (Meteorite* meteor : meteorites_) {
@@ -75,7 +84,6 @@ GameScene::~GameScene() {
 	delete railCamera_;
 	delete reticleSprite_;
 	delete transitionSprite_;
-	delete taitoruSprite_;
 	delete aimAssistCircleSprite_;
 	// 追加: 右/左キー表示用スプライトを解放
 	delete lightSprite_;
@@ -100,7 +108,16 @@ GameScene::~GameScene() {
 	delete stageClearNextStageSprite_;
 	delete stageSelectBackgroundSprite_;
 	delete stageSelectCursorSprite_;
+	delete pauseDimSprite_;
+	delete pauseTitleSprite_;
+	delete pausePlayMoveSprite_;
+	delete pausePlayMovePointSprite_;
+	delete gameplayPauseStopSprite_;
 	delete spikeRewindDimSprite_;
+	delete fontRenderer_;
+	delete tutorialFrameSprite_;
+	delete springCollectLabelSprite_;
+	delete springCollectLabelVerticalSprite_;
 	for (StageSelectSlotUi& ui : stageSelectSlotUi_) {
 		for (int d = 0; d < ui.digitCount; ++d) {
 			delete ui.digitSprites[d];
@@ -124,10 +141,18 @@ GameScene::~GameScene() {
 	delete spikeLifeMultiplySprite_;
 	delete spikeLifeTensDigitSprite_;
 	delete spikeLifeOnesDigitSprite_;
+	delete tutorialTimerOnesSprite_;
+	delete tutorialTimerTenthsSprite_;
+	delete tutorialTimerHundredthsSprite_;
+	delete tutorialTimerTensSprite_;
 	spikeLifeHeartIconSprite_ = nullptr;
 	spikeLifeMultiplySprite_ = nullptr;
 	spikeLifeTensDigitSprite_ = nullptr;
 	spikeLifeOnesDigitSprite_ = nullptr;
+	tutorialTimerOnesSprite_ = nullptr;
+	tutorialTimerTenthsSprite_ = nullptr;
+	tutorialTimerHundredthsSprite_ = nullptr;
+	tutorialTimerTensSprite_ = nullptr;
 	for (SpringPlacementHudUi& ui : springPlacementHudUi_) {
 		delete ui.iconSprite;
 		delete ui.multiplySprite;
@@ -167,6 +192,7 @@ void GameScene::Initialize() {
 	modelDeleteBlocks_ = KamataEngine::Model::CreateFromOBJ("deleteblocks", true);
 	modelSpikeTile_ = KamataEngine::Model::CreateFromOBJ("needle", true);
 	modelPortal_ = KamataEngine::Model::CreateFromOBJ("portal", true);
+	modelKey_ = KamataEngine::Model::CreateFromOBJ("key", true);
 	goalPortalEmitter_ = new ParticleEmitter();
 	if (goalPortalEmitter_ && modelPortal_) {
 		goalPortalEmitter_->Initialize(modelPortal_);
@@ -186,7 +212,15 @@ void GameScene::Initialize() {
 	modelPlayer_ = modelCube_;
 	modelEnemy_ = KamataEngine::Model::CreateFromOBJ("boat", true);
 	modelWall_ = Model::CreateFromOBJ("wall2", false);
-	modelTitleObject_ = Model::CreateFromOBJ("title", true);
+
+	// タイトル画面（2D）
+	title2DTextureHandle_ = KamataEngine::TextureManager::Load("title2D.png");
+	title2DSprite_ = KamataEngine::Sprite::Create(title2DTextureHandle_, {0, 0});
+	if (title2DSprite_) {
+		title2DSprite_->SetAnchorPoint({0.0f, 0.0f});
+		title2DSprite_->SetPosition({0.0f, 0.0f});
+		title2DSprite_->SetSize({static_cast<float>(WinApp::kWindowWidth), static_cast<float>(WinApp::kWindowHeight)});
+	}
 
 	// 敵弾用のOBJモデルを読み込む（ファイル名: Resources/bulletEnemy.obj を想定）
 	modelEnemyBullet_ = KamataEngine::Model::CreateFromOBJ("bulletEnemy", true);
@@ -213,9 +247,6 @@ void GameScene::Initialize() {
 	reticleSprite_ = KamataEngine::Sprite::Create(reticleTextureHandle_, {0, 0});
 	reticleSprite_->SetPosition(screenCenter);
 	reticleSprite_->SetAnchorPoint({0.5f, 0.5f});
-
-	taitoruTextureHandle_ = KamataEngine::TextureManager::Load("sousa.png");
-	taitoruSprite_ = KamataEngine::Sprite::Create(taitoruTextureHandle_, {0, 0});
 
 	aimAssistCircleTextureHandle_ = KamataEngine::TextureManager::Load("aimCircle.png");
 	aimAssistCircleSprite_ = KamataEngine::Sprite::Create(aimAssistCircleTextureHandle_, {0, 0});
@@ -327,6 +358,12 @@ void GameScene::Initialize() {
 	jumpSpringChargeSprite_->SetAnchorPoint({0.5f, 0.5f});
 	jumpSpringChargeSprite_->SetColor({0.6f, 0.45f, 0.25f, 0.75f});
 
+	tutorialFrameSprite_ = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0.0f, 0.0f});
+	if (tutorialFrameSprite_) {
+		tutorialFrameSprite_->SetAnchorPoint({0.5f, 0.5f});
+		tutorialFrameSprite_->SetColor({0.35f, 0.95f, 0.45f, 0.85f});
+	}
+
 	// 残機表示: ハート×数字（ビットマップフォント）
 	spikeLifeHeartIconSprite_ = KamataEngine::Sprite::Create(heartTextureHandle_, {0.0f, 0.0f});
 	if (spikeLifeHeartIconSprite_) {
@@ -404,9 +441,6 @@ void GameScene::Initialize() {
 
 	skydome_->Initialize(&camera_);
 	skydome_->SetWallBackdrop(modelWall_);
-	worldTransformTitleObject_.Initialize();
-	worldTransformTitleObject_.translation_ = {0.0f, 0.0f, -43.0f};
-	worldTransformTitleObject_.UpdateMatrix();
 
 	KamataEngine::AxisIndicator::GetInstance()->SetVisible(false);
 
@@ -419,6 +453,9 @@ void GameScene::Initialize() {
 
 	LoadEnemyPopData();
 	hitSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
+	keyCollectSoundHandle_ = audio_->LoadWave("./sound/Attack.wav");
+	stageBgmHandle_ = audio_->LoadWave("./sound/battle.wav");
+	stageBgmVoice_ = -1;
 
 	// ホーミング弾生成タイマー初期化
 	homingSpawnTimer_ = balanceTable_.GetInt("homingIntervalFrames", kHomingIntervalFrames_);
@@ -430,6 +467,22 @@ void GameScene::Initialize() {
 			isStageSelectFontReady_ = true;
 		}
 	}
+
+	// Noto Sans JP (.ttf) から起動時に文字アトラスを自動生成して日本語描画を可能にする。
+	// extraChars に入れた漢字がアトラスに焼き込まれる（英数字・かな・記号は常に収録）。
+	fontRenderer_ = new FontRenderer();
+	fontRenderer_->Initialize(
+	    L"Resources/Noto_Sans_JP/static/NotoSansJP-Regular.ttf", // フォントファイル
+	    L"Noto Sans JP",                                         // ファミリ名
+	    48,                                                      // 焼き込む解像度(px)
+	    "Resources/generatedfont/notosans_atlas.png",           // 生成先
+	    "generatedfont/notosans_atlas.png",                     // 読み込み名
+	    L"回収する開始選択決定戻次前操作説明終了再挑戦得点残機時間空中"
+	    L"上下左右中大小新記録最高位置移動跳飛壁床天井敵弾避進退全消"
+	    L"成功失敗一二三四五六七八九十百千万点数秒分速度力方向目標地面"
+	    L"取設置置換押離長溜貯留放発射当判定復活反発跳返弾力調整難易度"
+	    L"枠触種類変長棘巻戻回初赤時拡縮画面青解除停止乗紫重同切替間緑再"
+	    L"行テキスト仕組不可能状態合中鍵消");
 
 	// 残機の数字スプライト（ビットマップフォントのテクスチャで生成）
 	{
@@ -447,6 +500,22 @@ void GameScene::Initialize() {
 		spikeLifeOnesDigitSprite_ = KamataEngine::Sprite::Create(digitHandle, {0.0f, 0.0f});
 		if (spikeLifeOnesDigitSprite_) {
 			spikeLifeOnesDigitSprite_->SetAnchorPoint({0.0f, 0.5f});
+		}
+		tutorialTimerOnesSprite_ = KamataEngine::Sprite::Create(digitHandle, {0.0f, 0.0f});
+		if (tutorialTimerOnesSprite_) {
+			tutorialTimerOnesSprite_->SetAnchorPoint({0.0f, 0.5f});
+		}
+		tutorialTimerTenthsSprite_ = KamataEngine::Sprite::Create(digitHandle, {0.0f, 0.0f});
+		if (tutorialTimerTenthsSprite_) {
+			tutorialTimerTenthsSprite_->SetAnchorPoint({0.0f, 0.5f});
+		}
+		tutorialTimerHundredthsSprite_ = KamataEngine::Sprite::Create(digitHandle, {0.0f, 0.0f});
+		if (tutorialTimerHundredthsSprite_) {
+			tutorialTimerHundredthsSprite_->SetAnchorPoint({0.0f, 0.5f});
+		}
+		tutorialTimerTensSprite_ = KamataEngine::Sprite::Create(digitHandle, {0.0f, 0.0f});
+		if (tutorialTimerTensSprite_) {
+			tutorialTimerTensSprite_->SetAnchorPoint({0.0f, 0.5f});
 		}
 	}
 
@@ -513,19 +582,64 @@ void GameScene::Initialize() {
 			stageSelectCursorSprite_->SetAnchorPoint({0.5f, 0.5f});
 		}
 	}
+
+	if (transitionTextureHandle_ != 0) {
+		pauseDimSprite_ = KamataEngine::Sprite::Create(transitionTextureHandle_, {0, 0});
+		if (pauseDimSprite_) {
+			pauseDimSprite_->SetAnchorPoint({0.0f, 0.0f});
+			pauseDimSprite_->SetPosition({0.0f, 0.0f});
+			pauseDimSprite_->SetSize(
+			    {static_cast<float>(WinApp::kWindowWidth), static_cast<float>(WinApp::kWindowHeight)});
+			pauseDimSprite_->SetColor({0.0f, 0.0f, 0.0f, kPauseMenuDimAlpha_});
+		}
+	}
+
+	gameplayPauseStopTextureHandle_ = KamataEngine::TextureManager::Load("stop.png");
+	if (gameplayPauseStopTextureHandle_ != 0) {
+		gameplayPauseStopSprite_ = KamataEngine::Sprite::Create(gameplayPauseStopTextureHandle_, {0, 0});
+		if (gameplayPauseStopSprite_) {
+			gameplayPauseStopSprite_->SetAnchorPoint({0.5f, 0.5f});
+			const KamataEngine::Vector2& nativeSize = gameplayPauseStopSprite_->GetSize();
+			if (nativeSize.y > 0.0f) {
+				gameplayPauseStopAspect_ = nativeSize.x / nativeSize.y;
+			}
+		}
+	}
+
+	if (stageClearTitleReturnTextureHandle_ != 0) {
+		pauseTitleSprite_ = KamataEngine::Sprite::Create(stageClearTitleReturnTextureHandle_, {0, 0});
+		if (pauseTitleSprite_) {
+			pauseTitleSprite_->SetAnchorPoint({0.5f, 0.5f});
+			pauseTitleSprite_->SetPosition({kPauseMenuLeftButtonX_, kPauseMenuButtonY_});
+			pauseTitleSprite_->SetSize({kPauseMenuButtonW_, kPauseMenuButtonH_});
+		}
+	}
+
+	pausePlayMoveTextureHandle_ = KamataEngine::TextureManager::Load("playmove.png");
+	if (pausePlayMoveTextureHandle_ != 0) {
+		pausePlayMoveSprite_ = KamataEngine::Sprite::Create(pausePlayMoveTextureHandle_, {0, 0});
+		if (pausePlayMoveSprite_) {
+			pausePlayMoveSprite_->SetAnchorPoint({0.5f, 0.5f});
+			pausePlayMoveSprite_->SetPosition({kPauseMenuRightButtonX_, kPauseMenuButtonY_});
+			pausePlayMoveSprite_->SetSize({kPauseMenuButtonW_, kPauseMenuButtonH_});
+		}
+	}
+
+	pausePlayMovePointTextureHandle_ = KamataEngine::TextureManager::Load("playmovepoint.png");
+	if (pausePlayMovePointTextureHandle_ != 0) {
+		pausePlayMovePointSprite_ = KamataEngine::Sprite::Create(pausePlayMovePointTextureHandle_, {0, 0});
+		if (pausePlayMovePointSprite_) {
+			pausePlayMovePointSprite_->SetAnchorPoint({0.5f, 0.5f});
+			pausePlayMovePointSprite_->SetPosition(
+			    {static_cast<float>(WinApp::kWindowWidth) * 0.5f, static_cast<float>(WinApp::kWindowHeight) * 0.5f});
+			pausePlayMovePointSprite_->SetSize(
+			    {static_cast<float>(WinApp::kWindowWidth) * 0.85f, static_cast<float>(WinApp::kWindowHeight) * 0.75f});
+		}
+	}
 }
 
 namespace {
-std::string GetStageMapRelativePath(int stageIndex) {
-	if (stageIndex <= 0) {
-		return "map/map.csv";
-	}
-	return "map/map" + std::to_string(stageIndex + 1) + ".csv";
-}
-
-bool TryLoadStageMap(TileMap& tileMap, int stageIndex) {
-	stageIndex = std::clamp(stageIndex, 0, GameScene::kStageCount - 1);
-	const std::string relativePath = GetStageMapRelativePath(stageIndex);
+bool TryLoadStageMapFile(TileMap& tileMap, const std::string& relativePath) {
 	const std::string paths[] = {
 	    "Resources/" + relativePath,
 	    "DirectXGame/Resources/" + relativePath,
@@ -535,33 +649,41 @@ bool TryLoadStageMap(TileMap& tileMap, int stageIndex) {
 			return true;
 		}
 	}
-
-	const int fallbackIndex = stageIndex % 3;
-	const std::string fallbackRelativePath = GetStageMapRelativePath(fallbackIndex);
-	const std::string fallbackPaths[] = {
-	    "Resources/" + fallbackRelativePath,
-	    "DirectXGame/Resources/" + fallbackRelativePath,
-	};
-	for (const std::string& path : fallbackPaths) {
-		if (tileMap.LoadFromFile(path.c_str())) {
-			return true;
-		}
-	}
 	return false;
 }
+
+bool TryLoadStageMap(TileMap& tileMap, const std::string& relativePath, int fallbackIndex) {
+	if (TryLoadStageMapFile(tileMap, relativePath)) {
+		return true;
+	}
+
+	fallbackIndex = std::clamp(fallbackIndex, 0, GameScene::kStageCount - 1);
+	const std::string fallbackRelativePath =
+	    (fallbackIndex <= 0) ? std::string("map/maptutorial.csv") : ("map/map" + std::to_string(fallbackIndex + 1) + ".csv");
+	return TryLoadStageMapFile(tileMap, fallbackRelativePath);
+}
 } // namespace
+
+std::string GameScene::ResolveStageMapRelativePath() const {
+	if (currentStageIndex_ <= 0) {
+		return (tutorialMapMode_ == TutorialMapMode::FreePlay) ? "map/maptutorial.csv" : "map/maptutorial1.csv";
+	}
+	return "map/map" + std::to_string(currentStageIndex_ + 1) + ".csv";
+}
 
 void GameScene::LoadStage(int stageIndex) {
 	stageIndex = std::clamp(stageIndex, 0, GameScene::kStageCount - 1);
 	currentStageIndex_ = stageIndex;
 
-	TryLoadStageMap(tileMap_, stageIndex);
+	TryLoadStageMap(tileMap_, ResolveStageMapRelativePath(), stageIndex % 3);
 
 	gameplayRewindBuffer_.Clear();
 	gameplayRewindSeeded_ = false;
 	isGameplayRewinding_ = false;
 	gameplayRewindScrubAccumulator_ = 0.0f;
-	spikeLivesRemaining_ = kSpikeLivesMax_;
+	gameplayRewindQHoldSeconds_ = 0.0f;
+	gameplayRewindScrubbedDuringHold_ = false;
+	spikeLivesRemaining_ = GetSpikeLivesMaxForCurrentStage();
 	isSpikeRewindOverlayActive_ = false;
 	spikeRewindOverlayAlpha_ = 0.0f;
 	spikeRewindScrubStarted_ = false;
@@ -571,7 +693,7 @@ void GameScene::LoadStage(int stageIndex) {
 	rewindPostReleaseLockSeconds_ = 0.0f;
 	rewindPostReleaseDimAlpha_ = 0.0f;
 
-	mapRenderer_.Initialize(modelBlocks_, modelSpikeTile_, modelPortal_, modelDeleteBlocks_, modelEnemyBullet_, tileMap_);
+	mapRenderer_.Initialize(modelBlocks_, modelSpikeTile_, modelPortal_, modelDeleteBlocks_, modelKey_, tileMap_);
 	RebuildMinimapTiles();
 	RebuildGoalPositions();
 	if (goalPortalEmitter_) {
@@ -584,8 +706,6 @@ void GameScene::LoadStage(int stageIndex) {
 	trampolineArrowAnimTime_ = 0.0f;
 	requestSceneClear_ = false;
 	portalAbsorbFinishedPending_ = false;
-	currentScreenX_ = 0;
-	currentScreenY_ = 0;
 	isFreeCamera_ = false;
 	cameraZoomOut_ = 0.0f;
 
@@ -595,6 +715,10 @@ void GameScene::LoadStage(int stageIndex) {
 	const KamataEngine::Vector3 spawnPos = tileMap_.FindSpawnPosition(playerHalfW, playerHalfH);
 	playerIntroTargetPosition_ = spawnPos;
 	playerIntroStartPosition_ = spawnPos;
+
+	// 縦・横マルチ画面でも、開始時点からスポーン位置の1画面を映す
+	// （常に (0,0) だと別画面が一瞬映ってから切り替わる）
+	tileMap_.GetScreenFromWorld(spawnPos.x, spawnPos.y, currentScreenX_, currentScreenY_);
 
 	if (!isPlayerGameInitialized_) {
 		player_->Initialize(modelCube_, &camera_, spawnPos);
@@ -616,10 +740,15 @@ void GameScene::LoadStage(int stageIndex) {
 
 	lastPlayerPos_ = spawnPos;
 	UpdateMapCamera();
+	InitializeStageTutorial();
+	InitializeKeyWallTutorial();
 }
 
 void GameScene::BeginStageFromSelect(int stageIndex) {
 	pendingStageIndex_ = std::clamp(stageIndex, 0, kStageCount - 1);
+	if (pendingStageIndex_ == 0) {
+		tutorialMapMode_ = TutorialMapMode::Guided;
+	}
 	transitionExpandSource_ = TransitionExpandSource::StageSelect;
 	transitionTimer_ = 0.0f;
 	transitionOverlayActive_ = false;
@@ -704,6 +833,8 @@ void GameScene::AdvanceToNextStageFromClear() {
 }
 
 void GameScene::ReturnToTitleScreen() {
+	StopStageBgm();
+	ClosePauseMenu();
 	confettiActive_ = false;
 	requestSceneClear_ = false;
 	portalAbsorbFinishedPending_ = false;
@@ -715,6 +846,8 @@ void GameScene::ReturnToTitleScreen() {
 	gameplayRewindSeeded_ = false;
 	isGameplayRewinding_ = false;
 	gameplayRewindScrubAccumulator_ = 0.0f;
+	gameplayRewindQHoldSeconds_ = 0.0f;
+	gameplayRewindScrubbedDuringHold_ = false;
 	spikeLivesRemaining_ = kSpikeLivesMax_;
 	isSpikeRewindOverlayActive_ = false;
 	spikeRewindOverlayAlpha_ = 0.0f;
@@ -776,7 +909,9 @@ void GameScene::ResetCurrentStage() {
 	gameplayRewindSeeded_ = false;
 	isGameplayRewinding_ = false;
 	gameplayRewindScrubAccumulator_ = 0.0f;
-	spikeLivesRemaining_ = kSpikeLivesMax_;
+	gameplayRewindQHoldSeconds_ = 0.0f;
+	gameplayRewindScrubbedDuringHold_ = false;
+	spikeLivesRemaining_ = GetSpikeLivesMaxForCurrentStage();
 	isSpikeRewindOverlayActive_ = false;
 	spikeRewindOverlayAlpha_ = 0.0f;
 	spikeRewindScrubStarted_ = false;
@@ -785,6 +920,7 @@ void GameScene::ResetCurrentStage() {
 	pendingRewindPostReleaseLock_ = false;
 	rewindPostReleaseLockSeconds_ = 0.0f;
 	rewindPostReleaseDimAlpha_ = 0.0f;
+	isGameplayPaused_ = false;
 
 	ChangeSceneState(SceneStateGameIntro::Instance());
 }
@@ -795,17 +931,350 @@ void GameScene::HandleGameplayShortcuts() {
 	}
 
 	if (input_->TriggerKey(DIK_ESCAPE)) {
-		ReturnToTitleScreen();
+		if (isPauseMenuOpen_) {
+			return;
+		}
+		OpenPauseMenu();
+		return;
+	}
+
+	if (isPauseMenuOpen_) {
 		return;
 	}
 
 	if (input_->TriggerKey(DIK_R)) {
+		if (IsKeyWallTutorialActive()) {
+			return;
+		}
+		if (currentStageIndex_ == 0 && stageTutorialStep_ == StageTutorialStep::PressR) {
+			tutorialMapMode_ = TutorialMapMode::FreePlay;
+		}
 		ResetCurrentStage();
+	}
+}
+
+void GameScene::OpenPauseMenu() {
+	const SceneStateKind kind = GetSceneStateKind();
+	if (kind != SceneStateKind::Game && kind != SceneStateKind::GameIntro && kind != SceneStateKind::StageSelect) {
+		return;
+	}
+
+	isPauseMenuOpen_ = true;
+	pauseMenuPage_ = PauseMenuPage::Main;
+	pauseReturnSceneKind_ = kind;
+
+	// 巻き戻し・バネ更新を止めたままにする（シーン切替しないので飛行中の速度を保持）
+	if (pauseDimSprite_) {
+		pauseDimSprite_->SetColor({0.0f, 0.0f, 0.0f, kPauseMenuDimAlpha_});
+	}
+}
+
+void GameScene::ClosePauseMenu() {
+	if (!isPauseMenuOpen_) {
+		return;
+	}
+
+	isPauseMenuOpen_ = false;
+	pauseMenuPage_ = PauseMenuPage::Main;
+
+	// ポーズ中に Q を離していた場合は、再開時に巻き戻しを確定してバネ速度を壊さない
+	if (isGameplayRewinding_ && input_ && !input_->PushKey(DIK_Q)) {
+		FinalizeGameplayRewindScrub();
+	}
+}
+
+bool GameScene::CanUseGameplayPause() const {
+	if (!player_ || !isGameIntroFinished_) {
+		return false;
+	}
+	if (isPauseMenuOpen_ || isGameplayRewinding_ || IsRewindPostReleaseLocked()) {
+		return false;
+	}
+	// トゲ被弾後の巻き戻し待ち中は一時停止不可（暗転の二重化＋Q阻害を防ぐ）
+	if (isSpikeRewindOverlayActive_) {
+		return false;
+	}
+	// めり込み中・チャージ中は一時停止不可（チャージ操作を優先）
+	const Player::SpringChargePhase phase = player_->GetSpringChargePhase();
+	if (phase == Player::SpringChargePhase::Penetrating || phase == Player::SpringChargePhase::Charging) {
+		return false;
+	}
+	if (IsStageTutorialActive()) {
+		return stageTutorialStep_ == StageTutorialStep::SpacePauseHint;
+	}
+	if (IsKeyWallTutorialActive()) {
+		return false;
+	}
+	return GetSceneStateKind() == SceneStateKind::Game;
+}
+
+void GameScene::ClearIdleSpringContactsAfterPause() {
+	// 一時停止中はPlayer更新が止まるため isPlayerInside_ が古いまま残り、解除後にすり抜ける
+	if (!player_ || player_->GetSpringChargePhase() != Player::SpringChargePhase::None) {
+		return;
+	}
+	for (TrampolineSpring& spring : trampolineSprings_) {
+		spring.ResetPlayerContact();
+	}
+}
+
+void GameScene::BeginGameplayPause() {
+	if (player_) {
+		gameplayPauseSavedVelX_ = player_->GetVelocityX();
+		gameplayPauseSavedVelY_ = player_->GetVelocityY();
+		player_->ClearSpringSpaceHold();
+	}
+	isGameplayPaused_ = true;
+	ClearIdleSpringContactsAfterPause();
+}
+
+void GameScene::BeginGameplayPauseAfterRewind() {
+	// 巻き戻し暗転は一時停止UIに引き継ぐ
+	rewindOverlayAlpha_ = 0.0f;
+	spikeRewindOverlayAlpha_ = 0.0f;
+	rewindPostReleaseLockSeconds_ = 0.0f;
+	pendingRewindPostReleaseLock_ = false;
+	BeginGameplayPause();
+	gameplayPauseIgnoreSpaceUntilRelease_ = true;
+	gameplayPauseSpaceHoldFrames_ = 0;
+}
+
+void GameScene::EndGameplayPause() {
+	isGameplayPaused_ = false;
+	// 解除に使った押しの離し／続き押しを、短押し一時停止と誤認しない
+	gameplayPauseIgnoreSpaceUntilRelease_ = true;
+	gameplayPauseSpaceHoldFrames_ = 0;
+	if (player_) {
+		player_->SetVelocityX(gameplayPauseSavedVelX_);
+		player_->SetVelocityY(gameplayPauseSavedVelY_);
+		player_->ClearSpringSpaceHold();
+	}
+	if (IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::SpacePauseHint) {
+		tutorialSpacePauseReleased_ = true;
+	}
+	ClearIdleSpringContactsAfterPause();
+}
+
+void GameScene::UpdateGameplayPauseInput() {
+	if (!input_ || isPauseMenuOpen_) {
+		return;
+	}
+
+	// トゲ待ち中に一時停止が残っているとQ巻き戻しが効かないので解除する
+	if (isSpikeRewindOverlayActive_) {
+		isGameplayPaused_ = false;
+		gameplayPauseSpaceWasDown_ = input_->PushKey(DIK_SPACE);
+		gameplayPauseSpaceHoldFrames_ = 0;
+		gameplayPauseIgnoreSpaceUntilRelease_ = false;
+		gameplayPauseIgnoreQUntilRelease_ = false;
+		return;
+	}
+
+	const bool spaceDown = input_->PushKey(DIK_SPACE);
+	const bool spaceTrigger = input_->TriggerKey(DIK_SPACE);
+	const bool spaceReleased = gameplayPauseSpaceWasDown_ && !spaceDown;
+	const bool qTrigger = input_->TriggerKey(DIK_Q);
+
+	if (isGameplayPaused_) {
+		if (IsTutorialPauseIntroLocked()) {
+			gameplayPauseSpaceWasDown_ = spaceDown;
+			gameplayPauseSpaceHoldFrames_ = spaceDown ? (gameplayPauseSpaceHoldFrames_ + 1) : 0;
+			return;
+		}
+		// チュートリアル「チャージ状態から再開」中は SPACE 長押しチャージ以外で解除しない
+		const bool chargeOnlyResume =
+		    IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::SpacePauseHint &&
+		    !tutorialPauseLandHintActive_;
+		if (chargeOnlyResume) {
+			if (spaceTrigger) {
+				EndGameplayPause();
+			}
+			gameplayPauseSpaceWasDown_ = spaceDown;
+			gameplayPauseSpaceHoldFrames_ = spaceDown ? (gameplayPauseSpaceHoldFrames_ + 1) : 0;
+			return;
+		}
+		const bool wasdTrigger = input_->TriggerKey(DIK_W) || input_->TriggerKey(DIK_A) ||
+		                         input_->TriggerKey(DIK_S) || input_->TriggerKey(DIK_D);
+		if (spaceTrigger) {
+			EndGameplayPause();
+		} else if (qTrigger) {
+			// Q短押しでも再開（この押しでは巻き戻ししない）
+			EndGameplayPause();
+			gameplayPauseIgnoreQUntilRelease_ = true;
+		} else if (wasdTrigger) {
+			// 隠し: WASDでも再開（巻き戻し後すぐ動き出せる）
+			EndGameplayPause();
+		}
+		gameplayPauseSpaceWasDown_ = spaceDown;
+		gameplayPauseSpaceHoldFrames_ = spaceDown ? (gameplayPauseSpaceHoldFrames_ + 1) : 0;
+		return;
+	}
+
+	// 解除直後: SPACEを一度離すまで新規の一時停止を受け付けない
+	if (gameplayPauseIgnoreSpaceUntilRelease_) {
+		if (!spaceDown) {
+			gameplayPauseIgnoreSpaceUntilRelease_ = false;
+		}
+		gameplayPauseSpaceWasDown_ = spaceDown;
+		gameplayPauseSpaceHoldFrames_ = 0;
+		return;
+	}
+
+	if (spaceDown) {
+		++gameplayPauseSpaceHoldFrames_;
+	}
+
+	if (CanUseGameplayPause()) {
+		// 短押し離しで一時停止。長押しは一時停止しない
+		// （空中の前入力→次バネでチャージ／バネ上のチャージ待ちでもチャージ）
+		if (spaceReleased && gameplayPauseSpaceHoldFrames_ > 0 &&
+		    gameplayPauseSpaceHoldFrames_ <= kGameplayPauseTapMaxFrames_) {
+			BeginGameplayPause();
+		}
+	}
+
+	if (!spaceDown) {
+		gameplayPauseSpaceHoldFrames_ = 0;
+	}
+	gameplayPauseSpaceWasDown_ = spaceDown;
+}
+
+void GameScene::DrawGameplayPauseOverlay() {
+	if (!isGameplayPaused_ || !pauseDimSprite_) {
+		return;
+	}
+
+	pauseDimSprite_->SetColor({0.0f, 0.0f, 0.0f, kGameplayPauseDimAlpha_});
+	pauseDimSprite_->Draw();
+
+	// 画面上部中央に「一時停止中」表示
+	if (gameplayPauseStopSprite_) {
+		const float winW = static_cast<float>(WinApp::kWindowWidth);
+		const float labelH = kGameplayPauseStopHeight_;
+		const float labelW = labelH * gameplayPauseStopAspect_;
+		gameplayPauseStopSprite_->SetSize({labelW, labelH});
+		gameplayPauseStopSprite_->SetPosition({winW * 0.5f, kGameplayPauseStopCenterY_});
+		gameplayPauseStopSprite_->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+		gameplayPauseStopSprite_->Draw();
+	}
+
+	// チュートリアル案内は暗転・「一時停止中」より手前に描く（バネの上・大きめ）
+	if (IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::SpacePauseHint &&
+	    !tutorialSpacePauseReleased_ && fontRenderer_ && fontRenderer_->IsReady()) {
+		const float fontH = kTutorialPauseHintFontHeight_;
+		const KamataEngine::Vector4 textColor = {1.0f, 1.0f, 1.0f, 1.0f};
+		const KamataEngine::Vector2 springScreen =
+		    ConvertWorldToScreen(tutorialPlacedSpringWorldPos_.x, tutorialPlacedSpringWorldPos_.y);
+		float springHalfW = TileMap::kSpringReferenceHalfW;
+		float springHalfH = TileMap::kSpringReferenceHalfH;
+		if (!trampolineSprings_.empty()) {
+			trampolineSprings_.front().GetHalfSize(springHalfW, springHalfH);
+		}
+		float viewLeft = 0.0f, viewBottom = 0.0f, viewRight = 0.0f, viewTop = 0.0f;
+		ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
+		const float winW = static_cast<float>(WinApp::kWindowWidth);
+		const float pxPerWorldY =
+		    (viewTop > viewBottom) ? (static_cast<float>(WinApp::kWindowHeight) / (viewTop - viewBottom)) : 1.0f;
+		const float springTopScreenY = springScreen.y - springHalfH * pxPerWorldY;
+
+		auto drawCenteredHint = [&](const char* text, float topYLine, float centerX) {
+			const float width = fontRenderer_->MeasureWidth(text, fontH);
+			float x = centerX - width * 0.5f;
+			if (x < 8.0f) {
+				x = 8.0f;
+			}
+			if (x + width > winW - 8.0f) {
+				x = winW - 8.0f - width;
+			}
+			fontRenderer_->DrawString(text, x, topYLine - kTutorialTextOpticalOffsetY_, fontH, textColor);
+		};
+
+		const float topY = springTopScreenY - kTutorialPauseHintAboveSpringPx_ - fontH;
+		const float hintCenterX = winW * 0.5f; // バネが左寄りでも読みやすく画面中央
+		drawCenteredHint("SPACE長押しでチャージ状態から再開できます", topY, hintCenterX);
+	}
+}
+
+void GameScene::UpdatePauseMenu() {
+	if (!isPauseMenuOpen_ || !input_) {
+		return;
+	}
+
+	if (input_->TriggerKey(DIK_ESCAPE)) {
+		if (pauseMenuPage_ == PauseMenuPage::PlayMoveGuide) {
+			pauseMenuPage_ = PauseMenuPage::Main;
+		} else {
+			ClosePauseMenu();
+		}
+		return;
+	}
+
+	if (pauseMenuPage_ != PauseMenuPage::Main) {
+		return;
+	}
+
+	const KamataEngine::Vector2 mousePos = GetClientMousePosition();
+	if (!input_->IsTriggerMouse(0)) {
+		return;
+	}
+
+	if (IsScreenPointInSprite(pauseTitleSprite_, mousePos.x, mousePos.y)) {
+		ReturnToTitleScreen();
+		return;
+	}
+
+	if (IsScreenPointInSprite(pausePlayMoveSprite_, mousePos.x, mousePos.y)) {
+		pauseMenuPage_ = PauseMenuPage::PlayMoveGuide;
+	}
+}
+
+void GameScene::DrawPauseMenu() {
+	if (!isPauseMenuOpen_) {
+		return;
+	}
+
+	if (pauseDimSprite_) {
+		pauseDimSprite_->SetColor({0.0f, 0.0f, 0.0f, kPauseMenuDimAlpha_});
+		pauseDimSprite_->Draw();
+	}
+
+	if (pauseMenuPage_ == PauseMenuPage::PlayMoveGuide) {
+		if (pausePlayMovePointSprite_) {
+			pausePlayMovePointSprite_->Draw();
+		}
+		return;
+	}
+
+	if (pauseTitleSprite_) {
+		pauseTitleSprite_->SetPosition({kPauseMenuLeftButtonX_, kPauseMenuButtonY_});
+		pauseTitleSprite_->SetSize({kPauseMenuButtonW_, kPauseMenuButtonH_});
+		pauseTitleSprite_->Draw();
+	}
+	if (pausePlayMoveSprite_) {
+		pausePlayMoveSprite_->SetPosition({kPauseMenuRightButtonX_, kPauseMenuButtonY_});
+		pausePlayMoveSprite_->SetSize({kPauseMenuButtonW_, kPauseMenuButtonH_});
+		pausePlayMoveSprite_->Draw();
 	}
 }
 
 void GameScene::AdvanceFromClearScreen() {
 	AdvanceToNextStageFromClear();
+}
+
+void GameScene::UpdateOsCursorVisibility() {
+	const SceneStateKind kind = GetSceneStateKind();
+	// ゲームプレイ中（ポーズ中を除く）はOSの矢印カーソルを隠す
+	const bool shouldHide = !isPauseMenuOpen_ && (kind == SceneStateKind::Game || kind == SceneStateKind::GameIntro);
+
+	if (shouldHide && !osCursorHidden_) {
+		while (ShowCursor(FALSE) >= 0) {
+		}
+		osCursorHidden_ = true;
+	} else if (!shouldHide && osCursorHidden_) {
+		while (ShowCursor(TRUE) < 0) {
+		}
+		osCursorHidden_ = false;
+	}
 }
 
 void GameScene::Update() {
@@ -814,13 +1283,15 @@ void GameScene::Update() {
 		sceneState_->Update(*this);
 	}
 	UpdateTransitionOverlayIfActive();
+	UpdateOsCursorVisibility();
 
 	const SceneStateKind stateKind = GetSceneStateKind();
-	if (stateKind == SceneStateKind::Game || stateKind == SceneStateKind::GameIntro || stateKind == SceneStateKind::TransitionFromGame) {
+	if (!isPauseMenuOpen_ &&
+	    (stateKind == SceneStateKind::Game || stateKind == SceneStateKind::GameIntro || stateKind == SceneStateKind::TransitionFromGame)) {
 		UpdateGoalPortalParticles();
 	}
 
-	if (stateKind == SceneStateKind::Game || stateKind == SceneStateKind::GameIntro) {
+	if (!isPauseMenuOpen_ && (stateKind == SceneStateKind::Game || stateKind == SceneStateKind::GameIntro)) {
 		UpdateTrampolineArrowAnimations();
 	}
 
@@ -832,6 +1303,8 @@ void GameScene::Update() {
 	if (requestSceneClear_ && GetSceneStateKind() == SceneStateKind::Game) {
 		TransitionToClearScene();
 	}
+
+	UpdateStageBgm();
 }
 
 void GameScene::Draw() {
@@ -842,7 +1315,7 @@ void GameScene::Draw() {
 	KamataEngine::Model::PreDraw(commandList);
 
 	if (GetSceneStateKind() == SceneStateKind::Start) {
-		modelTitleObject_->Draw(worldTransformTitleObject_, camera_);
+		// タイトルは2Dスプライトのみ（3D描画なし）
 	} else if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game ||
 	           GetSceneStateKind() == SceneStateKind::TransitionFromGame || GetSceneStateKind() == SceneStateKind::Over) {
 
@@ -852,8 +1325,25 @@ void GameScene::Draw() {
 		float viewTop = 0.0f;
 		ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
 
+		float skydomeViewScale = 1.0f;
+		if (cameraZoomOut_ > 0.0001f) {
+			float zoomViewW = 0.0f;
+			float zoomViewH = 0.0f;
+			ComputeFreeCameraViewSize(zoomViewW, zoomViewH);
+			float screenLeft = 0.0f;
+			float screenBottom = 0.0f;
+			float screenRight = 0.0f;
+			float screenTop = 0.0f;
+			tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, screenLeft, screenBottom, screenRight, screenTop);
+			const float baseW = screenRight - screenLeft;
+			const float baseH = screenTop - screenBottom;
+			if (baseW > 0.0f && baseH > 0.0f) {
+				skydomeViewScale = (std::max)(zoomViewW / baseW, zoomViewH / baseH);
+			}
+		}
+
 		if (skydome_) {
-			skydome_->DrawAt((viewLeft + viewRight) * 0.5f, (viewBottom + viewTop) * 0.5f);
+			skydome_->DrawAt((viewLeft + viewRight) * 0.5f, (viewBottom + viewTop) * 0.5f, skydomeViewScale);
 			skydome_->Draw();
 		}
 
@@ -907,6 +1397,10 @@ void GameScene::Draw() {
 
 	KamataEngine::Sprite::PreDraw(commandList);
 
+	if (fontRenderer_) {
+		fontRenderer_->NewFrame();
+	}
+
 	if (GetSceneStateKind() == SceneStateKind::GameIntro || GetSceneStateKind() == SceneStateKind::Game ||
 	    GetSceneStateKind() == SceneStateKind::TransitionFromGame || GetSceneStateKind() == SceneStateKind::Over) {
 		float viewLeft = 0.0f;
@@ -918,8 +1412,8 @@ void GameScene::Draw() {
 	}
 
 	if (GetSceneStateKind() == SceneStateKind::Start) {
-		if (taitoruSprite_) {
-			taitoruSprite_->Draw();
+		if (title2DSprite_) {
+			title2DSprite_->Draw();
 		}
 	}
 
@@ -969,10 +1463,7 @@ void GameScene::Draw() {
 
 		DrawSpikeLifeHearts();
 		DrawSpringPreviewPlacementLabel();
-
-		if (kShowSpringPlacementHud_) {
-			DrawSpringPlacementHud();
-		}
+		DrawSpringCollectLabel();
 	}
 
 	// Draw score digits on top-right（一時非表示・処理は維持）
@@ -1004,6 +1495,11 @@ void GameScene::Draw() {
 	}
 
 	DrawSpikeRewindOverlay();
+	DrawGameplayRewindStatusLabel();
+	DrawStageTutorial();
+	DrawKeyWallTutorial();
+	DrawGameplayPauseOverlay();
+	DrawPauseMenu();
 
 	KamataEngine::Sprite::PostDraw();
 }
@@ -1169,6 +1665,7 @@ void GameScene::CheckAllCollisions() {
 }
 
 void GameScene::TransitionToClearScene() {
+	StopStageBgm();
 	// Change: go to Clear scene so player sees clear screen instead of immediately returning to title
 	ChangeSceneState(SceneStateClear::Instance());
 	LayoutStageClearButtons();
@@ -1221,6 +1718,7 @@ void GameScene::TransitionToClearScene() {
 }
 
 void GameScene::TransitionToClearScene2() {
+	StopStageBgm();
 	ChangeSceneState(SceneStateOver::Instance());
 	if (player_) {
 		player_->ChangeState(PlayerStateDead::Instance());
@@ -1448,17 +1946,27 @@ void GameScene::RequestExplosion(const KamataEngine::Vector3& position) {
 }
 
 void GameScene::RebuildMinimapTiles() {
-	for (KamataEngine::Sprite* sprite : minimapGroundSprites_) {
-		delete sprite;
-	}
-	minimapGroundSprites_.clear();
-
 	if (tileMap_.GetWidth() <= 0 || tileMap_.GetHeight() <= 0) {
+		for (KamataEngine::Sprite* sprite : minimapGroundSprites_) {
+			delete sprite;
+		}
+		minimapGroundSprites_.clear();
 		return;
 	}
 
 	const float tileW = kMinimapSize_.x / static_cast<float>(tileMap_.GetWidth());
 	const float tileH = kMinimapSize_.y / static_cast<float>(tileMap_.GetHeight());
+
+	struct NeededTile {
+		int col = 0;
+		int row = 0;
+		float r = 1.0f;
+		float g = 1.0f;
+		float b = 1.0f;
+		float a = 1.0f;
+	};
+	std::vector<NeededTile> needed;
+	needed.reserve(static_cast<size_t>(tileMap_.GetWidth() * tileMap_.GetHeight() / 4));
 
 	for (int row = 0; row < tileMap_.GetHeight(); ++row) {
 		for (int col = 0; col < tileMap_.GetWidth(); ++col) {
@@ -1471,30 +1979,65 @@ void GameScene::RebuildMinimapTiles() {
 				continue;
 			}
 
-			KamataEngine::Sprite* sprite = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0.0f, 0.0f});
+			NeededTile tile{};
+			tile.col = col;
+			tile.row = row;
+			if (isSpike) {
+				tile.r = 0.85f;
+				tile.g = 0.2f;
+				tile.b = 0.2f;
+			} else if (isGoal) {
+				tile.r = 0.2f;
+				tile.g = 0.55f;
+				tile.b = 0.95f;
+			} else if (isButton) {
+				if (tileMap_.IsButtonPressed(col, row)) {
+					tile.r = 0.35f;
+					tile.g = 0.35f;
+					tile.b = 0.35f;
+				} else {
+					tile.r = 0.25f;
+					tile.g = 0.9f;
+					tile.b = 0.35f;
+				}
+			} else if (isWall) {
+				tile.r = 0.75f;
+				tile.g = 0.55f;
+				tile.b = 0.15f;
+			} else {
+				tile.r = 0.6f;
+				tile.g = 0.45f;
+				tile.b = 0.25f;
+			}
+			needed.push_back(tile);
+		}
+	}
+
+	// 鍵取得などで毎フレーム Create/Delete しないよう、既存スプライトを再利用する
+	size_t writeIndex = 0;
+	for (const NeededTile& tile : needed) {
+		KamataEngine::Sprite* sprite = nullptr;
+		if (writeIndex < minimapGroundSprites_.size()) {
+			sprite = minimapGroundSprites_[writeIndex];
+		} else {
+			sprite = KamataEngine::Sprite::Create(greenBoxTextureHandle_, {0.0f, 0.0f});
 			if (!sprite) {
 				continue;
 			}
-			sprite->SetAnchorPoint({0.0f, 0.0f});
-			sprite->SetSize({tileW, tileH});
-			sprite->SetPosition({kMinimapPosition_.x + static_cast<float>(col) * tileW, kMinimapPosition_.y + static_cast<float>(row) * tileH});
-			if (isSpike) {
-				sprite->SetColor({0.85f, 0.2f, 0.2f, 1.0f});
-			} else if (isGoal) {
-				sprite->SetColor({0.2f, 0.55f, 0.95f, 1.0f});
-			} else if (isButton) {
-				if (tileMap_.IsButtonPressed(col, row)) {
-					sprite->SetColor({0.35f, 0.35f, 0.35f, 1.0f});
-				} else {
-					sprite->SetColor({0.25f, 0.9f, 0.35f, 1.0f});
-				}
-			} else if (isWall) {
-				sprite->SetColor({0.75f, 0.55f, 0.15f, 1.0f});
-			} else {
-				sprite->SetColor({0.6f, 0.45f, 0.25f, 1.0f});
-			}
 			minimapGroundSprites_.push_back(sprite);
 		}
+
+		sprite->SetAnchorPoint({0.0f, 0.0f});
+		sprite->SetSize({tileW, tileH});
+		sprite->SetPosition(
+		    {kMinimapPosition_.x + static_cast<float>(tile.col) * tileW, kMinimapPosition_.y + static_cast<float>(tile.row) * tileH});
+		sprite->SetColor({tile.r, tile.g, tile.b, tile.a});
+		++writeIndex;
+	}
+
+	while (minimapGroundSprites_.size() > writeIndex) {
+		delete minimapGroundSprites_.back();
+		minimapGroundSprites_.pop_back();
 	}
 }
 
@@ -1556,6 +2099,8 @@ bool GameScene::BeginPortalAbsorption() {
 	}
 	isGameplayRewinding_ = false;
 	gameplayRewindScrubAccumulator_ = 0.0f;
+	gameplayRewindQHoldSeconds_ = 0.0f;
+	gameplayRewindScrubbedDuringHold_ = false;
 	gameplayRewindBuffer_.Clear();
 	gameplayRewindSeeded_ = false;
 	isSpikeRewindOverlayActive_ = false;
@@ -1936,6 +2481,11 @@ void GameScene::ApplyGameplaySnapshot(const GameplaySnapshot& snapshot, bool fin
 
 	currentScreenX_ = snapshot.currentScreenX;
 	currentScreenY_ = snapshot.currentScreenY;
+	// 位置と画面番号のズレを防ぐ（巻き戻し中の画面遅れ対策）
+	if (player_) {
+		tileMap_.GetScreenFromWorld(
+		    player_->GetWorldPosition().x, player_->GetWorldPosition().y, currentScreenX_, currentScreenY_);
+	}
 	isFreeCamera_ = preserveFreeCamera;
 	freeCameraCenterX_ = preserveCenterX;
 	freeCameraCenterY_ = preserveCenterY;
@@ -2030,6 +2580,9 @@ void GameScene::ApplyRewindScrubInterpolation(float tTowardTarget, bool undoDire
 	}
 
 	const int targetIndex = undoDirection ? timelineIndex - 1 : timelineIndex + 1;
+	if (undoDirection && targetIndex < gameplayRewindBuffer_.GetMinUndoTimelineIndex()) {
+		return;
+	}
 	if (!gameplayRewindBuffer_.GetSnapshotAt(targetIndex, toSnapshot)) {
 		return;
 	}
@@ -2038,6 +2591,8 @@ void GameScene::ApplyRewindScrubInterpolation(float tTowardTarget, bool undoDire
 	LerpPlayerSnapshot(fromSnapshot.player, toSnapshot.player, tTowardTarget, lerpedPlayer);
 	player_->ApplySnapshot(lerpedPlayer);
 	lastPlayerPos_ = lerpedPlayer.position;
+	// 補間中も Player 位置から画面を同期（スナップショット跨ぎで数フレーム画面が戻らないのを防ぐ）
+	tileMap_.GetScreenFromWorld(lastPlayerPos_.x, lastPlayerPos_.y, currentScreenX_, currentScreenY_);
 	UpdateMapCamera();
 
 	if (minimapPlayerSprite_) {
@@ -2114,25 +2669,62 @@ void GameScene::UpdateGameplayRewindInput() {
 	}
 
 	const bool rewindBlocked =
-	    player_->IsPortalAbsorbing() || portalAbsorbFinishedPending_ || requestSceneClear_;
+	    player_->IsPortalAbsorbing() || portalAbsorbFinishedPending_ || requestSceneClear_ || isGameplayPaused_ ||
+	    IsKeyWallTutorialActive();
+	gameplayRewindBuffer_.SetMaxRewindSeconds(IsStageTutorialActive() ? GetTutorialRewindMaxSeconds() : -1.0f);
 	if (rewindBlocked) {
 		if (isGameplayRewinding_) {
 			FinalizeGameplayRewindScrub();
 		}
 		isGameplayRewinding_ = false;
 		gameplayRewindScrubAccumulator_ = 0.0f;
+		gameplayRewindQHoldSeconds_ = 0.0f;
 		return;
 	}
 
 	const bool qHeld = input_->PushKey(DIK_Q);
+
+	// 一時停止解除に使ったQ押し／履歴先頭到達後の押しっぱなしは、離すまで巻き戻ししない
+	if (gameplayPauseIgnoreQUntilRelease_) {
+		if (qHeld) {
+			if (isGameplayRewinding_) {
+				FinalizeGameplayRewindScrub();
+			}
+			isGameplayRewinding_ = false;
+			gameplayRewindScrubAccumulator_ = 0.0f;
+			gameplayRewindQHoldSeconds_ = 0.0f;
+			UpdateRewindOverlay();
+			return;
+		}
+		// 離したらフラグを下ろし、下の通常の離し処理（一時停止など）へ進む
+		gameplayPauseIgnoreQUntilRelease_ = false;
+	}
+
+	// チュートリアル中は「Qを押して…」が出るまで巻き戻し不可。3秒使い切り後も不可。
+	const bool tutorialQStepReady =
+	    stageTutorialStep_ == StageTutorialStep::PressQ ||
+	    (stageTutorialStep_ == StageTutorialStep::HitSpike && isSpikeRewindOverlayActive_);
+	const bool tutorialRewindBlocked =
+	    IsStageTutorialActive() && (tutorialRewindExhausted_ || !tutorialQStepReady);
 	bool scrubbingThisFrame = false;
 
 	const bool spikeRewindActive = isSpikeRewindOverlayActive_;
 
-	if (qHeld) {
+	if (qHeld && !tutorialRewindBlocked) {
+		gameplayRewindQHoldSeconds_ += 1.0f / 60.0f;
+		float scrubSpeed = 1.0f;
+		if (gameplayRewindQHoldSeconds_ >= kRewindHoldSpeed2xSeconds_) {
+			scrubSpeed = 2.0f;
+		} else if (gameplayRewindQHoldSeconds_ >= kRewindHoldSpeed15xSeconds_) {
+			scrubSpeed = 1.5f;
+		} else if (gameplayRewindQHoldSeconds_ >= kRewindHoldSpeed12xSeconds_) {
+			scrubSpeed = 1.2f;
+		}
+
 		if (gameplayRewindBuffer_.CanUndo()) {
-			gameplayRewindScrubAccumulator_ += GameplayRewindBuffer::kScrubSnapshotsPerFrame;
+			gameplayRewindScrubAccumulator_ += GameplayRewindBuffer::kScrubSnapshotsPerFrame * scrubSpeed;
 			scrubbingThisFrame = true;
+			gameplayRewindScrubbedDuringHold_ = true;
 
 			while (gameplayRewindScrubAccumulator_ >= 1.0f && gameplayRewindBuffer_.CanUndo()) {
 				GameplaySnapshot snapshot;
@@ -2147,24 +2739,69 @@ void GameScene::UpdateGameplayRewindInput() {
 
 				ApplyGameplaySnapshot(snapshot, false);
 				gameplayRewindScrubAccumulator_ -= 1.0f;
+				UpdateTutorialRewindExhaustion();
+
+				// 棘チュートリアルの瞬間移動地点まで戻ったら、そこで巻き戻し終了
+				if (tutorialSpikeTeleportRewindClamp_ && !gameplayRewindBuffer_.CanUndo()) {
+					gameplayRewindScrubAccumulator_ = 0.0f;
+					break;
+				}
 			}
 
-			if (gameplayRewindBuffer_.CanUndo() || gameplayRewindScrubAccumulator_ > 0.0f) {
+			if (!gameplayRewindBuffer_.CanUndo()) {
+				// 履歴の先頭（ステージ開始相当）まで戻った。
+				// 押し続けたままだと直後に新規記録が積まれて再巻き戻し→チカチカするため、
+				// いったん解除し、Qを離してから再度押すまで巻き戻し不可にする。
+				scrubbingThisFrame = false;
+				gameplayRewindScrubAccumulator_ = 0.0f;
+				gameplayRewindQHoldSeconds_ = 0.0f;
+				gameplayPauseIgnoreQUntilRelease_ = true;
+			} else if (gameplayRewindScrubAccumulator_ > 0.0f) {
 				ApplyRewindScrubInterpolation(gameplayRewindScrubAccumulator_, true);
 			}
+			UpdateTutorialRewindExhaustion();
+		} else if (isGameplayRewinding_ || gameplayRewindScrubbedDuringHold_) {
+			// すでに先頭にいる／今フレームで先頭到達した直後
+			gameplayRewindQHoldSeconds_ = 0.0f;
+			gameplayPauseIgnoreQUntilRelease_ = true;
 		}
 	} else {
 		gameplayRewindScrubAccumulator_ = 0.0f;
-		// Qを離した瞬間に、巻き戻し終了後の短い余韻（暗転＋操作停止）を開始
-		if (pendingRewindPostReleaseLock_ && rewindPostReleaseLockSeconds_ <= 0.0f) {
-			rewindPostReleaseLockSeconds_ = kRewindPostReleaseLockSeconds_;
-			pendingRewindPostReleaseLock_ = false;
-			rewindOverlayAlpha_ = rewindPostReleaseDimAlpha_;
-		}
+		gameplayRewindQHoldSeconds_ = 0.0f;
 	}
 
+	// 先に Finalize（pending を立てる）してから、Q離し時の一時停止へ移行する
 	if (isGameplayRewinding_ && !scrubbingThisFrame) {
 		FinalizeGameplayRewindScrub();
+	}
+
+	if (!qHeld) {
+		if (pendingRewindPostReleaseLock_) {
+			pendingRewindPostReleaseLock_ = false;
+			if (gameplayRewindScrubbedDuringHold_) {
+				const bool pressQTutorial =
+				    IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::PressQ;
+				const bool onRewindSpring = pressQTutorial && IsPlayerOnTutorialRewindSpring();
+				if (pressQTutorial && onRewindSpring) {
+					tutorialRewindReachedSpring_ = true;
+					tutorialRewindEarlyReleaseHint_ = false;
+					BeginGameplayPauseAfterRewind();
+				} else if (pressQTutorial) {
+					// バネに触れる前に離した → 一時停止せず案内
+					tutorialRewindEarlyReleaseHint_ = true;
+					rewindOverlayAlpha_ = 0.0f;
+					spikeRewindOverlayAlpha_ = 0.0f;
+					rewindPostReleaseLockSeconds_ = 0.0f;
+				} else {
+					BeginGameplayPauseAfterRewind();
+				}
+			} else {
+				rewindOverlayAlpha_ = 0.0f;
+				spikeRewindOverlayAlpha_ = 0.0f;
+				rewindPostReleaseLockSeconds_ = 0.0f;
+			}
+		}
+		gameplayRewindScrubbedDuringHold_ = false;
 	}
 
 	isGameplayRewinding_ = scrubbingThisFrame;
@@ -2193,9 +2830,22 @@ void GameScene::UpdateGameplayRewind() {
 		return;
 	}
 
+	// 一時停止中は巻き戻しバッファを進めない（停止時間が履歴を食い潰さない）
+	if (isGameplayPaused_) {
+		return;
+	}
+
+	// 巻き戻し誘導中は用意した履歴を上書きしない
+	if (IsStageTutorialActive() &&
+	    (stageTutorialStep_ == StageTutorialStep::PressQ || stageTutorialStep_ == StageTutorialStep::RewindIntro)) {
+		return;
+	}
+
 	if (player_->IsPortalAbsorbing() || portalAbsorbFinishedPending_ || requestSceneClear_) {
 		return;
 	}
+
+	gameplayRewindBuffer_.SetMaxRewindSeconds(IsStageTutorialActive() ? GetTutorialRewindMaxSeconds() : -1.0f);
 
 	GameplaySnapshot snapshot;
 	CaptureGameplaySnapshot(snapshot);
@@ -2217,11 +2867,18 @@ void GameScene::UpdateRewindOverlay() {
 		const float target = (isSpikeRewindOverlayActive_ || spikeRewindScrubStarted_) ? kSpikeRewindDimAlpha_
 		                                                                                 : kNormalRewindDimAlpha_;
 		rewindOverlayAlpha_ = (std::min)(rewindOverlayAlpha_ + kRewindOverlayFadeInSpeed_, target);
+		rewindStatusDotTimer_ += 1.0f / 60.0f;
+		const float cycleSec = kRewindStatusDotStepSec_ * static_cast<float>(kRewindStatusDotMax_ + 1);
+		if (rewindStatusDotTimer_ >= cycleSec) {
+			rewindStatusDotTimer_ -= cycleSec;
+		}
 	} else if (isSpikeRewindOverlayActive_ && !spikeRewindScrubStarted_) {
 		// 針被弾後、Qで巻き戻すまでの待機中
 		rewindOverlayAlpha_ = (std::min)(rewindOverlayAlpha_ + kRewindOverlayFadeInSpeed_, kSpikeRewindDimAlpha_);
+		rewindStatusDotTimer_ = 0.0f;
 	} else {
 		rewindOverlayAlpha_ = 0.0f;
+		rewindStatusDotTimer_ = 0.0f;
 	}
 
 	spikeRewindOverlayAlpha_ = rewindOverlayAlpha_;
@@ -2234,6 +2891,37 @@ void GameScene::DrawSpikeRewindOverlay() {
 
 	spikeRewindDimSprite_->SetColor({0.0f, 0.0f, 0.0f, rewindOverlayAlpha_});
 	spikeRewindDimSprite_->Draw();
+}
+
+void GameScene::DrawGameplayRewindStatusLabel() {
+	if (!isGameplayRewinding_ || !fontRenderer_ || !fontRenderer_->IsReady()) {
+		return;
+	}
+
+	constexpr const char* kBase = "巻き戻し中";
+	constexpr const char* kDots[4] = {"", "・", "・・", "・・・"};
+	int dotCount = static_cast<int>(rewindStatusDotTimer_ / kRewindStatusDotStepSec_);
+	if (dotCount < 0) {
+		dotCount = 0;
+	}
+	if (dotCount > kRewindStatusDotMax_) {
+		dotCount = kRewindStatusDotMax_;
+	}
+
+	const float fontH = kRewindStatusFontHeight_;
+	const KamataEngine::Vector4 textColor = {1.0f, 1.0f, 1.0f, 1.0f};
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float fullW = fontRenderer_->MeasureWidth("巻き戻し中・・・", fontH);
+	const float baseW = fontRenderer_->MeasureWidth(kBase, fontH);
+	float x = (winW - fullW) * 0.5f;
+	if (x < 8.0f) {
+		x = 8.0f;
+	}
+	const float y = kGameplayPauseStopCenterY_ - fontH * 0.5f - kTutorialTextOpticalOffsetY_;
+	fontRenderer_->DrawString(kBase, x, y, fontH, textColor);
+	if (dotCount > 0) {
+		fontRenderer_->DrawString(kDots[dotCount], x + baseW, y, fontH, textColor);
+	}
 }
 
 void GameScene::UpdateButtonGimmicks() {
@@ -2258,28 +2946,85 @@ void GameScene::UpdateButtonGimmicks() {
 	tileMap_.DeactivateAllDisappearingWalls();
 	mapRenderer_.DeactivateAllDisappearingWalls();
 	mapRenderer_.SetButtonPressed(buttonCol, buttonRow);
-	RebuildMinimapTiles();
+	// 全スプライト作り直しは重いので遅延（巻き戻しと同じ経路で次フレーム更新）
+	rewindMinimapDirty_ = true;
+
+	if (audio_) {
+		audio_->playAudioOneShot(keyCollectSound_, keyCollectSoundHandle_, 0.8f);
+	}
+}
+
+void GameScene::UpdateStageBgm() {
+	if (!audio_) {
+		return;
+	}
+
+	const SceneStateKind kind = GetSceneStateKind();
+	const bool inStage =
+	    kind == SceneStateKind::Game || kind == SceneStateKind::GameIntro || kind == SceneStateKind::TransitionFromGame;
+	if (!inStage) {
+		StopStageBgm();
+		return;
+	}
+
+	audio_->ensureLoopPlaying(stageBgmVoice_, stageBgmHandle_, 0.213f);
+}
+
+void GameScene::StopStageBgm() {
+	if (!audio_) {
+		stageBgmVoice_ = -1;
+		return;
+	}
+	audio_->stopAudio(stageBgmVoice_);
 }
 
 void GameScene::UpdateTrampolinePlacement() {
 	if (!input_ || !isGameIntroFinished_ || !player_) {
 		hasTrampolinePreview_ = false;
+		showSpringCollectLabel_ = false;
+		return;
+	}
+
+	// 巻き戻し説明中は設置・種類変更・回収操作を受け付けない
+	if (IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::RewindIntro) {
+		hasTrampolinePreview_ = false;
+		showSpringCollectLabel_ = false;
+		return;
+	}
+	if (IsKeyWallTutorialActive()) {
+		hasTrampolinePreview_ = false;
+		showSpringCollectLabel_ = false;
 		return;
 	}
 
 	if (input_->IsPressMouse(2)) {
 		hasTrampolinePreview_ = false;
+		showSpringCollectLabel_ = false;
 		return;
 	}
 
-	if (!HasAnySpringPlacementRemaining() && !HasAnyCollectableSpringOnMap()) {
+	if (!HasAnySpringPlacementRemaining() && !HasAnyCollectableSpringOnMap() && !ShouldForceTutorialSpringPreview()) {
 		hasTrampolinePreview_ = false;
+		showSpringCollectLabel_ = false;
 		return;
 	}
 
 	if (input_->IsTriggerMouse(1) && !input_->IsPressMouse(2)) {
-		nextTrampolineTypeIndex_++;
+		// 設置チュートリアル中は上バネ固定
+		if (!(IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::PlaceSpring)) {
+			if (IsStageTutorialActive()) {
+				nextTrampolineTypeIndex_++;
+			} else {
+				AdvanceToNextAvailableTrampolineType();
+			}
+		}
 	}
+
+	if (IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::PlaceSpring) {
+		nextTrampolineTypeIndex_ = 0;
+	}
+
+	SyncTrampolinePlacementType();
 
 	const TrampolineSpringType nextType = TrampolineSpring::GetPlacementType(nextTrampolineTypeIndex_);
 
@@ -2302,15 +3047,64 @@ void GameScene::UpdateTrampolinePlacement() {
 	trampolinePreview_.SetCenter(trampolinePreviewPos_, springLayoutHalfW, springLayoutHalfH);
 
 	size_t collectIndex = 0;
-	const bool canCollect =
-	    FindCollectableSpringAtCursor(nextType, trampolinePreviewPos_.x, trampolinePreviewPos_.y, springLayoutHalfW, springLayoutHalfH, collectIndex);
+	bool canCollect = false;
+	if (IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::CollectSpring) {
+		// 回収チュートリアル: 使用済みでも回収可だが、カーソルと同じ種類のみ
+		for (TrampolineSpring& spring : trampolineSprings_) {
+			spring.SetUsedByPlayer(false);
+		}
+		canCollect = FindCollectableSpringAtCursor(
+		    nextType, trampolinePreviewPos_.x, trampolinePreviewPos_.y, springLayoutHalfW, springLayoutHalfH, collectIndex);
+		// 判定を少し広めに再チェック（種類一致は必須）
+		if (!canCollect) {
+			for (size_t i = 0; i < trampolineSprings_.size(); ++i) {
+				TrampolineSpring& spring = trampolineSprings_[i];
+				if (spring.GetType() != nextType) {
+					continue;
+				}
+				float hitSpringHalfW = 0.0f;
+				float hitSpringHalfH = 0.0f;
+				spring.GetHalfSize(hitSpringHalfW, hitSpringHalfH);
+				const float hitHalfW = hitSpringHalfW + springLayoutHalfW;
+				const float hitHalfH = hitSpringHalfH + springLayoutHalfH;
+				if (std::abs(trampolinePreviewPos_.x - spring.GetCenter().x) <= hitHalfW &&
+				    std::abs(trampolinePreviewPos_.y - spring.GetCenter().y) <= hitHalfH) {
+					collectIndex = i;
+					canCollect = true;
+					break;
+				}
+			}
+		}
+	} else {
+		canCollect = FindCollectableSpringAtCursor(
+		    nextType, trampolinePreviewPos_.x, trampolinePreviewPos_.y, springLayoutHalfW, springLayoutHalfH, collectIndex);
+	}
+
+	showSpringCollectLabel_ = canCollect;
+	if (canCollect) {
+		const TrampolineSpring& collectSpring = trampolineSprings_[collectIndex];
+		const TrampolineSpringType collectType = collectSpring.GetType();
+		springCollectLabelIsVertical_ =
+		    (collectType == TrampolineSpringType::Left || collectType == TrampolineSpringType::Right);
+		springCollectLabelWorldPos_ = collectSpring.GetCenter();
+		collectSpring.GetHalfSize(springCollectLabelSpringHalfW_, springCollectLabelSpringHalfH_);
+	}
 	const bool placementBlocked =
 	    IsSpringPlacementBlockedAtCursor(nextType, trampolinePreviewPos_.x, trampolinePreviewPos_.y, springLayoutHalfW, springLayoutHalfH);
-	const bool canPlace = GetRemainingSpringPlacementCount(nextType) > 0 && !placementBlocked;
+	const bool outsideTutorialFrame = IsStageTutorialActive() && stageTutorialStep_ == StageTutorialStep::PlaceSpring &&
+	                                  !IsTutorialPlacementAllowedAt(trampolinePreviewPos_.x, trampolinePreviewPos_.y, springHalfW, springHalfH);
+	const bool tutorialPlacementLocked = IsTutorialSpringPlacementLocked();
+	const bool canPlace =
+	    GetRemainingSpringPlacementCount(nextType) > 0 && !placementBlocked && !outsideTutorialFrame && !tutorialPlacementLocked;
 
 	if (input_->IsTriggerMouse(0) && !input_->IsPressMouse(1) && !input_->IsPressMouse(2)) {
 		if (canCollect) {
+			// 回収チュートリアル以外の誘導中は回収させない
+			if (IsStageTutorialActive() && stageTutorialStep_ != StageTutorialStep::CollectSpring) {
+				return;
+			}
 			trampolineSprings_.erase(trampolineSprings_.begin() + static_cast<std::ptrdiff_t>(collectIndex));
+			showSpringCollectLabel_ = false;
 			SyncTrampolinePlacementType();
 			return;
 		}
@@ -2384,22 +3178,33 @@ bool GameScene::HasAnySpringPlacementRemaining() const {
 	return false;
 }
 
+bool GameScene::IsTrampolineTypeSelectable(TrampolineSpringType type) const {
+	// 誘導チュートリアル中は種類一周などのため全種類選べる
+	if (IsStageTutorialActive()) {
+		return true;
+	}
+	// ステージ上限0の種類だけ選べない。残数0（使い切り）は選べて ×0 表示する
+	return GetSpringPlacementLimit(type) > 0;
+}
+
 void GameScene::AdvanceToNextAvailableTrampolineType() {
+	const int startIndex = nextTrampolineTypeIndex_;
 	for (int attempt = 0; attempt < 4; ++attempt) {
 		nextTrampolineTypeIndex_++;
 		const TrampolineSpringType type = TrampolineSpring::GetPlacementType(nextTrampolineTypeIndex_);
-		if (GetRemainingSpringPlacementCount(type) > 0) {
+		if (IsTrampolineTypeSelectable(type)) {
 			return;
 		}
 	}
+	nextTrampolineTypeIndex_ = startIndex;
 }
 
 void GameScene::SyncTrampolinePlacementType() {
-	if (!HasAnySpringPlacementRemaining()) {
+	if (IsStageTutorialActive()) {
 		return;
 	}
 
-	if (GetRemainingSpringPlacementCount(TrampolineSpring::GetPlacementType(nextTrampolineTypeIndex_)) > 0) {
+	if (IsTrampolineTypeSelectable(TrampolineSpring::GetPlacementType(nextTrampolineTypeIndex_))) {
 		return;
 	}
 
@@ -2407,7 +3212,7 @@ void GameScene::SyncTrampolinePlacementType() {
 	do {
 		nextTrampolineTypeIndex_++;
 		const TrampolineSpringType type = TrampolineSpring::GetPlacementType(nextTrampolineTypeIndex_);
-		if (GetRemainingSpringPlacementCount(type) > 0) {
+		if (IsTrampolineTypeSelectable(type)) {
 			return;
 		}
 	} while (nextTrampolineTypeIndex_ != startIndex);
@@ -2417,23 +3222,6 @@ void GameScene::UpdateTrampolineArrowAnimations() {
 	trampolineArrowAnimTime_ += 1.0f / 60.0f;
 }
 
-namespace {
-TrampolineSpringType GetSpringHudDisplayType(int hudIndex) {
-	switch (hudIndex) {
-	case 0:
-		return TrampolineSpringType::Up;
-	case 1:
-		return TrampolineSpringType::Down;
-	case 2:
-		return TrampolineSpringType::Left;
-	case 3:
-		return TrampolineSpringType::Right;
-	default:
-		return TrampolineSpringType::Up;
-	}
-}
-} // namespace
-
 void GameScene::InitializeSpringPlacementHud() {
 	static const char* kSpringHudIconPaths[4] = {"Up/Up.png", "down/down.png", "left/left.png", "light/light.png"};
 	for (int i = 0; i < 4; ++i) {
@@ -2441,6 +3229,30 @@ void GameScene::InitializeSpringPlacementHud() {
 	}
 
 	springMultiplyTextureHandle_ = KamataEngine::TextureManager::Load("kakeru.png");
+
+	springCollectLabelTextureHandle_ = KamataEngine::TextureManager::Load("respawn.png");
+	if (springCollectLabelTextureHandle_ != 0) {
+		springCollectLabelSprite_ = KamataEngine::Sprite::Create(springCollectLabelTextureHandle_, {0.0f, 0.0f});
+		if (springCollectLabelSprite_) {
+			springCollectLabelSprite_->SetAnchorPoint({0.5f, 0.5f});
+			const KamataEngine::Vector2& nativeSize = springCollectLabelSprite_->GetSize();
+			if (nativeSize.y > 0.0f) {
+				springCollectLabelAspect_ = nativeSize.x / nativeSize.y;
+			}
+		}
+	}
+
+	springCollectLabelVerticalTextureHandle_ = KamataEngine::TextureManager::Load("respawn2.png");
+	if (springCollectLabelVerticalTextureHandle_ != 0) {
+		springCollectLabelVerticalSprite_ = KamataEngine::Sprite::Create(springCollectLabelVerticalTextureHandle_, {0.0f, 0.0f});
+		if (springCollectLabelVerticalSprite_) {
+			springCollectLabelVerticalSprite_->SetAnchorPoint({0.5f, 0.5f});
+			const KamataEngine::Vector2& nativeSize = springCollectLabelVerticalSprite_->GetSize();
+			if (nativeSize.y > 0.0f) {
+				springCollectLabelVerticalAspect_ = nativeSize.x / nativeSize.y;
+			}
+		}
+	}
 
 	const uint32_t defaultDigitHandle =
 	    stageSelectDigitTextureHandles_[0] != 0 ? stageSelectDigitTextureHandles_[0] : digitTextureHandles_[0];
@@ -2452,6 +3264,10 @@ void GameScene::InitializeSpringPlacementHud() {
 			ui.iconSprite = KamataEngine::Sprite::Create(iconHandle, {0.0f, 0.0f});
 			if (ui.iconSprite) {
 				ui.iconSprite->SetAnchorPoint({0.0f, 0.5f});
+				const KamataEngine::Vector2& nativeSize = ui.iconSprite->GetSize();
+				if (nativeSize.y > 0.0f) {
+					ui.iconAspect = nativeSize.x / nativeSize.y;
+				}
 			}
 		}
 
@@ -2475,14 +3291,1241 @@ void GameScene::InitializeSpringPlacementHud() {
 	}
 }
 
+int GameScene::GetSpikeLivesMaxForCurrentStage() const {
+	// ステージ8（currentStageIndex_ == 7）はハート30
+	if (currentStageIndex_ == 7) {
+		return kSpikeLivesMaxStage8_;
+	}
+	return kSpikeLivesMax_;
+}
+
+int GameScene::GetSpringPlacementLimit(TrampolineSpringType type) const {
+	// displayStage = currentStageIndex_ + 1
+	// ステージ1は誘導後 FreePlay（maptutorial）のみ適用
+	struct Limits {
+		int up;
+		int down;
+		int left;
+		int right;
+	};
+
+	Limits limits = {kSpringPlacementLimitPerType_, kSpringPlacementLimitPerType_, kSpringPlacementLimitPerType_,
+	                 kSpringPlacementLimitPerType_};
+
+	if (currentStageIndex_ == 0) {
+		if (tutorialMapMode_ != TutorialMapMode::FreePlay) {
+			return kSpringPlacementLimitPerType_;
+		}
+		// ステージ1: 上1・右2
+		limits = {1, 0, 0, 2};
+	} else {
+		switch (currentStageIndex_) {
+		case 1: // ステージ2
+			limits = {1, 0, 1, 1};
+			break;
+		case 2: // ステージ3
+			limits = {1, 0, 1, 1};
+			break;
+		case 3: // ステージ4
+			limits = {1, 1, 1, 1};
+			break;
+		case 4: // ステージ5
+			limits = {1, 0, 0, 0};
+			break;
+		case 5: // ステージ6
+			limits = {4, 1, 2, 2};
+			break;
+		case 6: // ステージ7
+			limits = {6, 2, 5, 7};
+			break;
+		case 7: // ステージ8
+			limits = {6, 1, 4, 3};
+			break;
+		case 8: // ステージ9
+			limits = {6, 4, 1, 3};
+			break;
+		case 9: // ステージ10
+			limits = {3, 0, 2, 2};
+			break;
+		default:
+			break;
+		}
+	}
+
+	switch (type) {
+	case TrampolineSpringType::Up:
+		return limits.up;
+	case TrampolineSpringType::Down:
+		return limits.down;
+	case TrampolineSpringType::Left:
+		return limits.left;
+	case TrampolineSpringType::Right:
+		return limits.right;
+	}
+	return 0;
+}
+
 int GameScene::GetRemainingSpringPlacementCount(TrampolineSpringType type) const {
+	if (IsStageTutorialActive()) {
+		(void)type;
+		return (std::max)(0, kTutorialSpringPlacementLimit_ - static_cast<int>(trampolineSprings_.size()));
+	}
+
+	const int limit = GetSpringPlacementLimit(type);
+	if (limit <= 0) {
+		return 0;
+	}
+
 	int placedCount = 0;
 	for (const TrampolineSpring& spring : trampolineSprings_) {
 		if (spring.GetType() == type) {
 			++placedCount;
 		}
 	}
-	return (std::max)(0, kSpringPlacementLimitPerType_ - placedCount);
+	return (std::max)(0, limit - placedCount);
+}
+
+bool GameScene::IsStageTutorialActive() const {
+	return stageTutorialStep_ != StageTutorialStep::Inactive && stageTutorialStep_ != StageTutorialStep::Done;
+}
+
+bool GameScene::IsKeyWallTutorialActive() const {
+	return keyWallTutorialPhase_ != KeyWallTutorialPhase::Inactive && keyWallTutorialPhase_ != KeyWallTutorialPhase::Done;
+}
+
+bool GameScene::ShouldFreezePlayerForTutorial() const {
+	return IsKeyWallTutorialActive() ||
+	       (IsStageTutorialActive() &&
+	        (stageTutorialStep_ == StageTutorialStep::PlaceSpring ||
+	         (stageTutorialStep_ == StageTutorialStep::RedSpringHint && tutorialRedSpringHintFrozen_) ||
+	         stageTutorialStep_ == StageTutorialStep::ChangeType || tutorialPlayerControlLocked_));
+}
+
+bool GameScene::IsTutorialSpringReactive() const {
+	if (!IsStageTutorialActive()) {
+		return true;
+	}
+	return stageTutorialStep_ == StageTutorialStep::TouchSpring || stageTutorialStep_ == StageTutorialStep::ChargeSpring ||
+	       stageTutorialStep_ == StageTutorialStep::SpacePauseHint;
+}
+
+bool GameScene::IsTutorialSpikeReactive() const {
+	if (!IsStageTutorialActive()) {
+		return true;
+	}
+	if (tutorialSpikeAwaitingExit_) {
+		return false;
+	}
+	return stageTutorialStep_ == StageTutorialStep::HitSpike || stageTutorialStep_ == StageTutorialStep::ScrollWheel ||
+	       stageTutorialStep_ == StageTutorialStep::ShowGoal || stageTutorialStep_ == StageTutorialStep::PressR;
+}
+
+bool GameScene::IsPlayerOverlappingSpike() const {
+	if (!player_) {
+		return false;
+	}
+	const KamataEngine::Vector3 pos = player_->GetWorldPosition();
+	return tileMap_.OverlapsSpike(pos.x, pos.y, player_->GetHalfWidth(), player_->GetHalfHeight());
+}
+
+bool GameScene::ShouldForceTutorialSpringPreview() const {
+	if (!IsStageTutorialActive()) {
+		return false;
+	}
+	switch (stageTutorialStep_) {
+	case StageTutorialStep::WaitLand:
+	case StageTutorialStep::ChangeType:
+	case StageTutorialStep::HitSpike:
+	case StageTutorialStep::RewindIntro:
+	case StageTutorialStep::PressQ:
+	case StageTutorialStep::RideSpringAgain:
+	case StageTutorialStep::SpacePauseHint:
+	case StageTutorialStep::CollectSpring:
+	case StageTutorialStep::ScrollWheel:
+	case StageTutorialStep::ShowGoal:
+	case StageTutorialStep::PressR:
+		return true;
+	default:
+		return false;
+	}
+}
+
+bool GameScene::IsTutorialSpringPlacementLocked() const {
+	if (!IsStageTutorialActive()) {
+		return false;
+	}
+	return stageTutorialStep_ != StageTutorialStep::PlaceSpring;
+}
+
+float GameScene::GetTutorialRewindMaxSeconds() const { return kTutorialMaxRewindSeconds_; }
+
+void GameScene::UpdateTutorialRewindExhaustion() {
+	if (!IsStageTutorialActive() || tutorialRewindExhausted_) {
+		return;
+	}
+
+	const int snapshotCount = gameplayRewindBuffer_.GetSnapshotCount();
+	if (snapshotCount <= 0) {
+		return;
+	}
+
+	const int presentIndex = snapshotCount - 1;
+	const int timelineIndex = gameplayRewindBuffer_.GetTimelineIndex();
+	const int maxUndoSteps = static_cast<int>(kTutorialMaxRewindSeconds_ / GameplayRewindBuffer::kSecondsPerSnapshot);
+	if (presentIndex - timelineIndex >= maxUndoSteps) {
+		tutorialRewindExhausted_ = true;
+	}
+}
+
+bool GameScene::IsTutorialPlacementAllowedAt(float worldX, float worldY, float springHalfW, float springHalfH) const {
+	// 描画の緑枠より一回り小さい範囲に、バネ全体が収まるときだけ許可
+	const float halfW = kTutorialFrameHalfW_ * kTutorialFramePlaceScale_;
+	const float halfH = kTutorialFrameHalfH_ * kTutorialFramePlaceScale_;
+	const float minX = kTutorialFrameCenterX_ - halfW;
+	const float maxX = kTutorialFrameCenterX_ + halfW;
+	const float minY = kTutorialFrameCenterY_ - halfH;
+	const float maxY = kTutorialFrameCenterY_ + halfH;
+	return (worldX - springHalfW) >= minX && (worldX + springHalfW) <= maxX &&
+	       (worldY - springHalfH) >= minY && (worldY + springHalfH) <= maxY;
+}
+
+bool GameScene::IsTutorialGoalVisibleInView(KamataEngine::Vector3& outGoalPos) {
+	if (goalPositions_.empty() || cameraZoomOut_ < 0.12f) {
+		return false;
+	}
+
+	float viewLeft = 0.0f, viewBottom = 0.0f, viewRight = 0.0f, viewTop = 0.0f;
+	ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
+
+	for (const KamataEngine::Vector3& goalPos : goalPositions_) {
+		int screenX = 0;
+		int screenY = 0;
+		tileMap_.GetScreenFromWorld(goalPos.x, goalPos.y, screenX, screenY);
+		if (screenX < 1) {
+			continue; // 右マップ側のゴールを対象にする
+		}
+		if (goalPos.x > viewLeft && goalPos.x < viewRight && goalPos.y > viewBottom && goalPos.y < viewTop) {
+			outGoalPos = goalPos;
+			return true;
+		}
+	}
+	return false;
+}
+
+void GameScene::BeginTutorialTimedBanner(const char* text, float seconds, bool centerOnScreen) {
+	tutorialTimedBannerText_ = text;
+	tutorialTimedBannerRemainSec_ = (seconds > 0.0f) ? seconds : 0.0f;
+	tutorialTimedBannerCentered_ = centerOnScreen;
+}
+
+void GameScene::UpdateTutorialTimedBanner() {
+	if (tutorialTimedBannerRemainSec_ <= 0.0f) {
+		tutorialTimedBannerText_ = nullptr;
+		return;
+	}
+	tutorialTimedBannerRemainSec_ -= 1.0f / 60.0f;
+	if (tutorialTimedBannerRemainSec_ <= 0.0f) {
+		tutorialTimedBannerRemainSec_ = 0.0f;
+		tutorialTimedBannerText_ = nullptr;
+	}
+}
+
+void GameScene::DrawTutorialTimedBanner() {
+	if (tutorialTimedBannerRemainSec_ <= 0.0f || !tutorialTimedBannerText_ || !fontRenderer_ ||
+	    !fontRenderer_->IsReady()) {
+		return;
+	}
+
+	const float fontH = kTutorialPauseHintFontHeight_;
+	const KamataEngine::Vector4 textColor = {1.0f, 1.0f, 1.0f, 1.0f};
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
+	const float textW = fontRenderer_->MeasureWidth(tutorialTimedBannerText_, fontH);
+
+	float anchorX = winW * 0.5f;
+	float textTopY = winH * kTutorialPauseLandHintTextAnchorY_ - fontH * 0.5f;
+	if (!tutorialTimedBannerCentered_) {
+		const KamataEngine::Vector2 springScreen =
+		    ConvertWorldToScreen(tutorialPlacedSpringWorldPos_.x, tutorialPlacedSpringWorldPos_.y);
+		float springHalfH = TileMap::kSpringReferenceHalfH;
+		if (!trampolineSprings_.empty()) {
+			float springHalfW = 0.0f;
+			trampolineSprings_.front().GetHalfSize(springHalfW, springHalfH);
+		}
+		float viewLeft = 0.0f, viewBottom = 0.0f, viewRight = 0.0f, viewTop = 0.0f;
+		ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
+		const float pxPerWorldY =
+		    (viewTop > viewBottom) ? (winH / (viewTop - viewBottom)) : 1.0f;
+		const float springTopScreenY = springScreen.y - springHalfH * pxPerWorldY;
+		anchorX = springScreen.x;
+		textTopY = springTopScreenY - kTutorialTimedBannerTextAboveSpringPx_ - fontH;
+	}
+
+	float textX = anchorX - textW * 0.5f;
+	if (textX < 8.0f) {
+		textX = 8.0f;
+	}
+	if (textX + textW > winW - 8.0f) {
+		textX = winW - 8.0f - textW;
+	}
+	fontRenderer_->DrawString(
+	    tutorialTimedBannerText_, textX, textTopY - kTutorialTextOpticalOffsetY_, fontH, textColor);
+}
+
+float GameScene::FindTutorialGroundCenterY(float worldX, float halfW, float halfH) const {
+	float y = tileMap_.GetOffsetY() + static_cast<float>(tileMap_.GetHeight()) * TileMap::kTileHeight - halfH;
+	float velY = -1.0f;
+	for (int i = 0; i < 256; ++i) {
+		bool landed = false;
+		const float nextY = y - TileMap::kTileHeight * 0.5f;
+		float resolveY = nextY;
+		tileMap_.ResolveCollisionY(resolveY, worldX, halfW, halfH, velY, landed);
+		y = resolveY;
+		if (landed) {
+			return y;
+		}
+	}
+	return y;
+}
+
+bool GameScene::IsPlayerOnTutorialRewindSpring() const {
+	if (!player_ || trampolineSprings_.empty()) {
+		return false;
+	}
+	const KamataEngine::Vector3 pos = player_->GetWorldPosition();
+	for (const TrampolineSpring& spring : trampolineSprings_) {
+		if (spring.IsPlayerOverlapping(pos.x, pos.y, player_->GetHalfWidth(), player_->GetHalfHeight())) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void GameScene::SetupTutorialRewindToSpringCourse() {
+	if (!player_) {
+		return;
+	}
+
+	isSpikeRewindOverlayActive_ = false;
+	spikeRewindScrubStarted_ = false;
+	spikeRewindOverlayAlpha_ = 0.0f;
+	rewindOverlayAlpha_ = 0.0f;
+	isGameplayPaused_ = false;
+	isGameplayRewinding_ = false;
+
+	tutorialPreRewindPlayerPos_ = player_->GetWorldPosition();
+	tutorialPreRewindSprings_.clear();
+	tutorialPreRewindSprings_.reserve(trampolineSprings_.size());
+	for (const TrampolineSpring& spring : trampolineSprings_) {
+		TrampolineSpringSnapshot springSnapshot;
+		springSnapshot.type = spring.GetType();
+		springSnapshot.center = spring.GetCenter();
+		springSnapshot.usedByPlayer = spring.IsUsedByPlayer();
+		tutorialPreRewindSprings_.push_back(springSnapshot);
+	}
+	tutorialHasPreRewindSnapshot_ = true;
+
+	const float halfH = player_->GetHalfHeight();
+	const float playerHeight = halfH * 2.0f;
+	const float springHalfW = TileMap::kSpringReferenceHalfW;
+	const float springHalfH = TileMap::kSpringReferenceHalfH;
+
+	// 現在位置のまま（瞬間移動しない）
+	const float playerX = tutorialPreRewindPlayerPos_.x;
+	const float playerGroundY = tutorialPreRewindPlayerPos_.y;
+
+	// カメラをプレイヤー基準にしてから、画面左へ右向きバネを置く
+	UpdateMapCamera();
+	float viewLeft = 0.0f, viewBottom = 0.0f, viewRight = 0.0f, viewTop = 0.0f;
+	ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
+
+	const float springX = viewLeft + (viewRight - viewLeft) * 0.22f;
+	const float groundYAtSpring = FindTutorialGroundCenterY(springX, springHalfW, springHalfH);
+	// 地面よりプレイヤー約2個分上（バネ中心）
+	const float springY = (groundYAtSpring - halfH) + playerHeight * 2.0f + springHalfH;
+
+	trampolineSprings_.clear();
+	TrampolineSpring spring;
+	spring.SetType(TrampolineSpringType::Right);
+	spring.SetCenter({springX, springY, 1.0f}, springHalfW, springHalfH);
+	spring.SetUsedByPlayer(false);
+	trampolineSprings_.push_back(std::move(spring));
+	tutorialPlacedSpringWorldPos_ = {springX, springY, 1.0f};
+	nextTrampolineTypeIndex_ = 2; // GetPlacementType: Right
+
+	// バネ位置 → 現在位置まで履歴を作り、Qでバネまで戻せるようにする
+	gameplayRewindBuffer_.Clear();
+	gameplayRewindBuffer_.SetMaxRewindSeconds(kTutorialMaxRewindSeconds_);
+	constexpr int kPathSnapshots = 72;
+	for (int i = 0; i <= kPathSnapshots; ++i) {
+		const float t = static_cast<float>(i) / static_cast<float>(kPathSnapshots);
+		const float x = springX + (playerX - springX) * t;
+		const float y = springY + (playerGroundY - springY) * t;
+		player_->SetPosition({x, y, 1.0f});
+		player_->RefreshWorldMatrix();
+		GameplaySnapshot snapshot;
+		CaptureGameplaySnapshot(snapshot);
+		snapshot.player.onGround = (i == kPathSnapshots);
+		snapshot.player.velocityX = 0.0f;
+		snapshot.player.velocityY = 0.0f;
+		gameplayRewindBuffer_.ForceRecord(snapshot);
+	}
+
+	player_->SetPosition({playerX, playerGroundY, 1.0f});
+	player_->RefreshWorldMatrix();
+	gameplayRewindSeeded_ = true;
+	gameplayRewindScrubAccumulator_ = 0.0f;
+	gameplayRewindQHoldSeconds_ = 0.0f;
+	tutorialRewindExhausted_ = false;
+	tutorialRewindReachedSpring_ = false;
+	tutorialRewindEarlyReleaseHint_ = false;
+}
+
+void GameScene::RestoreTutorialPreRewindCourse() {
+	if (!tutorialHasPreRewindSnapshot_ || !player_) {
+		return;
+	}
+
+	player_->SetPosition(tutorialPreRewindPlayerPos_);
+	player_->RefreshWorldMatrix();
+	RestoreTrampolinesFromSnapshot(tutorialPreRewindSprings_);
+	SyncTrampolinePlacementType();
+	if (!trampolineSprings_.empty()) {
+		tutorialPlacedSpringWorldPos_ = trampolineSprings_.front().GetCenter();
+	}
+	gameplayRewindBuffer_.Clear();
+	gameplayRewindSeeded_ = false;
+	isGameplayPaused_ = false;
+	isGameplayRewinding_ = false;
+	tutorialHasPreRewindSnapshot_ = false;
+}
+
+void GameScene::ResetStageTutorial() {
+	stageTutorialStep_ = StageTutorialStep::Inactive;
+	ResetKeyWallTutorial();
+	tutorialTouchedSpring_ = false;
+	tutorialChargeReady_ = false;
+	tutorialChargeFlying_ = false;
+	tutorialChargeLaunched_ = false;
+	tutorialChargePeakY_ = 0.0f;
+	tutorialTypeCycleAway_ = false;
+	tutorialDidRewind_ = false;
+	tutorialRewindExhausted_ = false;
+	tutorialPlayerControlLocked_ = false;
+	tutorialSpikeAwaitingExit_ = false;
+	tutorialSpikeTeleportRewindClamp_ = false;
+	tutorialWasOnSpringForSecondRide_ = false;
+	tutorialSpacePauseApexReached_ = false;
+	tutorialSpacePauseReleased_ = false;
+	tutorialSpacePauseAirFrames_ = 0;
+	tutorialSpacePausePeakY_ = 0.0f;
+	tutorialRideSpringLaunchY_ = 0.0f;
+	tutorialRewindReachedSpring_ = false;
+	tutorialRewindEarlyReleaseHint_ = false;
+	tutorialRewindIntroRemainSec_ = 0.0f;
+	tutorialPauseChargeLaunched_ = false;
+	tutorialPauseLandHintActive_ = false;
+	tutorialPauseLandHintRemainSec_ = 0.0f;
+	tutorialPauseLandGroundFrames_ = 0;
+	tutorialPauseAirborneFrames_ = 0;
+	tutorialHasPreRewindSnapshot_ = false;
+	tutorialPreRewindPlayerPos_ = {};
+	tutorialPreRewindSprings_.clear();
+	tutorialPauseIntroLockRemainSec_ = 0.0f;
+	tutorialTimedBannerRemainSec_ = 0.0f;
+	tutorialTimedBannerText_ = nullptr;
+	tutorialTimedBannerCentered_ = false;
+	isGameplayPaused_ = false;
+	gameplayPauseSavedVelX_ = 0.0f;
+	gameplayPauseSavedVelY_ = 0.0f;
+	gameplayPauseSpaceWasDown_ = false;
+	gameplayPauseSpaceHoldFrames_ = 0;
+	gameplayPauseIgnoreSpaceUntilRelease_ = false;
+	gameplayPauseIgnoreQUntilRelease_ = false;
+	tutorialWheelMoved_ = false;
+	tutorialSeenTypeMask_ = 0;
+	tutorialTypeCycleStartIndex_ = 0;
+	tutorialPrevTypeIndex_ = 0;
+	tutorialGoalVisibleFrames_ = 0;
+	tutorialPlacedSpringWorldPos_ = {};
+	tutorialGoalWorldPos_ = {};
+	tutorialZoomAtWheelStep_ = 0.0f;
+	tutorialRedSpringHintFrozen_ = false;
+	tutorialRedSpringHintAirFrames_ = 0;
+	tutorialRedSpringHintLaunchY_ = 0.0f;
+	if (player_) {
+		player_->SetMinSpringChargeToLaunch(0.0f);
+		player_->SetBlockUnchargedSpringLaunch(false);
+		player_->SetSpringInteractionEnabled(true);
+		player_->SetSpikeInteractionEnabled(true);
+		player_->SetHorizontalMoveEnabled(true);
+		player_->SetInstantSpringLaunch(false);
+	}
+}
+
+void GameScene::ResetKeyWallTutorial() {
+	keyWallTutorialPhase_ = KeyWallTutorialPhase::Inactive;
+	keyWallTutorialTimer_ = 0.0f;
+	keyWallTutorialKeyWorld_ = {};
+	keyWallTutorialWallWorld_ = {};
+	keyWallTutorialTextScreen_ = {};
+	keyWallTutorialFromScreen_ = {};
+	keyWallTutorialToScreen_ = {};
+	keyWallTutorialText_ = nullptr;
+	keyWallTutorialTextAlpha_ = 1.0f;
+}
+
+bool GameScene::FindKeyWallTutorialAnchors() {
+	keyWallTutorialKeyWorld_ = {};
+	keyWallTutorialWallWorld_ = {};
+	bool foundKey = false;
+	bool foundWall = false;
+	float wallSumX = 0.0f;
+	float wallSumY = 0.0f;
+	int wallCount = 0;
+
+	const int mapW = tileMap_.GetWidth();
+	const int mapH = tileMap_.GetHeight();
+	for (int row = 0; row < mapH; ++row) {
+		for (int col = 0; col < mapW; ++col) {
+			float minX = 0.0f;
+			float minY = 0.0f;
+			float maxX = 0.0f;
+			float maxY = 0.0f;
+			tileMap_.GetTileWorldRect(col, row, minX, minY, maxX, maxY);
+			const float cx = (minX + maxX) * 0.5f;
+			const float cy = (minY + maxY) * 0.5f;
+
+			if (!foundKey && tileMap_.IsButton(col, row) && !tileMap_.IsButtonPressed(col, row)) {
+				keyWallTutorialKeyWorld_ = {cx, cy, 1.0f};
+				foundKey = true;
+			}
+			if (tileMap_.IsDisappearingWallActive(col, row)) {
+				wallSumX += cx;
+				wallSumY += cy;
+				++wallCount;
+				foundWall = true;
+			}
+		}
+	}
+
+	if (foundWall && wallCount > 0) {
+		keyWallTutorialWallWorld_ = {wallSumX / static_cast<float>(wallCount), wallSumY / static_cast<float>(wallCount), 1.0f};
+	}
+	return foundKey && foundWall;
+}
+
+void GameScene::InitializeKeyWallTutorial() {
+	ResetKeyWallTutorial();
+	if (currentStageIndex_ != kKeyWallTutorialStageIndex_) {
+		return;
+	}
+	if (!FindKeyWallTutorialAnchors()) {
+		keyWallTutorialPhase_ = KeyWallTutorialPhase::Done;
+		return;
+	}
+
+	keyWallTutorialPhase_ = KeyWallTutorialPhase::ShowAtKey;
+	keyWallTutorialTimer_ = 0.0f;
+	keyWallTutorialText_ = "鍵を取る";
+	keyWallTutorialTextAlpha_ = 0.0f;
+
+	// 画面座標は intro 後に確定するので、Update 初回で同期する
+	keyWallTutorialTextScreen_ = ConvertWorldToScreen(keyWallTutorialKeyWorld_.x, keyWallTutorialKeyWorld_.y);
+	keyWallTutorialFromScreen_ = keyWallTutorialTextScreen_;
+	keyWallTutorialToScreen_ = ConvertWorldToScreen(keyWallTutorialWallWorld_.x, keyWallTutorialWallWorld_.y);
+}
+
+void GameScene::UpdateKeyWallTutorial() {
+	if (!isGameIntroFinished_ || !player_) {
+		return;
+	}
+	if (currentStageIndex_ != kKeyWallTutorialStageIndex_) {
+		if (keyWallTutorialPhase_ != KeyWallTutorialPhase::Inactive) {
+			ResetKeyWallTutorial();
+		}
+		return;
+	}
+	if (keyWallTutorialPhase_ == KeyWallTutorialPhase::Inactive || keyWallTutorialPhase_ == KeyWallTutorialPhase::Done) {
+		return;
+	}
+
+	const float dt = 1.0f / 60.0f;
+	keyWallTutorialTimer_ += dt;
+
+	auto easeOutCubic = [](float t) {
+		t = std::clamp(t, 0.0f, 1.0f);
+		const float u = 1.0f - t;
+		return 1.0f - u * u * u;
+	};
+	auto easeInOutCubic = [](float t) {
+		t = std::clamp(t, 0.0f, 1.0f);
+		if (t < 0.5f) {
+			return 4.0f * t * t * t;
+		}
+		const float u = -2.0f * t + 2.0f;
+		return 1.0f - u * u * u * 0.5f;
+	};
+
+	const float fontH = kTutorialFontHeight_ + 4.0f;
+	const KamataEngine::Vector2 keyScreen = ConvertWorldToScreen(keyWallTutorialKeyWorld_.x, keyWallTutorialKeyWorld_.y);
+	const KamataEngine::Vector2 wallScreen = ConvertWorldToScreen(keyWallTutorialWallWorld_.x, keyWallTutorialWallWorld_.y);
+
+	const char* kTextKey = "鍵を取る";
+	const char* kTextWall = "鍵を取ると壁が消えます";
+	const float keyTextW = (fontRenderer_ && fontRenderer_->IsReady()) ? fontRenderer_->MeasureWidth(kTextKey, fontH) : 120.0f;
+	const float wallTextW = (fontRenderer_ && fontRenderer_->IsReady()) ? fontRenderer_->MeasureWidth(kTextWall, fontH) : 280.0f;
+	(void)keyTextW;
+
+	// テキスト左上付近のアンカー（鍵の右／壁の左）
+	const KamataEngine::Vector2 keyTextAnchor = {keyScreen.x + 48.0f, keyScreen.y - fontH * 0.5f};
+	const KamataEngine::Vector2 wallTextAnchor = {wallScreen.x - 48.0f - wallTextW, wallScreen.y - fontH * 0.5f};
+
+	switch (keyWallTutorialPhase_) {
+	case KeyWallTutorialPhase::ShowAtKey: {
+		keyWallTutorialText_ = kTextKey;
+		keyWallTutorialTextScreen_ = keyTextAnchor;
+		keyWallTutorialTextAlpha_ = easeOutCubic(keyWallTutorialTimer_ / kKeyWallTutorialFadeInSec_);
+		if (keyWallTutorialTimer_ >= kKeyWallTutorialHoldSec_) {
+			keyWallTutorialPhase_ = KeyWallTutorialPhase::MoveToWall;
+			keyWallTutorialTimer_ = 0.0f;
+			keyWallTutorialFromScreen_ = keyTextAnchor;
+			keyWallTutorialToScreen_ = wallTextAnchor;
+			keyWallTutorialText_ = kTextWall;
+			keyWallTutorialTextAlpha_ = 1.0f;
+		}
+		break;
+	}
+	case KeyWallTutorialPhase::MoveToWall: {
+		keyWallTutorialFromScreen_ = keyTextAnchor;
+		keyWallTutorialToScreen_ = wallTextAnchor;
+		const float t = easeInOutCubic(keyWallTutorialTimer_ / kKeyWallTutorialMoveSec_);
+		keyWallTutorialTextScreen_.x = keyWallTutorialFromScreen_.x + (keyWallTutorialToScreen_.x - keyWallTutorialFromScreen_.x) * t;
+		keyWallTutorialTextScreen_.y = keyWallTutorialFromScreen_.y + (keyWallTutorialToScreen_.y - keyWallTutorialFromScreen_.y) * t;
+		keyWallTutorialText_ = kTextWall;
+		keyWallTutorialTextAlpha_ = 1.0f;
+		if (keyWallTutorialTimer_ >= kKeyWallTutorialMoveSec_) {
+			keyWallTutorialPhase_ = KeyWallTutorialPhase::ShowAtWall;
+			keyWallTutorialTimer_ = 0.0f;
+			keyWallTutorialTextScreen_ = wallTextAnchor;
+		}
+		break;
+	}
+	case KeyWallTutorialPhase::ShowAtWall: {
+		keyWallTutorialText_ = kTextWall;
+		keyWallTutorialTextScreen_ = wallTextAnchor;
+		keyWallTutorialTextAlpha_ = 1.0f;
+		if (keyWallTutorialTimer_ >= kKeyWallTutorialHoldSec_) {
+			keyWallTutorialPhase_ = KeyWallTutorialPhase::Done;
+			keyWallTutorialTimer_ = 0.0f;
+			keyWallTutorialText_ = nullptr;
+			keyWallTutorialTextAlpha_ = 0.0f;
+		}
+		break;
+	}
+	default:
+		break;
+	}
+}
+
+void GameScene::DrawKeyWallTutorial() {
+	if (!IsKeyWallTutorialActive() || GetSceneStateKind() != SceneStateKind::Game || !isGameIntroFinished_) {
+		return;
+	}
+	if (!fontRenderer_ || !fontRenderer_->IsReady() || !keyWallTutorialText_) {
+		return;
+	}
+
+	if (pauseDimSprite_) {
+		pauseDimSprite_->SetColor({0.0f, 0.0f, 0.0f, kTutorialDimAlpha_ * 0.65f * keyWallTutorialTextAlpha_});
+		pauseDimSprite_->Draw();
+	}
+
+	const float fontH = kTutorialFontHeight_ + 4.0f;
+	const float width = fontRenderer_->MeasureWidth(keyWallTutorialText_, fontH);
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
+
+	float drawX = std::clamp(keyWallTutorialTextScreen_.x, 8.0f, winW - width - 8.0f);
+	float drawY = std::clamp(keyWallTutorialTextScreen_.y - kTutorialTextOpticalOffsetY_, 8.0f, winH - fontH - 8.0f);
+
+	const KamataEngine::Vector4 textColor = {1.0f, 1.0f, 1.0f, keyWallTutorialTextAlpha_};
+	fontRenderer_->DrawString(keyWallTutorialText_, drawX, drawY, fontH, textColor);
+}
+
+void GameScene::InitializeStageTutorial() {
+	ResetStageTutorial();
+	if (currentStageIndex_ != 0) {
+		return;
+	}
+	if (tutorialMapMode_ == TutorialMapMode::FreePlay) {
+		stageTutorialStep_ = StageTutorialStep::Done;
+		if (player_) {
+			player_->SetSpringInteractionEnabled(true);
+			player_->SetSpikeInteractionEnabled(true);
+			player_->SetHorizontalMoveEnabled(true);
+		}
+		return;
+	}
+	stageTutorialStep_ = StageTutorialStep::PlaceSpring;
+	nextTrampolineTypeIndex_ = 0;
+	if (player_) {
+		player_->SetSpringInteractionEnabled(false);
+		player_->SetSpikeInteractionEnabled(false);
+		player_->SetHorizontalMoveEnabled(true);
+	}
+}
+
+void GameScene::UpdateStageTutorial() {
+	if (!isGameIntroFinished_ || !player_) {
+		return;
+	}
+	if (currentStageIndex_ != 0) {
+		if (stageTutorialStep_ != StageTutorialStep::Inactive) {
+			ResetStageTutorial();
+		}
+		return;
+	}
+	if (stageTutorialStep_ == StageTutorialStep::Inactive || stageTutorialStep_ == StageTutorialStep::Done) {
+		player_->SetSpringInteractionEnabled(true);
+		player_->SetSpikeInteractionEnabled(true);
+		player_->SetHorizontalMoveEnabled(true);
+		player_->SetInstantSpringLaunch(false);
+		return;
+	}
+
+	player_->SetSpringInteractionEnabled(IsTutorialSpringReactive());
+	player_->SetSpikeInteractionEnabled(IsTutorialSpikeReactive());
+	player_->SetInstantSpringLaunch(false);
+
+	switch (stageTutorialStep_) {
+	case StageTutorialStep::PlaceSpring:
+		if (!trampolineSprings_.empty()) {
+			tutorialPlacedSpringWorldPos_ = trampolineSprings_.back().GetCenter();
+			stageTutorialStep_ = StageTutorialStep::TouchSpring;
+			player_->SetSpringInteractionEnabled(true);
+		}
+		break;
+
+	case StageTutorialStep::TouchSpring:
+		if (player_->GetSpringChargePhase() != Player::SpringChargePhase::None) {
+			tutorialTouchedSpring_ = true;
+			stageTutorialStep_ = StageTutorialStep::ChargeSpring;
+			player_->SetMinSpringChargeToLaunch(kTutorialMinCharge_);
+			player_->SetBlockUnchargedSpringLaunch(true);
+		}
+		break;
+
+	case StageTutorialStep::ChargeSpring: {
+		player_->SetMinSpringChargeToLaunch(kTutorialMinCharge_);
+		player_->SetBlockUnchargedSpringLaunch(true);
+		const Player::SpringChargePhase phase = player_->GetSpringChargePhase();
+
+		// 少しでもチャージしたら発射可能扱い（すぐ離しても飛ぶ）
+		if (phase == Player::SpringChargePhase::Charging && player_->GetJumpSpringChargeLevel() >= kTutorialMinCharge_) {
+			tutorialChargeReady_ = true;
+		}
+
+		// 発射した瞬間を記録
+		if (tutorialChargeReady_ && !tutorialChargeFlying_ && phase == Player::SpringChargePhase::None &&
+		    !player_->IsOnGround()) {
+			tutorialChargeFlying_ = true;
+			tutorialRedSpringHintLaunchY_ = player_->GetWorldPosition().y;
+			tutorialRedSpringHintAirFrames_ = 0;
+			tutorialChargePeakY_ = tutorialRedSpringHintLaunchY_;
+			player_->SetMinSpringChargeToLaunch(0.0f);
+			player_->SetBlockUnchargedSpringLaunch(false);
+			player_->SetSpringInteractionEnabled(false);
+			player_->SetHorizontalMoveEnabled(false);
+		}
+
+		// このジャンプの最高到達点で次へ
+		if (tutorialChargeFlying_) {
+			++tutorialRedSpringHintAirFrames_;
+			const float y = player_->GetWorldPosition().y;
+			if (y > tutorialChargePeakY_) {
+				tutorialChargePeakY_ = y;
+			}
+			const float rise = tutorialChargePeakY_ - tutorialRedSpringHintLaunchY_;
+			const bool reachedApex =
+			    tutorialRedSpringHintAirFrames_ >= 4 && player_->GetVelocityY() <= 0.0f && rise >= 16.0f;
+			if (reachedApex) {
+				stageTutorialStep_ = StageTutorialStep::RedSpringHint;
+				tutorialRedSpringHintFrozen_ = true; // 頂点でそのまま案内
+				tutorialChargeLaunched_ = true;
+			}
+		}
+		break;
+	}
+
+	case StageTutorialStep::RedSpringHint:
+		if (!tutorialRedSpringHintFrozen_) {
+			++tutorialRedSpringHintAirFrames_;
+			player_->SetHorizontalMoveEnabled(false);
+			const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+			const KamataEngine::Vector2 playerScreen = ConvertWorldToScreen(playerPos.x, playerPos.y);
+			const float midY = static_cast<float>(WinApp::kWindowHeight) * 0.5f;
+			const float rise = playerPos.y - tutorialRedSpringHintLaunchY_;
+			// 少し飛んでから画面中央付近（または十分上昇／タイムアウト）で止めて案内
+			const bool nearScreenMid = tutorialRedSpringHintAirFrames_ >= 8 && playerScreen.y <= midY + 24.0f;
+			const bool midAirRise = tutorialRedSpringHintAirFrames_ >= 12 && rise >= 90.0f;
+			const bool timeout = tutorialRedSpringHintAirFrames_ >= 45;
+			if (nearScreenMid || midAirRise || timeout) {
+				tutorialRedSpringHintFrozen_ = true;
+			}
+		} else if (input_ && (input_->TriggerKey(DIK_A) || input_->TriggerKey(DIK_D))) {
+			// 案内表示後にA/Dを押した瞬間から左右移動を解放
+			tutorialRedSpringHintFrozen_ = false;
+			player_->SetHorizontalMoveEnabled(true);
+			stageTutorialStep_ = StageTutorialStep::WaitLand;
+		}
+		break;
+
+	case StageTutorialStep::WaitLand:
+		if (player_->IsOnGround()) {
+			stageTutorialStep_ = StageTutorialStep::ChangeType;
+			tutorialTypeCycleStartIndex_ = nextTrampolineTypeIndex_;
+			tutorialPrevTypeIndex_ = nextTrampolineTypeIndex_;
+			tutorialSeenTypeMask_ = 1u << static_cast<uint32_t>((nextTrampolineTypeIndex_ % 4 + 4) % 4);
+			tutorialTypeCycleAway_ = false;
+			player_->SetSpringInteractionEnabled(false);
+		}
+		break;
+
+	case StageTutorialStep::ChangeType: {
+		const int cur = nextTrampolineTypeIndex_;
+		if (cur != tutorialPrevTypeIndex_) {
+			const int typeIdx = ((cur % 4) + 4) % 4;
+			const int startIdx = ((tutorialTypeCycleStartIndex_ % 4) + 4) % 4;
+			tutorialSeenTypeMask_ |= 1u << static_cast<uint32_t>(typeIdx);
+			if (typeIdx != startIdx) {
+				tutorialTypeCycleAway_ = true;
+			}
+			if (tutorialTypeCycleAway_ && typeIdx == startIdx && tutorialSeenTypeMask_ == 0xFu) {
+				// 巻き戻し→バネ→一時停止→チャージのコースへ
+				SetupTutorialRewindToSpringCourse();
+				stageTutorialStep_ = StageTutorialStep::RewindIntro;
+				tutorialRewindIntroRemainSec_ = kTutorialRewindIntroSec_;
+				tutorialDidRewind_ = false;
+				tutorialRewindReachedSpring_ = false;
+				tutorialRewindEarlyReleaseHint_ = false;
+				tutorialRewindExhausted_ = false;
+				tutorialPlayerControlLocked_ = true;
+				tutorialSpikeAwaitingExit_ = false;
+				tutorialSpikeTeleportRewindClamp_ = false;
+				player_->SetSpringInteractionEnabled(false);
+				player_->SetHorizontalMoveEnabled(false);
+				player_->SetSpikeInteractionEnabled(false);
+			}
+			tutorialPrevTypeIndex_ = cur;
+		}
+		break;
+	}
+
+	case StageTutorialStep::HitSpike:
+		// 誘導ルートではスキップ（旧ステップ）
+		if (isSpikeRewindOverlayActive_) {
+			stageTutorialStep_ = StageTutorialStep::PressQ;
+			tutorialDidRewind_ = false;
+			tutorialSpikeAwaitingExit_ = false;
+		}
+		break;
+
+	case StageTutorialStep::RewindIntro:
+		tutorialRewindIntroRemainSec_ -= 1.0f / 60.0f;
+		if (tutorialRewindIntroRemainSec_ <= 0.0f) {
+			tutorialRewindIntroRemainSec_ = 0.0f;
+			stageTutorialStep_ = StageTutorialStep::PressQ;
+			tutorialDidRewind_ = false;
+			// 説明中にQを押し続けていた場合は、一度離してから巻き戻せるようにする
+			if (input_ && input_->PushKey(DIK_Q)) {
+				gameplayPauseIgnoreQUntilRelease_ = true;
+			}
+		}
+		break;
+
+	case StageTutorialStep::PressQ:
+		if (isGameplayRewinding_ || (input_ && input_->PushKey(DIK_Q))) {
+			tutorialDidRewind_ = true;
+			if (IsPlayerOnTutorialRewindSpring()) {
+				tutorialRewindReachedSpring_ = true;
+				tutorialRewindEarlyReleaseHint_ = false;
+			}
+		}
+		// バネ上でQを離して一時停止に入ったら次へ
+		if (tutorialRewindReachedSpring_ && isGameplayPaused_) {
+			tutorialPlayerControlLocked_ = false;
+			tutorialPauseChargeLaunched_ = false;
+			tutorialPauseLandGroundFrames_ = 0;
+			tutorialPauseAirborneFrames_ = 0;
+			tutorialChargeReady_ = false;
+			tutorialSpacePauseReleased_ = false;
+			tutorialSpikeTeleportRewindClamp_ = false;
+			tutorialPauseIntroLockRemainSec_ = 0.0f;
+			tutorialPauseLandHintActive_ = false;
+			tutorialPauseLandHintRemainSec_ = 0.0f;
+			tutorialTimedBannerRemainSec_ = 0.0f;
+			tutorialTimedBannerText_ = nullptr;
+			stageTutorialStep_ = StageTutorialStep::SpacePauseHint;
+			player_->SetHorizontalMoveEnabled(true);
+			player_->SetSpringInteractionEnabled(true);
+			player_->SetInstantSpringLaunch(false);
+			player_->SetMinSpringChargeToLaunch(kTutorialMinCharge_);
+			player_->SetBlockUnchargedSpringLaunch(true);
+		}
+		break;
+
+	case StageTutorialStep::RideSpringAgain:
+		stageTutorialStep_ = StageTutorialStep::SpacePauseHint;
+		tutorialSpacePauseApexReached_ = true;
+		tutorialSpacePauseReleased_ = false;
+		break;
+
+	case StageTutorialStep::SpacePauseHint: {
+		if (tutorialPauseLandHintActive_) {
+			UpdateTutorialTimedBanner();
+			tutorialPauseLandHintRemainSec_ = tutorialTimedBannerRemainSec_;
+			if (tutorialTimedBannerRemainSec_ <= 0.0f) {
+				tutorialPauseLandHintRemainSec_ = 0.0f;
+				tutorialPauseLandHintActive_ = false;
+				RestoreTutorialPreRewindCourse();
+				tutorialPlayerControlLocked_ = true;
+				player_->SetHorizontalMoveEnabled(false);
+				player_->SetSpringInteractionEnabled(false);
+				player_->SetInstantSpringLaunch(false);
+				player_->SetMinSpringChargeToLaunch(0.0f);
+				player_->SetBlockUnchargedSpringLaunch(false);
+				for (TrampolineSpring& spring : trampolineSprings_) {
+					spring.SetUsedByPlayer(false);
+				}
+				if (!trampolineSprings_.empty()) {
+					tutorialPlacedSpringWorldPos_ = trampolineSprings_.front().GetCenter();
+				}
+				stageTutorialStep_ = StageTutorialStep::CollectSpring;
+			}
+			break;
+		}
+
+		player_->SetMinSpringChargeToLaunch(kTutorialMinCharge_);
+		player_->SetBlockUnchargedSpringLaunch(true);
+		const Player::SpringChargePhase phase = player_->GetSpringChargePhase();
+		if (phase == Player::SpringChargePhase::Charging &&
+		    player_->GetJumpSpringChargeLevel() >= kTutorialMinCharge_) {
+			tutorialChargeReady_ = true;
+		}
+		if (tutorialSpacePauseReleased_ && !isGameplayPaused_ && !player_->IsOnGround()) {
+			if (!tutorialPauseChargeLaunched_) {
+				tutorialPauseChargeLaunched_ = true;
+				tutorialPauseAirborneFrames_ = 0;
+				player_->SetMinSpringChargeToLaunch(0.0f);
+				player_->SetBlockUnchargedSpringLaunch(false);
+				// 着地判定をバネ再接触で潰さない
+				player_->SetSpringInteractionEnabled(false);
+			}
+		}
+		if (tutorialPauseChargeLaunched_ && !isGameplayPaused_) {
+			if (!player_->IsOnGround()) {
+				++tutorialPauseAirborneFrames_;
+				tutorialPauseLandGroundFrames_ = 0;
+			} else if (tutorialPauseAirborneFrames_ >= 8) {
+				++tutorialPauseLandGroundFrames_;
+			} else {
+				tutorialPauseLandGroundFrames_ = 0;
+			}
+			if (tutorialPauseLandGroundFrames_ >= 2) {
+				tutorialPauseLandGroundFrames_ = 0;
+				tutorialPauseAirborneFrames_ = 0;
+				tutorialPauseLandHintActive_ = true;
+				tutorialPauseLandHintRemainSec_ = kTutorialPauseLandHintSec_;
+				BeginTutorialTimedBanner(
+				    "一時停止はWASD・SPACE・Qでも再開できます", kTutorialPauseLandHintSec_, true);
+				tutorialPlayerControlLocked_ = true;
+				player_->SetHorizontalMoveEnabled(false);
+				player_->SetSpringInteractionEnabled(false);
+			}
+		}
+		break;
+	}
+
+	case StageTutorialStep::CollectSpring:
+		if (trampolineSprings_.empty()) {
+			stageTutorialStep_ = StageTutorialStep::ScrollWheel;
+			tutorialZoomAtWheelStep_ = cameraZoomOut_;
+			tutorialWheelMoved_ = false;
+		}
+		break;
+
+	case StageTutorialStep::ScrollWheel:
+		if (std::abs(cameraZoomOut_ - tutorialZoomAtWheelStep_) > 0.03f) {
+			tutorialWheelMoved_ = true;
+			stageTutorialStep_ = StageTutorialStep::ShowGoal;
+			tutorialGoalVisibleFrames_ = 0;
+		}
+		break;
+
+	case StageTutorialStep::ShowGoal: {
+		KamataEngine::Vector3 goalPos{};
+		if (IsTutorialGoalVisibleInView(goalPos)) {
+			tutorialGoalWorldPos_ = goalPos;
+			++tutorialGoalVisibleFrames_;
+			if (tutorialGoalVisibleFrames_ >= kTutorialGoalVisibleFramesToAdvance_) {
+				stageTutorialStep_ = StageTutorialStep::PressR;
+			}
+		}
+		break;
+	}
+
+	case StageTutorialStep::PressR:
+		break;
+
+	default:
+		break;
+	}
+}
+
+void GameScene::DrawStageTutorial() {
+	if (!IsStageTutorialActive() || GetSceneStateKind() != SceneStateKind::Game || !isGameIntroFinished_) {
+		return;
+	}
+
+	// 画面全体を薄暗くする（SPACE一時停止中は専用オーバーレイに任せる／着地後の案内中は暗転する）
+	if (pauseDimSprite_ &&
+	    (stageTutorialStep_ != StageTutorialStep::SpacePauseHint || tutorialPauseLandHintActive_)) {
+		pauseDimSprite_->SetColor({0.0f, 0.0f, 0.0f, kTutorialDimAlpha_});
+		pauseDimSprite_->Draw();
+	}
+
+	const KamataEngine::Vector2 frameScreen = ConvertWorldToScreen(kTutorialFrameCenterX_, kTutorialFrameCenterY_);
+	// 画面上で完全な正方形にする（X/Yのピクセル換算が微妙に違うため、一辺はX基準で揃える）
+	float viewLeft = 0.0f, viewBottom = 0.0f, viewRight = 0.0f, viewTop = 0.0f;
+	ComputeCameraBounds(viewLeft, viewBottom, viewRight, viewTop);
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float pxPerWorldX = (viewRight > viewLeft) ? (winW / (viewRight - viewLeft)) : 1.0f;
+	const float frameSidePx = kTutorialFrameHalfW_ * 2.0f * pxPerWorldX;
+	const float frameW = frameSidePx;
+	const float frameH = frameSidePx;
+
+	// バネ・プレイヤーを暗幕の上に再描画（3Dパス）
+	const bool spotlightWorld =
+	    stageTutorialStep_ == StageTutorialStep::PlaceSpring || stageTutorialStep_ == StageTutorialStep::TouchSpring ||
+	    stageTutorialStep_ == StageTutorialStep::ChargeSpring || stageTutorialStep_ == StageTutorialStep::RedSpringHint ||
+	    stageTutorialStep_ == StageTutorialStep::WaitLand || stageTutorialStep_ == StageTutorialStep::ChangeType ||
+	    stageTutorialStep_ == StageTutorialStep::HitSpike || stageTutorialStep_ == StageTutorialStep::RewindIntro ||
+	    stageTutorialStep_ == StageTutorialStep::PressQ ||
+	    stageTutorialStep_ == StageTutorialStep::RideSpringAgain || stageTutorialStep_ == StageTutorialStep::SpacePauseHint ||
+	    stageTutorialStep_ == StageTutorialStep::CollectSpring ||
+	    stageTutorialStep_ == StageTutorialStep::ScrollWheel || stageTutorialStep_ == StageTutorialStep::ShowGoal ||
+	    stageTutorialStep_ == StageTutorialStep::PressR;
+	if (spotlightWorld) {
+		ID3D12GraphicsCommandList* commandList = dxCommon_->GetCommandList();
+		KamataEngine::Sprite::PostDraw();
+		dxCommon_->ClearDepthBuffer();
+		KamataEngine::Model::PreDraw(commandList);
+		DrawTrampolineSprings();
+		if (player_ && stageTutorialStep_ != StageTutorialStep::PlaceSpring) {
+			player_->Draw();
+		}
+		KamataEngine::Model::PostDraw();
+		KamataEngine::Sprite::PreDraw(commandList);
+		if (fontRenderer_) {
+			fontRenderer_->NewFrame();
+		}
+	}
+
+	// 設置枠（greenBox）を最前面に
+	if (stageTutorialStep_ == StageTutorialStep::PlaceSpring && tutorialFrameSprite_) {
+		tutorialFrameSprite_->SetPosition(frameScreen);
+		tutorialFrameSprite_->SetSize({frameW, frameH});
+		tutorialFrameSprite_->SetColor({0.35f, 0.95f, 0.45f, 0.7f});
+		tutorialFrameSprite_->Draw();
+	}
+
+	// チャージ中の枠も暗幕の上に再表示
+	if (stageTutorialStep_ == StageTutorialStep::ChargeSpring) {
+		DrawJumpSpringChargeCircle();
+	}
+
+	if (!fontRenderer_ || !fontRenderer_->IsReady()) {
+		return;
+	}
+
+	const float fontH = kTutorialFontHeight_;
+	const KamataEngine::Vector4 textColor = {1.0f, 1.0f, 1.0f, 1.0f};
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
+
+	// 対象の左側・縦中央。文字の末尾が左端の少し手前に来る（はみ出す場合は少し小さく）
+	auto drawTextLeftOf = [&](const char* text, float leftEdgeX, float centerY) {
+		float useH = fontH;
+		float width = fontRenderer_->MeasureWidth(text, useH);
+		float x = leftEdgeX - kTutorialTextGapLeftOfFrame_ - width;
+		while (x < 8.0f && useH > 15.0f) {
+			useH -= 1.0f;
+			width = fontRenderer_->MeasureWidth(text, useH);
+			x = leftEdgeX - kTutorialTextGapLeftOfFrame_ - width;
+		}
+		if (x < 8.0f) {
+			x = 8.0f;
+		}
+		fontRenderer_->DrawString(text, x, centerY - useH * 0.5f - kTutorialTextOpticalOffsetY_, useH, textColor);
+	};
+	auto drawCenteredTop = [&](const char* text) {
+		const float cy = winH * 0.22f;
+		float useH = fontH;
+		float width = fontRenderer_->MeasureWidth(text, useH);
+		while (width > winW - 24.0f && useH > 15.0f) {
+			useH -= 1.0f;
+			width = fontRenderer_->MeasureWidth(text, useH);
+		}
+		fontRenderer_->DrawString(
+		    text, (winW - width) * 0.5f, cy - useH * 0.5f - kTutorialTextOpticalOffsetY_, useH, textColor);
+	};
+	// バネ上（一時停止案内と同じ高さ。extraLowerPx で少し下へ）
+	auto drawCenteredAboveSpringHint = [&](const char* text, float hintFontH, float extraLowerPx = 0.0f) {
+		const KamataEngine::Vector2 springScreen =
+		    ConvertWorldToScreen(tutorialPlacedSpringWorldPos_.x, tutorialPlacedSpringWorldPos_.y);
+		float springHalfH = TileMap::kSpringReferenceHalfH;
+		if (!trampolineSprings_.empty()) {
+			float springHalfW = 0.0f;
+			trampolineSprings_.front().GetHalfSize(springHalfW, springHalfH);
+		}
+		const float pxPerWorldY =
+		    (viewTop > viewBottom) ? (winH / (viewTop - viewBottom)) : 1.0f;
+		const float springTopScreenY = springScreen.y - springHalfH * pxPerWorldY;
+		const float lineGap = 6.0f;
+		const float blockH = hintFontH * 2.0f + lineGap;
+		const float topY = springTopScreenY - kTutorialPauseHintAboveSpringPx_ - blockH + extraLowerPx;
+		const float width = fontRenderer_->MeasureWidth(text, hintFontH);
+		float x = springScreen.x - width * 0.5f;
+		if (x < 8.0f) {
+			x = 8.0f;
+		}
+		if (x + width > winW - 8.0f) {
+			x = winW - 8.0f - width;
+		}
+		fontRenderer_->DrawString(text, x, topY - kTutorialTextOpticalOffsetY_, hintFontH, textColor);
+	};
+
+	const float frameLeftX = frameScreen.x - frameW * 0.5f;
+
+	switch (stageTutorialStep_) {
+	case StageTutorialStep::PlaceSpring:
+		drawTextLeftOf("緑の枠の中にバネを置いてみよう", frameLeftX, frameScreen.y);
+		break;
+	case StageTutorialStep::TouchSpring: {
+		const KamataEngine::Vector2 springScreen =
+		    ConvertWorldToScreen(tutorialPlacedSpringWorldPos_.x, tutorialPlacedSpringWorldPos_.y);
+		float springHalfW = TileMap::kSpringReferenceHalfW;
+		float springHalfH = TileMap::kSpringReferenceHalfH;
+		if (!trampolineSprings_.empty()) {
+			trampolineSprings_.front().GetHalfSize(springHalfW, springHalfH);
+		}
+		const float springLeftX = springScreen.x - springHalfW * pxPerWorldX;
+		drawTextLeftOf("WASDで動いて、バネに触れてみよう", springLeftX, springScreen.y);
+		break;
+	}
+	case StageTutorialStep::ChargeSpring:
+		if (player_) {
+			const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+			const KamataEngine::Vector2 playerScreen = ConvertWorldToScreen(playerPos.x, playerPos.y);
+			drawTextLeftOf("SPACEを長押しして飛ばしてみよう", playerScreen.x - 40.0f, playerScreen.y);
+		}
+		break;
+	case StageTutorialStep::RedSpringHint:
+		// 中央で止まったあと、Playerの左に案内を出す
+		if (tutorialRedSpringHintFrozen_ && player_) {
+			const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+			const KamataEngine::Vector2 playerScreen = ConvertWorldToScreen(playerPos.x, playerPos.y);
+			drawTextLeftOf("空中でもA・Dで左右に動けるよ", playerScreen.x - 40.0f, playerScreen.y);
+		}
+		break;
+	case StageTutorialStep::WaitLand:
+		break;
+	case StageTutorialStep::ChangeType:
+		drawTextLeftOf("右クリックでバネの種類を変えよう", frameLeftX, frameScreen.y);
+		break;
+	case StageTutorialStep::HitSpike:
+		if (player_) {
+			const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+			const KamataEngine::Vector2 playerScreen = ConvertWorldToScreen(playerPos.x, playerPos.y);
+			drawTextLeftOf("紫のトゲに当たってみよう", playerScreen.x - 40.0f, playerScreen.y - 28.0f);
+		}
+		break;
+	case StageTutorialStep::RewindIntro: {
+		const float hintH = kTutorialPauseHintFontHeight_;
+		const float centerY = winH * kTutorialPauseLandHintTextAnchorY_;
+		constexpr const char* kRewindIntroText = "Qでいつでも時間を巻き戻せます";
+		float useH = hintH;
+		float width = fontRenderer_->MeasureWidth(kRewindIntroText, useH);
+		while (width > winW - 32.0f && useH > 20.0f) {
+			useH -= 1.0f;
+			width = fontRenderer_->MeasureWidth(kRewindIntroText, useH);
+		}
+		fontRenderer_->DrawString(
+		    kRewindIntroText, (winW - width) * 0.5f, centerY - useH * 0.5f - kTutorialTextOpticalOffsetY_, useH,
+		    textColor);
+		break;
+	}
+	case StageTutorialStep::PressQ:
+		if (player_) {
+			const KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
+			const KamataEngine::Vector2 playerScreen = ConvertWorldToScreen(playerPos.x, playerPos.y);
+			drawCenteredAboveSpringHint(
+			    "Qで戻したあと、離すと一時停止します", kTutorialPauseHintFontHeight_,
+			    kTutorialRewindMechanismHintLowerPx_);
+			if (tutorialRewindEarlyReleaseHint_ && !tutorialRewindReachedSpring_) {
+				drawTextLeftOf("バネに触れるまで巻き戻してみよう", playerScreen.x - 40.0f, playerScreen.y);
+			} else if (!tutorialDidRewind_) {
+				drawTextLeftOf("Qで巻き戻してみよう", playerScreen.x - 40.0f, playerScreen.y);
+			}
+		}
+		break;
+	case StageTutorialStep::RideSpringAgain:
+		break;
+	case StageTutorialStep::SpacePauseHint:
+		if (tutorialPauseLandHintActive_) {
+			DrawTutorialTimedBanner();
+		}
+		break;
+	case StageTutorialStep::CollectSpring: {
+		const float hintH = kTutorialPauseHintFontHeight_;
+		const float baseY = winH * 0.26f;
+		auto drawCenteredLine = [&](const char* text, float centerY) {
+			float useH = hintH;
+			float width = fontRenderer_->MeasureWidth(text, useH);
+			while (width > winW - 32.0f && useH > 20.0f) {
+				useH -= 1.0f;
+				width = fontRenderer_->MeasureWidth(text, useH);
+			}
+			fontRenderer_->DrawString(
+			    text, (winW - width) * 0.5f, centerY - useH * 0.5f - kTutorialTextOpticalOffsetY_, useH, textColor);
+		};
+		drawCenteredLine("バネを同じ種類にして、カーソルを合わせて回収しよう", baseY);
+		drawCenteredLine("一度跳ねたら回収不可（Qで巻き戻せば回収可能）", baseY + hintH + 10.0f);
+		DrawSpringCollectLabel();
+		break;
+	}
+	case StageTutorialStep::ScrollWheel: {
+		drawCenteredTop("マウスホイールで画面を拡大・縮小できるよ");
+		break;
+	}
+	case StageTutorialStep::ShowGoal: {
+		if (tutorialGoalVisibleFrames_ > 0) {
+			const KamataEngine::Vector2 goalScreen = ConvertWorldToScreen(tutorialGoalWorldPos_.x, tutorialGoalWorldPos_.y);
+			drawTextLeftOf("青いところがゴールです", goalScreen.x - 20.0f, goalScreen.y);
+		} else {
+			drawCenteredTop("マウスホイールで画面を拡大・縮小できるよ");
+		}
+		break;
+	}
+	case StageTutorialStep::PressR: {
+		drawCenteredTop("Rを押して、最初からクリアに挑戦しよう！");
+		break;
+	}
+	default:
+		break;
+	}
+
+	// SpacePauseHint の着地案内は case 内の DrawTutorialTimedBanner で描画する
 }
 
 void GameScene::DrawSpringPreviewPlacementLabel() {
@@ -2492,9 +4535,7 @@ void GameScene::DrawSpringPreviewPlacementLabel() {
 
 	const TrampolineSpringType springType = trampolinePreview_.GetType();
 	const int remaining = GetRemainingSpringPlacementCount(springType);
-	if (remaining <= 0) {
-		return;
-	}
+	// 残数0（使い切り）でも ×0 を表示する。ステージ上限0の種類は選択自体しない
 
 	int hudIndex = 0;
 	switch (springType) {
@@ -2531,32 +4572,42 @@ void GameScene::DrawSpringPreviewPlacementLabel() {
 	}
 
 	const KamataEngine::Vector2 screenPos = ConvertWorldToScreen(trampolinePreviewPos_.x, trampolinePreviewPos_.y);
-	const float labelH = 18.0f * zoomScale;
+	const float labelH = kSpringPreviewLabelBaseH_ * zoomScale;
 	const float multiplySize = labelH * kSpringHudMultiplyScale_;
 	const float digitSize = labelH * kSpringHudDigitScale_ * kSpringPreviewDigitScaleBoost_;
 	const float innerGap = 3.0f * zoomScale;
 	const float digitGap = kSpringHudDigitSpacing_ * zoomScale;
 	const float digitY = screenPos.y + kSpringPreviewDigitOffsetY_ * zoomScale;
+	const float boldPx = kSpringPreviewLabelBoldPx_ * zoomScale;
 
 	const int tens = remaining / 10;
 	const int ones = remaining % 10;
+	const KamataEngine::Vector4 outlineColor = {1.0f, 1.0f, 1.0f, 1.0f};
+	const KamataEngine::Vector4 labelColor = {0.0f, 0.0f, 0.0f, 1.0f};
 
-	float contentW = multiplySize + innerGap + digitSize;
-	if (tens > 0) {
-		contentW += digitGap + digitSize;
-	}
+	const bool isVertical = (springType == TrampolineSpringType::Left || springType == TrampolineSpringType::Right);
 
-	float x = screenPos.x - contentW * 0.5f;
-	const float multiplyY = screenPos.y;
+	// 白縁＋黒本体をずらして重ね、太く読みやすくする
+	auto drawSpriteBold = [&](KamataEngine::Sprite* sprite, float cx, float cy, float size,
+	                          const KamataEngine::Vector2& anchor) {
+		if (!sprite) {
+			return;
+		}
+		sprite->SetAnchorPoint(anchor);
+		sprite->SetSize({size, size});
+		// 縁は上下左右のみ（斜めは付けない＝控えめな太さ）
+		static const float kOffsets[4][2] = {{-1.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, -1.0f}, {0.0f, 1.0f}};
+		sprite->SetColor(outlineColor);
+		for (const float* o : kOffsets) {
+			sprite->SetPosition({cx + o[0] * boldPx, cy + o[1] * boldPx});
+			sprite->Draw();
+		}
+		sprite->SetColor(labelColor);
+		sprite->SetPosition({cx, cy});
+		sprite->Draw();
+	};
 
-	ui.multiplySprite->SetAnchorPoint({0.0f, 0.5f});
-	ui.multiplySprite->SetSize({multiplySize, multiplySize});
-	ui.multiplySprite->SetPosition({x, multiplyY});
-	ui.multiplySprite->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
-	ui.multiplySprite->Draw();
-	x += multiplySize + innerGap;
-
-	auto drawDigitAt = [&](KamataEngine::Sprite* sprite, int digit, float digitX) {
+	auto drawDigit = [&](KamataEngine::Sprite* sprite, int digit, float cx, float cy, const KamataEngine::Vector2& anchor) {
 		if (!sprite || digit < 0 || digit > 9) {
 			return;
 		}
@@ -2566,82 +4617,86 @@ void GameScene::DrawSpringPreviewPlacementLabel() {
 		if (handle == 0) {
 			return;
 		}
-		sprite->SetAnchorPoint({0.0f, 0.5f});
 		sprite->SetTextureHandle(handle);
-		sprite->SetSize({digitSize, digitSize});
-		sprite->SetPosition({digitX, digitY});
-		sprite->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
-		sprite->Draw();
+		drawSpriteBold(sprite, cx, cy, digitSize, anchor);
 	};
 
+	if (isVertical) {
+		// 左右バネは縦長なので ×N を縦に積む
+		float contentH = multiplySize + innerGap + digitSize;
+		if (tens > 0) {
+			contentH += digitGap + digitSize;
+		}
+		float y = screenPos.y - contentH * 0.5f;
+
+		drawSpriteBold(ui.multiplySprite, screenPos.x, y, multiplySize, {0.5f, 0.0f});
+		y += multiplySize + innerGap;
+
+		if (tens > 0) {
+			drawDigit(ui.tensDigitSprite, tens, screenPos.x, y, {0.5f, 0.0f});
+			y += digitSize + digitGap;
+			drawDigit(ui.onesDigitSprite, ones, screenPos.x, y, {0.5f, 0.0f});
+		} else {
+			drawDigit(ui.onesDigitSprite, ones, screenPos.x, y, {0.5f, 0.0f});
+		}
+		return;
+	}
+
+	float contentW = multiplySize + innerGap + digitSize;
 	if (tens > 0) {
-		drawDigitAt(ui.tensDigitSprite, tens, x);
+		contentW += digitGap + digitSize;
+	}
+
+	float x = screenPos.x - contentW * 0.5f;
+	const float multiplyY = screenPos.y;
+
+	drawSpriteBold(ui.multiplySprite, x, multiplyY, multiplySize, {0.0f, 0.5f});
+	x += multiplySize + innerGap;
+
+	if (tens > 0) {
+		drawDigit(ui.tensDigitSprite, tens, x, digitY, {0.0f, 0.5f});
 		x += digitSize + digitGap;
-		drawDigitAt(ui.onesDigitSprite, ones, x);
+		drawDigit(ui.onesDigitSprite, ones, x, digitY, {0.0f, 0.5f});
 	} else {
-		drawDigitAt(ui.onesDigitSprite, ones, x);
+		drawDigit(ui.onesDigitSprite, ones, x, digitY, {0.0f, 0.5f});
 	}
 }
 
-void GameScene::DrawSpringPlacementHud() {
-	constexpr int kRowCount = 4;
-	const float rowHeight =
-	    (kMinimapSize_.y - kSpringHudRowSpacing_ * static_cast<float>(kRowCount - 1)) / static_cast<float>(kRowCount);
-	const float iconHeight = rowHeight;
-	const float iconWidth = iconHeight * kSpringHudIconAspectRatio_;
-	const float multiplySize = iconHeight * kSpringHudMultiplyScale_;
-	const float digitSize = iconHeight * kSpringHudDigitScale_;
-	const float groupX = kMinimapPosition_.x + kMinimapSize_.x + kSpringHudMinimapGapX_;
+void GameScene::DrawSpringCollectLabel() {
+	if (!showSpringCollectLabel_ || !isGameIntroFinished_) {
+		return;
+	}
 
-	for (int hudIndex = 0; hudIndex < kRowCount; ++hudIndex) {
-		const float rowCenterY =
-		    kMinimapPosition_.y + rowHeight * 0.5f + static_cast<float>(hudIndex) * (rowHeight + kSpringHudRowSpacing_);
-		const TrampolineSpringType springType = GetSpringHudDisplayType(hudIndex);
-		const int remaining = GetRemainingSpringPlacementCount(springType);
-		const int tens = remaining / 10;
-		const int ones = remaining % 10;
-		SpringPlacementHudUi& ui = springPlacementHudUi_[static_cast<size_t>(hudIndex)];
-
-		float x = groupX;
-		if (ui.iconSprite) {
-			ui.iconSprite->SetSize({iconWidth, iconHeight});
-			ui.iconSprite->SetPosition({x, rowCenterY});
-			ui.iconSprite->SetColor(remaining > 0 ? KamataEngine::Vector4{1.0f, 1.0f, 1.0f, 1.0f}
-			                                            : KamataEngine::Vector4{0.45f, 0.45f, 0.45f, 0.7f});
-			ui.iconSprite->Draw();
-		}
-		x += iconWidth + kSpringHudInnerSpacing_;
-
-		if (ui.multiplySprite) {
-			ui.multiplySprite->SetSize({multiplySize, multiplySize});
-			ui.multiplySprite->SetPosition({x, rowCenterY});
-			ui.multiplySprite->Draw();
-		}
-		x += multiplySize + kSpringHudInnerSpacing_;
-
-		auto drawDigitAt = [&](KamataEngine::Sprite* sprite, int digit, float digitX) {
-			if (!sprite) {
-				return;
-			}
-			const uint32_t handle = stageSelectDigitTextureHandles_[static_cast<size_t>(digit)] != 0
-			                            ? stageSelectDigitTextureHandles_[static_cast<size_t>(digit)]
-			                            : digitTextureHandles_[static_cast<size_t>(digit)];
-			if (handle == 0) {
-				return;
-			}
-			sprite->SetTextureHandle(handle);
-			sprite->SetSize({digitSize, digitSize});
-			sprite->SetPosition({digitX, rowCenterY});
-			sprite->Draw();
-		};
-
-		if (tens > 0) {
-			drawDigitAt(ui.tensDigitSprite, tens, x);
-			drawDigitAt(ui.onesDigitSprite, ones, x + digitSize + kSpringHudDigitSpacing_);
-		} else {
-			drawDigitAt(ui.onesDigitSprite, ones, x);
+	float zoomScale = 1.0f;
+	{
+		float sl = 0.0f, sb = 0.0f, sr = 0.0f, st = 0.0f;
+		tileMap_.GetScreenViewportBounds(currentScreenX_, currentScreenY_, sl, sb, sr, st);
+		const float baseW = sr - sl;
+		float vl = 0.0f, vb = 0.0f, vr = 0.0f, vt = 0.0f;
+		ComputeCameraBounds(vl, vb, vr, vt);
+		const float viewW = vr - vl;
+		if (viewW > 0.0f && baseW > 0.0f) {
+			zoomScale = baseW / viewW;
 		}
 	}
+
+	const KamataEngine::Vector2 springScreen = ConvertWorldToScreen(springCollectLabelWorldPos_.x, springCollectLabelWorldPos_.y);
+
+	// 縦バネ/横バネどちらもバネの真上（中心）に「回収する」を重ねる
+	KamataEngine::Sprite* label = springCollectLabelIsVertical_ ? springCollectLabelVerticalSprite_ : springCollectLabelSprite_;
+	if (!label) {
+		return;
+	}
+
+	// バネの当たり判定サイズにぴったり重なるようにラベルサイズを合わせる
+	const float labelW = springCollectLabelSpringHalfW_ * 2.0f * zoomScale;
+	const float labelH = springCollectLabelSpringHalfH_ * 2.0f * zoomScale;
+
+	label->SetAnchorPoint({0.5f, 0.5f});
+	label->SetSize({labelW, labelH});
+	label->SetPosition({springScreen.x, springScreen.y});
+	label->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
+	label->Draw();
 }
 
 void GameScene::DrawTrampolineSprings() {
@@ -2723,6 +4778,25 @@ void GameScene::DrawZoomOutMarginFill(float viewLeft, float viewBottom, float vi
 			return;
 		}
 
+		sprite->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
+		sprite->SetPosition({screenX, screenY});
+		sprite->SetSize({screenW, screenH});
+		sprite->Draw();
+		++spriteIndex;
+	};
+	auto drawPixelRect = [&](float screenX, float screenY, float screenW, float screenH) {
+		if (spriteIndex >= static_cast<int>(zoomMarginFillSprites_.size())) {
+			return;
+		}
+		KamataEngine::Sprite* sprite = zoomMarginFillSprites_[static_cast<size_t>(spriteIndex)];
+		if (!sprite) {
+			return;
+		}
+		if (screenW <= 0.5f || screenH <= 0.5f) {
+			return;
+		}
+
+		sprite->SetColor({0.0f, 0.0f, 0.0f, 1.0f});
 		sprite->SetPosition({screenX, screenY});
 		sprite->SetSize({screenW, screenH});
 		sprite->Draw();
@@ -2740,6 +4814,24 @@ void GameScene::DrawZoomOutMarginFill(float viewLeft, float viewBottom, float vi
 	}
 	if (viewTop > mapMaxY) {
 		drawScreenRect(mapMinX, mapMaxX, mapMaxY, viewTop);
+	}
+
+	// マップが画面いっぱいに収まらないときのレターボックスも黒で埋める
+	const float mapScreenLeft = (mapMinX - viewLeft) / viewW * winW;
+	const float mapScreenRight = (mapMaxX - viewLeft) / viewW * winW;
+	const float mapScreenTop = (viewTop - mapMaxY) / viewH * winH;
+	const float mapScreenBottom = (viewTop - mapMinY) / viewH * winH;
+	if (mapScreenLeft > 0.5f) {
+		drawPixelRect(0.0f, 0.0f, mapScreenLeft, winH);
+	}
+	if (mapScreenRight < winW - 0.5f) {
+		drawPixelRect(mapScreenRight, 0.0f, winW - mapScreenRight, winH);
+	}
+	if (mapScreenTop > 0.5f) {
+		drawPixelRect(0.0f, 0.0f, winW, mapScreenTop);
+	}
+	if (mapScreenBottom < winH - 0.5f) {
+		drawPixelRect(0.0f, mapScreenBottom, winW, winH - mapScreenBottom);
 	}
 }
 
@@ -2799,6 +4891,13 @@ void GameScene::UpdateCameraControl() {
 	}
 
 	if (!CanCameraZoomOut()) {
+		isFreeCamera_ = false;
+		cameraZoomOut_ = 0.0f;
+		return;
+	}
+
+	// 誘導チュートリアル中は、ホイール案内のステップまでズーム操作を受け付けない
+	if (IsStageTutorialActive() && stageTutorialStep_ < StageTutorialStep::ScrollWheel) {
 		isFreeCamera_ = false;
 		cameraZoomOut_ = 0.0f;
 		return;

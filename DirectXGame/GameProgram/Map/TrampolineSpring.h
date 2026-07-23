@@ -251,8 +251,6 @@ private:
 
 	float GetStopZoneHalfThickness() const;
 
-
-
 	bool IsHorizontalType() const;
 
 	bool FindOverlapEntryOnPath(float prevX, float prevY, float curX, float curY, float playerHalfW, float playerHalfH, float& outX, float& outY) const;

@@ -6,7 +6,7 @@ namespace {
 constexpr float kGroundModelExtent = 8.271102f;
 constexpr float kSpikeModelExtent = 6.673206f;
 constexpr float kGoalModelExtent = 8.0f;
-constexpr float kButtonModelExtent = 15.390686f;
+constexpr float kButtonModelExtent = 1.46492f; // key.obj の最大辺
 constexpr float kSpikeHeightScale = 0.82f;
 constexpr float kSpikeWidthScale = 1.05f;
 

@@ -154,17 +154,29 @@ TrampolineSpring* Player::GetActiveSpringMutable() {
 	return &(*trampolineSprings_)[static_cast<size_t>(activeSpringIndex_)];
 }
 
-void Player::BeginSpringPenetration(int springIndex, SpringChargeKind kind, const KamataEngine::Vector3& pos) {
+void Player::BeginSpringPenetration(int springIndex, SpringChargeKind kind, KamataEngine::Vector3& pos) {
 	activeSpringIndex_ = springIndex;
 	springChargeKind_ = kind;
 	springChargePhase_ = SpringChargePhase::Penetrating;
 	springChargeLevel_ = 0.0f;
 	springChargeSpaceLatched_ = false;
+	springSpaceHoldSec_ = 0.0f;
 	onGround_ = false;
+
 	springPenetrationPrevPos_ = pos;
-	// 実際の移動量は UpdateSpringCharge() が毎フレーム中央へ向けて計算する
 	velocityX_ = 0.0f;
 	velocityY_ = 0.0f;
+
+	// バネ同士を近接配置して往復させる場合、いま入るバネ以外の接触フラグを解除しておく。
+	// これをしないと、隣のバネの判定圏に重なったまま別のバネへ入ったとき、
+	// 隣のバネの isPlayerInside_ が true のまま残り、戻ってきても発火せずすり抜ける。
+	if (trampolineSprings_) {
+		for (size_t i = 0; i < trampolineSprings_->size(); ++i) {
+			if (static_cast<int>(i) != springIndex) {
+				(*trampolineSprings_)[i].ResetPlayerContact();
+			}
+		}
+	}
 }
 
 void Player::BeginSpringPauseAt(const KamataEngine::Vector3& pos) {
@@ -186,6 +198,7 @@ void Player::BeginSpringPauseAt(const KamataEngine::Vector3& pos) {
 	springChargeAnchor_.z = 1.0f;
 	springChargePhase_ = SpringChargePhase::Pause;
 	springChargePauseTimer_ = kSpringPauseDuration;
+	springSpaceHoldSec_ = 0.0f;
 	velocityX_ = 0.0f;
 	velocityY_ = 0.0f;
 }
@@ -199,6 +212,7 @@ void Player::LaunchFromSpringCharge(bool useCharge) {
 	springChargePhase_ = SpringChargePhase::None;
 	activeSpringIndex_ = -1;
 	springChargeSpaceLatched_ = false;
+	springSpaceHoldSec_ = 0.0f;
 
 	const float t = useCharge ? std::clamp(springChargeLevel_, 0.0f, 1.0f) : 0.0f;
 
@@ -226,6 +240,10 @@ void Player::LaunchFromSpringCharge(bool useCharge) {
 	}
 
 	onGround_ = false;
+
+	if (audio_) {
+		audio_->playAudioOneShot(hitPlayerSound_, hitPlayerSoundHandle_, 0.4125f);
+	}
 }
 
 void Player::RespawnToSpawn(KamataEngine::Vector3& pos) {
@@ -240,7 +258,7 @@ void Player::RespawnToSpawn(KamataEngine::Vector3& pos) {
 }
 
 void Player::HandleSpikeCollision(KamataEngine::Vector3& pos) {
-	if (spikeRespawnCooldown_ > 0 || !tileMap_) {
+	if (!spikeInteractionEnabled_ || spikeRespawnCooldown_ > 0 || !tileMap_) {
 		return;
 	}
 
@@ -391,12 +409,17 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 			return false;
 		}
 
-		// めり込み中にSPACEが押されたら記憶しておく（中央到達前の早押しを取りこぼさない）
+		// めり込み中は長押しだけチャージ予約（短押しは一時停止用に残す）
 		if (input_ && input_->PushKey(DIK_SPACE)) {
-			springChargeSpaceLatched_ = true;
+			springSpaceHoldSec_ += kDeltaSec;
+			if (springSpaceHoldSec_ >= kSpringChargeStartHoldSec) {
+				springChargeSpaceLatched_ = true;
+			}
+		} else {
+			springSpaceHoldSec_ = 0.0f;
 		}
 
-		// バネの中央へ両軸をなめらかに寄せる（端に張り付かず、ぬるっと中央へめり込む）
+		// バネの中央へ両軸をなめらかに寄せる
 		const KamataEngine::Vector3 center = spring->GetCenter();
 		auto moveToward = [](float current, float target, float maxStep) -> float {
 			const float diff = target - current;
@@ -422,6 +445,20 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 		tileMap_->ResolveCollisionY(pos.y, pos.x, halfWidth_, halfHeight_, velocityY_, landed);
 		onGround_ = false;
 
+		// 衝突解決で大きく飛ばされた場合は破棄して「塞がれた」扱いにする
+		const float resolveSlop = halfWidth_ + halfHeight_;
+		if (std::abs(pos.x - newX) + std::abs(pos.y - newY) > resolveSlop) {
+			pos.x = posBeforeX;
+			pos.y = posBeforeY;
+			BeginSpringPauseAt(pos);
+			springPenetrationPrevPos_ = pos;
+			if (springChargeSpaceLatched_) {
+				springChargePhase_ = SpringChargePhase::Charging;
+				springChargeLevel_ = 0.0f;
+			}
+			return true;
+		}
+
 		if (!spring->IsPlayerOverlapping(pos.x, pos.y, halfWidth_, halfHeight_)) {
 			TrampolineSpring* mutableSpring = GetActiveSpringMutable();
 			if (mutableSpring) {
@@ -432,13 +469,11 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 			return false;
 		}
 
-		// 中央に到達してからチャージ待ちを開始する（端で即チャージさせない）
 		const float kCenterEpsilon = 0.75f;
 		const bool reachedCenter =
 		    std::abs(pos.x - center.x) <= kCenterEpsilon && std::abs(pos.y - center.y) <= kCenterEpsilon;
 
-		// 地面や壁ギリギリにバネがあると、中央へ寄せても衝突で押し戻され中央に届かない。
-		// 中央へ動こうとしたのに衝突でほぼ進めなかった場合は「到達」とみなし、チャージ待ちへ進める。
+		// 地面や壁ギリギリにバネがあると中央へ寄せても衝突で押し戻されるので「到達」扱い
 		const float movedThisFrame =
 		    std::abs(pos.x - posBeforeX) + std::abs(pos.y - posBeforeY);
 		const float wantedToMove = std::abs(newX - posBeforeX) + std::abs(newY - posBeforeY);
@@ -447,11 +482,13 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 		    wantedToMove > kBlockedMoveEpsilon && movedThisFrame < kBlockedMoveEpsilon;
 
 		if (reachedCenter || blockedByGeometry) {
+			if (instantSpringLaunch_) {
+				LaunchFromSpringCharge(false);
+				return false;
+			}
 			BeginSpringPauseAt(pos);
 			springPenetrationPrevPos_ = pos;
-			// めり込み中に既にSPACEが押されていた場合は、そのままチャージへ移行する
-			// （そうしないと早押しが無視され、Pauseのタイムアウトでチャージ無しに飛ばされてしまう）
-			if (springChargeSpaceLatched_ || (input_ && input_->PushKey(DIK_SPACE))) {
+			if (springChargeSpaceLatched_) {
 				springChargePhase_ = SpringChargePhase::Charging;
 				springChargeLevel_ = 0.0f;
 			}
@@ -471,11 +508,21 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 		if (springChargePhase_ == SpringChargePhase::Pause) {
 			springChargePauseTimer_ -= kDeltaSec;
 			if (input_->PushKey(DIK_SPACE)) {
-				springChargePhase_ = SpringChargePhase::Charging;
-				springChargeLevel_ = 0.0f;
+				springSpaceHoldSec_ += kDeltaSec;
+				if (springSpaceHoldSec_ >= kSpringChargeStartHoldSec) {
+					springChargePhase_ = SpringChargePhase::Charging;
+					springChargeLevel_ = 0.0f;
+					springSpaceHoldSec_ = 0.0f;
+				}
 				return true;
 			}
+			springSpaceHoldSec_ = 0.0f;
 			if (springChargePauseTimer_ <= 0.0f) {
+				if (blockUnchargedSpringLaunch_) {
+					// チュートリアル: SPACE でチャージするまで待つ
+					springChargePauseTimer_ = 0.0f;
+					return true;
+				}
 				LaunchFromSpringCharge(false);
 				return false;
 			}
@@ -485,6 +532,11 @@ bool Player::UpdateSpringCharge(KamataEngine::Vector3& pos) {
 		if (input_->PushKey(DIK_SPACE)) {
 			springChargeLevel_ += kDeltaSec / kSpringMaxChargeTime;
 			springChargeLevel_ = std::clamp(springChargeLevel_, 0.0f, 1.0f);
+			return true;
+		}
+
+		// SPACE 離し: 最低チャージ未満なら発射せず待機（再押しで続きを溜められる）
+		if (springChargeLevel_ < minSpringChargeToLaunch_) {
 			return true;
 		}
 
@@ -692,7 +744,7 @@ void Player::UpdateMovement() {
 	}
 
 	float moveX = 0.0f;
-	const bool canUseMoveInput = !launchedFromSpringThisFrame && !isSideSpringFlying_;
+	const bool canUseMoveInput = horizontalMoveEnabled_ && !launchedFromSpringThisFrame && !isSideSpringFlying_;
 	if (canUseMoveInput) {
 		if (input_->PushKey(DIK_A)) {
 			moveX -= kMoveSpeed;
@@ -713,8 +765,14 @@ void Player::UpdateMovement() {
 	const float prevY = pos.y;
 	const float approachVelX = velocityX_ + moveX;
 
-	pos.x += approachVelX;
+	const float desiredX = pos.x + approachVelX;
+	pos.x = desiredX;
 	tileMap_->ResolveCollisionX(pos.x, pos.y, halfWidth_, halfHeight_);
+	// 壁に横から当たったら横速度を消し、壁の切れ目で再び横飛びしないようにする
+	if (std::abs(approachVelX) > 0.0001f && std::abs(pos.x - desiredX) > 0.0001f) {
+		velocityX_ = 0.0f;
+		isSideSpringFlying_ = false;
+	}
 
 	pos.y += velocityY_;
 	const float yAfterMove = pos.y;
@@ -733,7 +791,7 @@ void Player::UpdateMovement() {
 		onGround_ = false;
 	}
 
-	if (springChargePhase_ == SpringChargePhase::None && !launchedFromSpringThisFrame && trampolineSprings_) {
+	if (springInteractionEnabled_ && springChargePhase_ == SpringChargePhase::None && !launchedFromSpringThisFrame && trampolineSprings_) {
 		for (size_t i = 0; i < trampolineSprings_->size(); ++i) {
 			TrampolineSpring& spring = (*trampolineSprings_)[i];
 			const TrampolineBounceResult result = spring.TryBounce(prevX, prevY, pos.x, pos.y, halfWidth_, halfHeight_);
@@ -773,10 +831,15 @@ void Player::UpdateMovement() {
 
 	HandleSpikeCollision(pos);
 
-	const float clampedY = pos.y;
+	const float preClampX = pos.x;
+	const float preClampY = pos.y;
 	tileMap_->ClampPositionToMapBounds(pos.x, pos.y, halfWidth_, halfHeight_);
-	if (pos.y != clampedY) {
+	if (pos.y != preClampY) {
 		velocityY_ = 0.0f;
+	}
+	if (std::abs(pos.x - preClampX) > 0.0001f) {
+		velocityX_ = 0.0f;
+		isSideSpringFlying_ = false;
 	}
 
 	worldtransfrom_.translation_ = pos;

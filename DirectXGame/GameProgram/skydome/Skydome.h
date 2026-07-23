@@ -7,7 +7,7 @@ class Skydome {
 public:
 	void Initialize(KamataEngine::Camera* camera);
 	void SetWallBackdrop(KamataEngine::Model* wallModel);
-	void DrawAt(float centerX, float centerY);
+	void DrawAt(float centerX, float centerY, float viewScale = 1.0f);
 	void Draw();
 
 private:

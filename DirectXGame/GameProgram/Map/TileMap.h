@@ -26,7 +26,7 @@ public:
 	static constexpr float kGoalModelRaiseRatio = 0.05f;
 	// パーティクル基準点：モデル中心からわずかに下（上下とも隠す）
 	static constexpr float kGoalParticleLowerRatio = 0.05f;
-	static constexpr int kSpawnTile = 7; // マップ上に置いた7番チップがPlayer初期位置
+	static constexpr int kSpawnTile = 7; // Player初期位置マーカー（描画・当たり判定なし）
 	// 7番チップが無いときのフォールバック（TileMap::FindSpawnPosition）
 	static constexpr int kSpawnColumn = 0; // 列（0=左端）。負の値なら下から最初に見つかった地面
 	static constexpr int kSpawnPlatformTiers = 2; // 足場の段数（下の段から数える）

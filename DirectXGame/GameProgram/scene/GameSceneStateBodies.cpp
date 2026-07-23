@@ -5,22 +5,21 @@
 
 // タイトル画面の更新本体
 void GameScene::UpdateStateBody_Start() {
-	titleAnimationTimer_++;
-	const int32_t cycleFrames = kTitleRotateFrames + kTitlePauseFrames;
-	int32_t timeInCycle = titleAnimationTimer_ % cycleFrames;
-	if (timeInCycle < kTitleRotateFrames) {
-		float progress = static_cast<float>(timeInCycle) / kTitleRotateFrames;
-		float easedProgress = (1.0f - cosf(progress * 3.14159265f)) / 2.0f;
-		worldTransformTitleObject_.rotation_.y = easedProgress * (2.0f * 3.14159265f);
-	} else {
-		worldTransformTitleObject_.rotation_.y = 0.0f;
-	}
-	worldTransformTitleObject_.UpdateMatrix();
 	UpdateTitleCamera();
 }
 
 // ステージ選択画面の更新本体
 void GameScene::UpdateStateBody_StageSelect() {
+	if (isPauseMenuOpen_) {
+		UpdatePauseMenu();
+		return;
+	}
+
+	if (input_ && input_->TriggerKey(DIK_ESCAPE)) {
+		OpenPauseMenu();
+		return;
+	}
+
 	const KamataEngine::Vector2 mousePos = GetClientMousePosition();
 	const int mouseHit = HitTestStageSelectSlot(mousePos.x, mousePos.y);
 	if (mouseHit >= 0) {
@@ -134,6 +133,15 @@ void GameScene::UpdateTransitionOverlayIfActive() {
 
 // ゲーム開始前イントロの更新本体
 void GameScene::UpdateStateBody_GameIntro() {
+	if (isPauseMenuOpen_) {
+		UpdatePauseMenu();
+		UpdateMapCamera();
+		if (player_) {
+			player_->RefreshWorldMatrix();
+		}
+		return;
+	}
+
 	HandleGameplayShortcuts();
 	if (GetSceneStateKind() != SceneStateKind::GameIntro) {
 		return;
@@ -160,10 +168,22 @@ void GameScene::UpdateStateBody_GameIntro() {
 
 // 本編ゲームプレイの更新本体
 void GameScene::UpdateStateBody_Game() {
+	if (isPauseMenuOpen_) {
+		UpdatePauseMenu();
+		// ポーズ中は物理・バネ・巻き戻しを一切進めない（飛行中速度を保持）
+		UpdateMapCamera();
+		if (player_) {
+			player_->RefreshWorldMatrix();
+		}
+		return;
+	}
+
 	HandleGameplayShortcuts();
 	if (GetSceneStateKind() != SceneStateKind::Game) {
 		return;
 	}
+
+	UpdateGameplayPauseInput();
 
 	UpdateGameplayRewindInput();
 
@@ -176,6 +196,9 @@ void GameScene::UpdateStateBody_Game() {
 	if (!isPortalAbsorbing && !isGameplayRewinding_ && !qHeld && !IsRewindPostReleaseLocked()) {
 		UpdateTrampolinePlacement();
 	}
+
+	UpdateStageTutorial();
+	UpdateKeyWallTutorial();
 
 	if (explosionEmitter_) {
 		explosionEmitter_->Update();
@@ -190,7 +213,7 @@ void GameScene::UpdateStateBody_Game() {
 			} else if (!isGameplayRewinding_ && !IsRewindPostReleaseLocked()) {
 				// 針被弾後は巻き戻しを始めるまで操作停止。巻き戻し開始後はQを離せばすぐ動ける。
 				const bool spikeAwaitingRewind = isSpikeRewindOverlayActive_ && !spikeRewindScrubStarted_;
-				if (!spikeAwaitingRewind) {
+				if (!spikeAwaitingRewind && !ShouldFreezePlayerForTutorial() && !isGameplayPaused_) {
 					player_->Update();
 					UpdatePlayerScreenTransition();
 
@@ -204,6 +227,9 @@ void GameScene::UpdateStateBody_Game() {
 					}
 
 					UpdateButtonGimmicks();
+				} else if (ShouldFreezePlayerForTutorial() || isGameplayPaused_) {
+					// 一時停止中も速度・位置は保持（シンキングタイム）
+					player_->RefreshWorldMatrix();
 				}
 
 				if (player_->ConsumeSpikeHitEvent()) {
@@ -215,6 +241,8 @@ void GameScene::UpdateStateBody_Game() {
 						spikeRewindOverlayAlpha_ = 0.0f;
 						rewindOverlayAlpha_ = 0.0f;
 						spikeRewindScrubStarted_ = false;
+						// 一時停止中に被弾するとQがブロックされるため解除
+						isGameplayPaused_ = false;
 					}
 				}
 			}

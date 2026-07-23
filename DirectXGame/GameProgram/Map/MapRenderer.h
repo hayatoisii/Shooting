@@ -6,7 +6,7 @@
 #include <unordered_set>
 #include <vector>
 
-// 地面(blocks)・トゲ(needle)・ゴール(portal)・消える壁(deleteblocks)・ボタン(bulletEnemy)を描画する
+// 地面(blocks)・トゲ(needle)・ゴール(portal)・消える壁(deleteblocks)・ボタン(key)を描画する
 class MapRenderer {
 public:
 	void Initialize(KamataEngine::Model* groundModel, KamataEngine::Model* spikeModel, KamataEngine::Model* goalModel,
