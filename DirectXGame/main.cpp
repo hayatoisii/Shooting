@@ -10,7 +10,7 @@ int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
 	// 汎用機能
 	Input* input = nullptr;
 	Audio* audio = nullptr;
-	AxisIndicator* axisIndicator = nullptr;
+	AxisIndicator* axisIndicator = nullptr;0.
 	PrimitiveDrawer* primitiveDrawer = nullptr;
 	GameScene* gameScene = nullptr;
 

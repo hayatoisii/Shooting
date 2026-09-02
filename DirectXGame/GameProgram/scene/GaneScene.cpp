@@ -1266,12 +1266,26 @@ void GameScene::UpdateOsCursorVisibility() {
 	// ゲームプレイ中（ポーズ中を除く）はOSの矢印カーソルを隠す
 	const bool shouldHide = !isPauseMenuOpen_ && (kind == SceneStateKind::Game || kind == SceneStateKind::GameIntro);
 
-	if (shouldHide && !osCursorHidden_) {
-		while (ShowCursor(FALSE) >= 0) {
+	// ShowCursor の内部カウンタずれ（Alt+Tab 等）で表示が破綻しないよう、実表示状態を見て補正する
+	CURSORINFO cursorInfo{};
+	cursorInfo.cbSize = sizeof(cursorInfo);
+	const bool queryOk = GetCursorInfo(&cursorInfo) != FALSE;
+	const bool currentlyVisible = queryOk && (cursorInfo.flags & CURSOR_SHOWING) != 0;
+
+	if (shouldHide) {
+		if (!osCursorHidden_ || currentlyVisible) {
+			int displayCount = 0;
+			do {
+				displayCount = ShowCursor(FALSE);
+			} while (displayCount >= 0);
 		}
 		osCursorHidden_ = true;
-	} else if (!shouldHide && osCursorHidden_) {
-		while (ShowCursor(TRUE) < 0) {
+	} else {
+		if (osCursorHidden_ || !currentlyVisible) {
+			int displayCount = -1;
+			do {
+				displayCount = ShowCursor(TRUE);
+			} while (displayCount < 0);
 		}
 		osCursorHidden_ = false;
 	}
@@ -2235,7 +2249,19 @@ KamataEngine::Vector2 GameScene::GetClientMousePosition() const {
 	POINT cursorPos{};
 	GetCursorPos(&cursorPos);
 	ScreenToClient(WinApp::GetInstance()->GetHwnd(), &cursorPos);
-	return {static_cast<float>(cursorPos.x), static_cast<float>(cursorPos.y)};
+
+	// スプライト／UIは kWindowWidth×kWindowHeight 固定座標。
+	// 実クライアントサイズ（リサイズ・DPI）とずれるとクリックが外れるので論理座標へ変換する。
+	float clientW = 0.0f;
+	float clientH = 0.0f;
+	GetClientSize(clientW, clientH);
+	if (clientW <= 1.0f || clientH <= 1.0f) {
+		return {static_cast<float>(cursorPos.x), static_cast<float>(cursorPos.y)};
+	}
+
+	const float logicalX = static_cast<float>(cursorPos.x) * (static_cast<float>(WinApp::kWindowWidth) / clientW);
+	const float logicalY = static_cast<float>(cursorPos.y) * (static_cast<float>(WinApp::kWindowHeight) / clientH);
+	return {logicalX, logicalY};
 }
 
 KamataEngine::Vector3 GameScene::ConvertScreenToWorld(float screenX, float screenY) {
@@ -2245,13 +2271,8 @@ KamataEngine::Vector3 GameScene::ConvertScreenToWorld(float screenX, float scree
 	float top = 0.0f;
 	ComputeCameraBounds(left, bottom, right, top);
 
-	float winW = 0.0f;
-	float winH = 0.0f;
-	GetClientSize(winW, winH);
-	if (winW <= 0.0f || winH <= 0.0f) {
-		winW = static_cast<float>(WinApp::kWindowWidth);
-		winH = static_cast<float>(WinApp::kWindowHeight);
-	}
+	const float winW = static_cast<float>(WinApp::kWindowWidth);
+	const float winH = static_cast<float>(WinApp::kWindowHeight);
 
 	const float worldX = left + (screenX / winW) * (right - left);
 	const float worldY = top - (screenY / winH) * (top - bottom);
