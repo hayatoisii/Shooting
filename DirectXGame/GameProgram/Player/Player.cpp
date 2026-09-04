@@ -1,1148 +1,129 @@
 #include "Player.h"
-#include "Enemy.h"
 #include "PlayerState.h"
 #include "RailCamera.h"
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <cstdlib>
-#include <limits>
-// For window size constants
-#include "base/WinApp.h"
-#include <Windows.h>
-#include <cstdio>
-#include <vector>
 
-namespace {
-constexpr float kClubScale      = 1.85f;
-constexpr float kClubHeadLocalY = 2.2f; // モデル原点→ヘッド（-Y）の距離
-// \ の基本傾き（この符号域のまま振る。π/2 を跨ぐと / に反転する）
-constexpr float kClubLieImpact = -1.02f;
-constexpr float kClubLieBack   = -1.50f;
-
-KamataEngine::Vector3 RotateClubLocal(float yaw, float rz, const KamataEngine::Vector3& local) {
-	const float cz = std::cosf(rz);
-	const float sz = std::sinf(rz);
-	const float x1 = cz * local.x - sz * local.y;
-	const float y1 = sz * local.x + cz * local.y;
-	const float z1 = local.z;
-	const float cy = std::cosf(yaw);
-	const float sy = std::sinf(yaw);
-	return {cy * x1 + sy * z1, y1, -sy * x1 + cy * z1};
-}
-
-KamataEngine::Vector3 ClubHeadOffset(float yaw, float rz) {
-	return RotateClubLocal(yaw, rz, {0.0f, -kClubHeadLocalY * kClubScale, 0.0f});
-}
-} // namespace
-
-Player::Player() { state_ = PlayerStateNormal::Instance(); }
+Player::Player() { state_ = PlayerStateWaiting::Instance(); }
 
 Player::~Player() {
-	delete modelArrow_;
-	delete modelPutter_;
-	delete modelbullet_;
-	delete modelParticle_;
-	delete engineExhaust_;
-	delete landingEmitter_;
-	delete trailEmitter_;
-	for (PlayerBullet* bullet : bullets_) {
-		delete bullet;
-	}
+	delete modelRope_;
+	delete modelAnchor_;
+	ResetBullets();
 }
 
 void Player::Initialize(KamataEngine::Model* model, KamataEngine::Camera* camera, const KamataEngine::Vector3& pos) {
 	assert(model);
 	model_ = model;
 	camera_ = camera;
-	modelArrow_ = KamataEngine::Model::CreateFromOBJ("yazirusi", true);
-	modelPutter_ = KamataEngine::Model::CreateFromOBJ("goruhukurabu", true);
-	modelbullet_ = KamataEngine::Model::CreateFromOBJ("Bullet", true);
 	input_ = KamataEngine::Input::GetInstance();
-	audio_ = KamataEngine::Audio::GetInstance();
-	if (audio_) {
-		hitPlayerSoundHandle_ = audio_->LoadWave("./sound/parry.wav");
-		ballRestSoundHandle_  = audio_->LoadWave("./sound/Attack.wav");
+	modelRope_ = KamataEngine::Model::CreateFromOBJ("cube", true);
+	modelAnchor_ = KamataEngine::Model::CreateFromOBJ("tama", true);
+
+	worldtransfrom_.Initialize();
+	playerTransform_.Initialize();
+	ropeTransform_.Initialize();
+	for (int i = 0; i < kMaxAnchorDraw_; ++i) {
+		anchorDrawTransforms_[i].Initialize();
+	}
+	anchorDrawReady_ = true;
+
+	playerTint_.Initialize();
+	anchorTint_.Initialize();
+	attachedTint_.Initialize();
+	playerTint_.SetColor({0.95f, 0.95f, 1.0f, 1.0f});
+	anchorTint_.SetColor({0.4f, 0.9f, 1.0f, 1.0f});
+	attachedTint_.SetColor({1.0f, 0.9f, 0.15f, 1.0f});
+	colorsReady_ = true;
+
+	SetPosition(pos);
+	ChangeState(PlayerStateWaiting::Instance());
+}
+
+float Player::MakeAnchorY(int index) const {
+	// 上寄りに多く出るよう偏らせつつランダム
+	unsigned int s1 = static_cast<unsigned int>(index * 1103515245u + 12345u);
+	unsigned int s2 = static_cast<unsigned int>((index + 17) * 1664525u + 1013904223u);
+	float r1 = static_cast<float>((s1 >> 16) & 0x7fff) / 32767.0f;
+	float r2 = static_cast<float>((s2 >> 16) & 0x7fff) / 32767.0f;
+	float r = r1 * 0.55f + r2 * 0.45f;
+	r = std::sqrt(r); // 高めに寄せる
+	return kAnchorYMin_ + r * (kAnchorYMax_ - kAnchorYMin_);
+}
+
+void Player::RebuildAnchorListFromStart() {
+	anchors_.clear();
+	nextAnchorIndex_ = 0;
+	nextAnchorZ_ = 0.0f;
+	EnsureAnchorsAhead();
+}
+
+void Player::EnsureAnchorsAhead() {
+	const float needUntil = playerPos_.z + kAnchorGenAhead_;
+	while (nextAnchorZ_ <= needUntil) {
+		anchors_.push_back({0.0f, MakeAnchorY(nextAnchorIndex_), nextAnchorZ_});
+		++nextAnchorIndex_;
+		nextAnchorZ_ += kAnchorSpacingZ_;
 	}
 
-	// Initialize() を先に呼んでからポジションを設定（逆順だと translation_ がリセットされる）
-	worldtransfrom_.Initialize();
-	worldtransfrom_.translation_ = pos;
-	worldtransfrom_.UpdateMatrix();
+	const float cullZ = playerPos_.z - kAnchorCullBehind_;
+	while (!anchors_.empty() && anchors_.front().z < cullZ) {
+		anchors_.erase(anchors_.begin());
+		if (attachedAnchorIndex_ >= 0) {
+			--attachedAnchorIndex_;
+		}
+	}
+	if (attachedAnchorIndex_ < 0) {
+		attachedAnchorIndex_ = -1;
+	}
+}
 
-	// パター・矢印の初期変換を初期化
-	putterTransform_.Initialize();
-	arrowTransform_.Initialize();
-	arrowHeightTransform_.Initialize();
-	goalDirArrowTransform_.Initialize();
-
-	modelParticle_ = KamataEngine::Model::CreateFromOBJ("flare", true);
-	engineExhaust_ = new ParticleEmitter();
-	engineExhaust_->Initialize(modelParticle_);
-
-	landingEmitter_ = new ParticleEmitter();
-	landingEmitter_->Initialize(model_);
-
-	trailEmitter_ = new ParticleEmitter();
-	trailEmitter_->Initialize(model_, 96, kTrailDrawAlpha_);
-
-	hp_ = kMaxHp_;
-	isDead_ = false;
-	shotTimer_ = 0;
-
-	ballObjectColor_.Initialize();
-	ballObjectColor_.SetColor({1.0f, 1.0f, 1.0f, 1.0f});
-
-	hitShakePrevVerticalOffset_ = 0.0f;
-	hitShakePrevHorizontalOffset_ = 0.0f;
-
-	velocity_ = {0.0f, 0.0f, 0.0f};
-	swingTimer_ = 0.0f;
-
-	// 初期状態は待機（地面に落下して止まる）
-	ChangeState(PlayerStateNormal::Instance());
+int Player::FindNearestAnchorIndex() const {
+	int best = -1;
+	float bestDistSq = 1.0e30f;
+	for (int i = 0; i < static_cast<int>(anchors_.size()); ++i) {
+		const KamataEngine::Vector3& a = anchors_[i];
+		const float dy = a.y - playerPos_.y;
+		const float dz = a.z - playerPos_.z;
+		const float d2 = dy * dy + dz * dz;
+		if (d2 < bestDistSq) {
+			bestDistSq = d2;
+			best = i;
+		}
+	}
+	return best;
 }
 
 void Player::SetPosition(const KamataEngine::Vector3& position) {
-	worldtransfrom_.translation_ = position;
+	ropeLength_ = kDefaultRopeLength_;
+	angle_ = kStartHangAngle_;
+	angularVel_ = 0.0f;
+	ropeConnected_ = true;
+	isDead_ = false;
+	hp_ = kMaxHp_;
+	playerVel_ = {0.0f, 0.0f, 0.0f};
+
+	RebuildAnchorListFromStart();
+	attachedAnchorIndex_ = 0;
+	if (!anchors_.empty()) {
+		anchorPos_ = anchors_[0];
+	} else {
+		anchorPos_ = {position.x, kAnchorBaseY_, 0.0f};
+	}
+
+	ApplyPlayerFromAngle();
+	SyncTransforms();
 }
 
 void Player::ResetStats() {
 	hp_ = kMaxHp_;
 	isDead_ = false;
+	restartRequested_ = false;
 	gameOverAnimationTime_ = 0.0f;
-	rollTimer_ = 0.0f;
-	velocity_          = {0.0f, 0.0f, 0.0f};
-	swingTimer_        = 0.0f;
-	gaugeTimer_        = 0.0f;
-	gaugePower_        = 0.0f;
-	aimTimer_          = 0.0f;
-	aimAngle_          = 0.0f;
-	lockedArrowAngle_  = 0.0f;
-	heightTimer_       = 0.0f;
-	heightAngle_       = 3.14159265f * 30.0f / 180.0f;
-	lockedHeightAngle_ = heightAngle_;
-	ResetAirShots();
-	isAirAiming_       = false;
-	ChangeState(PlayerStateNormal::Instance());
-}
-
-// ゴルフボールの物理更新: 重力・バウンド・摩擦
-void Player::UpdateGolfBall() {
-	// 空中照準中はボールを完全静止させる（重力・移動なし）
-	if (isAirAiming_) {
-		velocity_ = {0.0f, 0.0f, 0.0f};
-		worldtransfrom_.UpdateMatrix();
-		return;
-	}
-
-	// 下向きの重力を速度に加える
-	velocity_.y -= kGravity_;
-
-	// 速度ぶんだけ位置を動かす
-	worldtransfrom_.translation_.x += velocity_.x;
-	worldtransfrom_.translation_.y += velocity_.y;
-	worldtransfrom_.translation_.z += velocity_.z;
-
-	// 地面より下に行かないようにする（バウンド）
-	if (worldtransfrom_.translation_.y <= groundY_) {
-		worldtransfrom_.translation_.y = groundY_;
-		if (velocity_.y < -0.05f) {
-			const float impactSpeed = -velocity_.y;
-			// バウンド: 上向きに反発
-			velocity_.y = -velocity_.y * kBounceRestitution_;
-			if (state_ == PlayerStateFlying::Instance()) {
-				PlayBallRestSe();
-				PlayLandingBurst(impactSpeed);
-			}
-		} else {
-			// 十分小さければ完全停止
-			velocity_.y = 0.0f;
-		}
-		// 転がり摩擦（地面接触中のみ）
-		velocity_.x *= kRollFriction_;
-		velocity_.z *= kRollFriction_;
-	}
-
-	// ボールの転がりを回転に反映（Z方向に転がるのでX軸回転）
-	if (std::abs(velocity_.z) > 0.001f) {
-		worldtransfrom_.rotation_.x -= velocity_.z * 0.3f;
-	}
-
-	ClampToPlayArea();
-
-	worldtransfrom_.UpdateMatrix();
-
-	// 飛翔中のみ軌跡パーティクルを生成（1フレーム1本・移動方向に伸ばす）
-	if (state_ == PlayerStateFlying::Instance()) {
-		const float speedSq = velocity_.x * velocity_.x + velocity_.y * velocity_.y + velocity_.z * velocity_.z;
-		if (trailEmitter_ && speedSq > 0.01f) {
-			const KamataEngine::Vector3 curr = GetWorldPosition();
-			const float speed = std::sqrtf(speedSq);
-			const float invSpeed = 1.0f / speed;
-			const KamataEngine::Vector3 velDir = {
-			    velocity_.x * invSpeed, velocity_.y * invSpeed, velocity_.z * invSpeed};
-			float frontInset = kTrailInsetMin_ + speed * kTrailInsetSpeedMul_;
-			if (frontInset > kTrailInsetMax_) {
-				frontInset = kTrailInsetMax_;
-			}
-			if (frontInset < kTrailInsetMin_) {
-				frontInset = kTrailInsetMin_;
-			}
-			if (!trailHasPrevPos_) {
-				trailSmoothedInset_ = frontInset;
-			} else {
-				trailSmoothedInset_ += (frontInset - trailSmoothedInset_) * 0.35f;
-			}
-			const KamataEngine::Vector3 segFront = {
-			    curr.x - velDir.x * trailSmoothedInset_,
-			    curr.y - velDir.y * trailSmoothedInset_,
-			    curr.z - velDir.z * trailSmoothedInset_,
-			};
-
-			if (!trailHasPrevPos_) {
-				trailPrevPos_ = segFront;
-				trailHasPrevPos_ = true;
-			} else {
-				const float dx = segFront.x - trailPrevPos_.x;
-				const float dy = segFront.y - trailPrevPos_.y;
-				const float dz = segFront.z - trailPrevPos_.z;
-				const float segDist = std::sqrtf(dx * dx + dy * dy + dz * dz);
-
-				if (segDist > 0.0005f) {
-					const float invDist = 1.0f / segDist;
-					const KamataEngine::Vector3 dir = {dx * invDist, dy * invDist, dz * invDist};
-					// 前端を segFront に固定（ボール側へ伸ばさない）。後方だけ大きく重ねてつなぎ目を消す
-					float joinOverlap = kTrailJoinOverlap_ + segDist * kTrailJoinOverlapRate_;
-					if (joinOverlap < kTrailJoinOverlap_) {
-						joinOverlap = kTrailJoinOverlap_;
-					}
-					float stretchLen = segDist + joinOverlap;
-					if (stretchLen < kTrailCrossScale_) {
-						stretchLen = kTrailCrossScale_;
-					}
-					// 前端を segFront より少し手前で止め、メッシュの膨らみ分もボールに被らないようにする
-					const float frontStop = kTrailCrossScale_ * 0.48f;
-					const KamataEngine::Vector3 segEnd = {
-					    segFront.x - dir.x * frontStop,
-					    segFront.y - dir.y * frontStop,
-					    segFront.z - dir.z * frontStop,
-					};
-					const float endDx = segEnd.x - trailPrevPos_.x;
-					const float endDy = segEnd.y - trailPrevPos_.y;
-					const float endDz = segEnd.z - trailPrevPos_.z;
-					const float endDist = std::sqrtf(endDx * endDx + endDy * endDy + endDz * endDz);
-					if (endDist > 0.0005f) {
-						stretchLen = endDist + joinOverlap;
-						if (stretchLen < kTrailCrossScale_) {
-							stretchLen = kTrailCrossScale_;
-						}
-						const KamataEngine::Vector3 center = {
-						    segEnd.x - dir.x * (stretchLen * 0.5f),
-						    segEnd.y - dir.y * (stretchLen * 0.5f),
-						    segEnd.z - dir.z * (stretchLen * 0.5f),
-						};
-						trailEmitter_->EmitTrailSegment(
-						    center, dir, stretchLen, kTrailDotLife_, kTrailCrossScale_);
-					}
-				}
-				trailPrevPos_ = segFront;
-			}
-		}
-		if (trailEmitter_) {
-			trailEmitter_->Update();
-			trailEmitter_->UpdateTrailScale();
-		}
-	} else {
-		trailHasPrevPos_ = false;
-		trailSmoothedInset_ = kTrailInsetMin_;
-		if (trailEmitter_) {
-			trailEmitter_->Clear();
-		}
-	}
-
-	if (landingEmitter_) {
-		landingEmitter_->Update();
-	}
-}
-
-void Player::ClampToPlayArea() {
-	if (playAreaRadius_ <= 0.0f) {
-		return;
-	}
-
-	const float ballRadius = 1.0f;
-	float maxR = playAreaRadius_ - ballRadius * 0.5f;
-	if (maxR < 1.0f) {
-		maxR = 1.0f;
-	}
-
-	float dx = worldtransfrom_.translation_.x - goalPosition_.x;
-	float dz = worldtransfrom_.translation_.z - goalPosition_.z;
-	float distSq = dx * dx + dz * dz;
-	float maxRSq = maxR * maxR;
-	if (distSq <= maxRSq) {
-		return;
-	}
-
-	float dist = std::sqrtf(distSq);
-	if (dist < 0.001f) {
-		return;
-	}
-
-	float nx = dx / dist;
-	float nz = dz / dist;
-	worldtransfrom_.translation_.x = goalPosition_.x + nx * maxR;
-	worldtransfrom_.translation_.z = goalPosition_.z + nz * maxR;
-
-	// 壁方向への速度成分を打ち消してバウンド
-	float vn = velocity_.x * nx + velocity_.z * nz;
-	if (vn > 0.0f) {
-		const float kWallBounce = 0.35f;
-		velocity_.x -= vn * nx * (1.0f + kWallBounce);
-		velocity_.z -= vn * nz * (1.0f + kWallBounce);
-	}
-}
-
-// SPACE が今フレームで押されたか
-bool Player::IsSpaceJustPressed() const {
-	return input_ && input_->TriggerKey(DIK_SPACE);
-}
-
-// 速度がほぼゼロか
-bool Player::IsVelocityNearZero() const {
-	const float kThreshold = 0.005f;
-	return std::abs(velocity_.x) < kThreshold &&
-	       std::abs(velocity_.y) < kThreshold &&
-	       std::abs(velocity_.z) < kThreshold;
-}
-
-// 照準開始: タイマーをリセットして Aiming 状態へ遷移
-void Player::BeginAiming() {
-	aimTimer_   = 0.0f;
-	aimAngle_   = 0.0f;
-	// 着地後にカメラが向いている方向（ゴール方向）を矢印の基準にする
-	aimBaseYaw_ = cameraYaw_;
-	lockedArrowAngle_ = aimBaseYaw_;
-	ChangeState(PlayerStateAiming::Instance());
-}
-
-// 矢印アニメを1フレーム進める（地面: カメラ正面±90°往復、空中: 360°スピン）
-void Player::UpdateAimArrow() {
-	float angle = 0.0f;
-	if (isAirAiming_) {
-		// 空中照準: 360度連続回転（fmod で 0〜2π を循環）
-		float speed = kAimSpeed_ * 0.5f * 1.3f;
-		aimTimer_ += speed;
-		const float kPI2 = 3.14159265f * 2.0f;
-		aimAngle_ = std::fmod(aimTimer_, kPI2);
-		angle = aimBaseYaw_ + aimAngle_; // aimBaseYaw_ = SPACE押下時のカメラ方向
-	} else {
-		// 地面照準: 毎フレームの cameraYaw_ を基準にすることで
-		//          カメラが回転中でも矢印が常に正面±90°を往復する
-		aimTimer_ += kAimSpeed_;
-		aimAngle_ = kAimMaxAngle_ * std::sin(aimTimer_);
-		angle = cameraYaw_ + aimAngle_;
-	}
-
-	const float kArrowDist = 3.4f;
-	const float kArrowMeshLen = 1.85f;
-	const float kArrowVisualLen = 1.8f;
-	const float kArrowScaleXZ = 0.35f;
-	const float kArrowScaleY = kArrowVisualLen / kArrowMeshLen;
-	arrowTransform_.translation_ = {
-		worldtransfrom_.translation_.x + std::sin(angle) * kArrowDist,
-		worldtransfrom_.translation_.y,
-		worldtransfrom_.translation_.z + std::cos(angle) * kArrowDist
-	};
-	arrowTransform_.rotation_  = {0.0f, angle, 0.0f};
-	arrowTransform_.scale_     = {kArrowScaleXZ, kArrowScaleXZ, -kArrowScaleY};
-	arrowTransform_.UpdateMatrix();
-}
-
-// 現在の照準角度を打撃方向として確定する
-void Player::LockAimDirection() {
-	if (isAirAiming_) {
-		lockedArrowAngle_ = aimBaseYaw_ + aimAngle_; // 空中: aimBase + スピン量
-	} else {
-		lockedArrowAngle_ = cameraYaw_ + aimAngle_;  // 地面: 現在カメラ方向 + sin 偏差
-	}
-}
-
-// 照準状態かどうか
-bool Player::IsAiming() const {
-	return state_ == PlayerStateAiming::Instance();
-}
-
-// 高さ照準開始: Aiming → AimingHeight 遷移
-void Player::BeginAimingHeight() {
-	heightTimer_ = 0.0f;
-	// 空中照準のとき: 0°（水平）スタートで上下どちらにも動きやすく
-	heightAngle_ = isAirAiming_ ? 0.0f : 3.14159265f * 30.0f / 180.0f;
-	ChangeState(PlayerStateAimingHeight::Instance());
-}
-
-// 高さ矢印アニメ: 地面=ロフト角往復、空中=左右照準と同様に360°回転
-void Player::UpdateAimHeight() {
-	if (isAirAiming_) {
-		float speed = kHeightSpeed_ * 0.5f * 1.3f;
-		heightTimer_ += speed;
-		const float kPI2 = 3.14159265f * 2.0f;
-		heightAngle_ = std::fmod(heightTimer_, kPI2);
-	} else {
-		heightTimer_ += kHeightSpeed_;
-		float mid  = (kHeightMaxAngle_ + kHeightMinAngle_) * 0.5f;
-		float half = (kHeightMaxAngle_ - kHeightMinAngle_) * 0.5f;
-		heightAngle_ = mid + half * std::sin(heightTimer_);
-	}
-
-	// 横矢印と同じ: 中心をボールから前方に置き、長さ 1.8
-	const float kArrowLen  = 1.8f;
-	const float kArrowMeshLen = 1.85f;
-	const float kCenterDist = 3.4f;
-	const float kArrowScaleXZ = 0.35f;
-	const float kArrowScaleY = kArrowLen / kArrowMeshLen;
-
-	// 矢印が向く3次元方向ベクトル（Y回転=方向、X回転=仰角）
-	float yaw   = lockedArrowAngle_;
-	float pitch = heightAngle_;
-	float dirX  = std::sin(yaw) * std::cos(pitch);
-	float dirY  = std::sin(pitch);
-	float dirZ  = std::cos(yaw) * std::cos(pitch);
-
-	// 矢印の中心 = ボール位置 + 向き × kCenterDist
-	arrowHeightTransform_.translation_ = {
-		worldtransfrom_.translation_.x + dirX * kCenterDist,
-		worldtransfrom_.translation_.y + dirY * kCenterDist,
-		worldtransfrom_.translation_.z + dirZ * kCenterDist
-	};
-	arrowHeightTransform_.rotation_ = {-heightAngle_, lockedArrowAngle_, 0.0f};
-	arrowHeightTransform_.scale_    = {kArrowScaleXZ, kArrowScaleXZ, -kArrowScaleY};
-	arrowHeightTransform_.UpdateMatrix();
-}
-
-// 高さ確定: 現在のロフト角を保存
-void Player::LockAimHeight() {
-	lockedHeightAngle_ = heightAngle_;
-}
-
-// 高さ照準状態かどうか
-bool Player::IsAimingHeight() const {
-	return state_ == PlayerStateAimingHeight::Instance();
-}
-
-// ゲージ開始: タイマーをリセットして Gauging 状態へ遷移
-void Player::BeginGauging() {
-	gaugeTimer_ = 0.0f;
-	gaugePower_  = 0.0f;
-	ChangeState(PlayerStateGauging::Instance());
-}
-
-// スイング開始: スイングタイマーをリセットして Swing 状態へ遷移
-void Player::BeginSwing() {
-	swingTimer_ = 0.0f;
-	ChangeState(PlayerStateSwing::Instance());
-}
-
-// ゲージを1フレーム進める（sin で往復させる）
-void Player::UpdateGauge() {
-	gaugeTimer_ += kGaugeSpeed_;
-	// sin を 0〜1 に正規化（0=底・最弱、1=頂・最強）
-	gaugePower_ = (std::sin(gaugeTimer_) + 1.0f) * 0.5f;
-}
-
-// ゲージ状態かどうか
-bool Player::IsGauging() const {
-	return state_ == PlayerStateGauging::Instance();
-}
-
-// スイング: rotY=打ち方向, rotZ=\+振り下ろしのみ（rotX は使わない）
-bool Player::UpdateSwingAnimation() {
-	swingTimer_ += 1.0f;
-
-	const float t = swingTimer_ / kSwingDuration_;
-
-	const float yaw      = lockedArrowAngle_;
-	const float flatFwdX = std::sinf(yaw);
-	const float flatFwdZ = std::cosf(yaw);
-
-	// Z 回転だけで \ をテイクバック → インパクト
-	float swingRz = kClubLieImpact;
-	if (t < 0.30f) {
-		const float u = t / 0.30f;
-		swingRz = kClubLieImpact + (kClubLieBack - kClubLieImpact) * (0.5f - 0.5f * std::cosf(u * 3.14159265f));
-	} else {
-		const float u = (t - 0.30f) / 0.70f;
-		const float eased = 0.5f - 0.5f * std::cosf(u * 3.14159265f);
-		swingRz = kClubLieBack + (kClubLieImpact - kClubLieBack) * eased;
-	}
-
-	const KamataEngine::Vector3 ball = worldtransfrom_.translation_;
-
-	float pullBack = 0.0f;
-	if (t < 0.30f) {
-		const float u = t / 0.30f;
-		pullBack = 1.15f * (0.5f - 0.5f * std::cosf(u * 3.14159265f));
-	} else {
-		const float u = (t - 0.30f) / 0.70f;
-		pullBack = 1.15f * (0.5f + 0.5f * std::cosf(u * 3.14159265f));
-	}
-
-	// 棒の中心（モデル原点）をピボットに固定。インパクト時にヘッドがボールへ届く位置を逆算
-	const KamataEngine::Vector3 headAtImpact = ClubHeadOffset(yaw, kClubLieImpact);
-	constexpr float kCenterLift     = 0.35f;
-	constexpr float kClubExtraFront = 0.55f;
-	putterTransform_.translation_ = {
-	    ball.x - headAtImpact.x - flatFwdX * (kClubExtraFront + pullBack),
-	    ball.y - headAtImpact.y + kCenterLift,
-	    ball.z - headAtImpact.z - flatFwdZ * (kClubExtraFront + pullBack)
-	};
-	putterTransform_.rotation_ = {0.0f, yaw, swingRz};
-	putterTransform_.scale_    = {kClubScale, kClubScale, kClubScale};
-	putterTransform_.UpdateMatrix();
-
-	return t >= 1.0f;
-}
-
-// 打撃: ゲージ打力(0〜1) × ロフト角 × 水平方向角で3次元速度ベクトルを決定
-void Player::LaunchBall() {
-	isAirAiming_ = false; // 空中照準を解除して通常の飛翔物理へ
-	float p          = gaugePower_;
-	float totalSpeed = kShotSpeedZMin_ + (kShotSpeedZ_ - kShotSpeedZMin_) * p;
-	float loft       = lockedHeightAngle_;
-
-	// 水平速度 = totalSpeed * cos(loft)、垂直速度 = totalSpeed * sin(loft)
-	float horizSpeed = totalSpeed * std::cos(loft);
-	float vertSpeed  = totalSpeed * std::sin(loft);
-
-	velocity_.x = horizSpeed * std::sin(lockedArrowAngle_);
-	velocity_.z = horizSpeed * std::cos(lockedArrowAngle_);
-	velocity_.y = vertSpeed;
-
-	// 軌跡リセット
-	trailHasPrevPos_ = false;
-	trailSmoothedInset_ = kTrailInsetMin_;
-	if (trailEmitter_) {
-		trailEmitter_->Clear();
-	}
-
-	if (audio_) {
-		audio_->playAudio(hitPlayerSound_, hitPlayerSoundHandle_, false, 0.5f);
-	}
-}
-
-void Player::PlayBallRestSe() {
-	if (audio_) {
-		audio_->playAudio(ballRestSound_, ballRestSoundHandle_, false, 0.5f);
-	}
-}
-
-void Player::PlayLandingBurst(float impactSpeed) {
-	if (!landingEmitter_) {
-		return;
-	}
-	// 終盤の弱い多段バウンドはパーティクルを抑える（高い初速バウンドはそのまま）
-	if (impactSpeed < 0.12f) {
-		return;
-	}
-
-	const float t = (std::min)(impactSpeed / 1.6f, 1.0f);
-	const int   numParticles = static_cast<int>(6.0f + t * 16.0f);
-	const float speed        = 0.85f + t * 2.2f;
-	const float lifeTime     = 22.0f + t * 20.0f;
-	const float startScale   = 0.24f + t * 0.30f;
-
-	const KamataEngine::Vector3& p = worldtransfrom_.translation_;
-	landingEmitter_->EmitBurst(p, numParticles, speed, lifeTime, startScale, 0.0f);
-}
-
-void Player::ChangeState(PlayerState* newState) {
-	if (newState == nullptr || newState == state_) {
-		return;
-	}
-	if (state_ == PlayerStateFlying::Instance() && newState != PlayerStateFlying::Instance()) {
-		trailHasPrevPos_ = false;
-		trailSmoothedInset_ = kTrailInsetMin_;
-		if (trailEmitter_) {
-			trailEmitter_->Clear();
-		}
-	}
-	state_ = newState;
-}
-
-bool Player::IsRolling() const {
-	return state_ != nullptr && state_->IsRolling();
-}
-
-const char* Player::GetStateName() const {
-	return state_ ? state_->GetStateName() : "None";
-}
-
-bool Player::IsFlying() const {
-	return state_ == PlayerStateFlying::Instance();
-}
-
-// ポリモーフィズム: Player 固有の被弾処理（GameCharacter::OnCollision の override）
-void Player::OnCollision() {
-	// isDead_ = true; // 即死テスト用（通常は HP を減らす）
-	hp_--;
-	if (hp_ <= 0) {
-		isDead_ = true;
-	}
-
-	// 被弾時に左右に揺れる
-	hitShakeTime_ = 0.0f;
-	hitShakeAmplitude_ = 0.6f;           // 最大振幅
-	hitShakeVerticalAmplitude_ = 1.5f;   // 垂直
-	hitShakeHorizontalAmplitude_ = 1.0f; // 水平
-}
-
-void Player::Attack() {
-
-	if (shotTimer_ > 0) {
-		shotTimer_--;
-	}
-
-	// これGameScene始まるまで撃たせないようにするやつ
-	specialTimer--;
-	if (specialTimer < 0) {
-		if (input_->PushKey(DIK_SPACE) && shotTimer_ <= 0) {
-			assert(railCamera_);
-
-			// --- 弾発生位置の計算 ---
-			// ワールド行列が最新であることを保証
-			worldtransfrom_.UpdateMatrix();
-
-			// プレイヤーのワールド位置とローカル軸を取得してスポーン位置を計算する
-			KamataEngine::Vector3 playerWorldPos = GetWorldPosition();
-			const KamataEngine::Matrix4x4& wm = worldtransfrom_.matWorld_;
-			KamataEngine::Vector3 localForward = {wm.m[2][0], wm.m[2][1], wm.m[2][2]};
-			KamataEngine::Vector3 localRight = {wm.m[0][0], wm.m[0][1], wm.m[0][2]};
-			KamataEngine::Vector3 localUp = {wm.m[1][0], wm.m[1][1], wm.m[1][2]};
-			localForward = KamataEngine::MathUtility::Normalize(localForward);
-			localRight = KamataEngine::MathUtility::Normalize(localRight);
-			localUp = KamataEngine::MathUtility::Normalize(localUp);
-
-			// 揺れの影響を除いたクリーンな基準位置を使う（縦揺れで発射位置がズレるのを防ぐ）
-			KamataEngine::Vector3 cleanPlayerPos = playerWorldPos;
-			cleanPlayerPos.x -= hitShakePrevHorizontalOffset_; // 横揺れ分を除去
-			cleanPlayerPos.y -= hitShakePrevVerticalOffset_;   // 縦揺れ分を除去
-
-			// 逆方向（プレイヤーの後ろ／手前の反対）に大きくずらす
-			float forwardOffset = -10.0f; // 大きめに移動させる（プレイヤーの向きの反対方向へ）
-			float upOffset = -1.0f;
-			float rightOffset = 0.0f;
-
-			// もし localForward が不正（ゼロベクトル）ならカメラ前方向を使う
-			KamataEngine::Vector3 cameraForward = {0.0f, 0.0f, 0.0f};
-			KamataEngine::Vector3 cameraPosition = {0.0f, 0.0f, 0.0f};
-			if (std::abs(localForward.x) < 1e-6f && std::abs(localForward.y) < 1e-6f && std::abs(localForward.z) < 1e-6f) {
-				const KamataEngine::Matrix4x4& camMat = railCamera_->GetWorldTransform().matWorld_;
-				cameraForward = {camMat.m[2][0], camMat.m[2][1], camMat.m[2][2]};
-				cameraForward = KamataEngine::MathUtility::Normalize(cameraForward);
-				cameraPosition = {camMat.m[3][0], camMat.m[3][1], camMat.m[3][2]};
-			} else {
-				// それでも念のためカメラ前方向も取得
-				const KamataEngine::Matrix4x4& camMat = railCamera_->GetWorldTransform().matWorld_;
-				cameraForward = {camMat.m[2][0], camMat.m[2][1], camMat.m[2][2]};
-				cameraForward = KamataEngine::MathUtility::Normalize(cameraForward);
-				cameraPosition = {camMat.m[3][0], camMat.m[3][1], camMat.m[3][2]};
-			}
-
-			// 優先: プレイヤーの向きの反対方向（後方）へ大きくずらす
-			KamataEngine::Vector3 preferredMoveBullet = cleanPlayerPos - localForward * forwardOffset + localUp * upOffset + localRight * rightOffset;
-			KamataEngine::Vector3 cameraBasedMoveBullet = cleanPlayerPos + cameraForward * forwardOffset + localUp * upOffset + localRight * rightOffset;
-
-			// デバッグ出力: 座標を確認
-			char dbgBuf[256];
-			sprintf_s(
-			    dbgBuf, "playerPos=(%.2f,%.2f,%.2f) localF=(%.2f,%.2f,%.2f) camF=(%.2f,%.2f,%.2f) prefBullet=(%.2f,%.2f,%.2f) camBullet=(%.2f,%.2f,%.2f)\\n", playerWorldPos.x, playerWorldPos.y,
-			    playerWorldPos.z, localForward.x, localForward.y, localForward.z, cameraForward.x, cameraForward.y, cameraForward.z, preferredMoveBullet.x, preferredMoveBullet.y,
-			    preferredMoveBullet.z, cameraBasedMoveBullet.x, cameraBasedMoveBullet.y, cameraBasedMoveBullet.z);
-			OutputDebugStringA(dbgBuf);
-
-			// プレイヤー基準（今回は後方へ大きくずらした位置）を優先して使う
-			KamataEngine::Vector3 moveBullet = preferredMoveBullet;
-
-			// --- ここまで弾発生位置の計算 ---
-
-			const float kBulletSpeed = 60.0f; // 弾速
-			KamataEngine::Vector3 velocity;
-
-			float minDistanceSq = FLT_MAX;
-			Enemy* nearestOnScreenEnemy = nullptr;
-			const float maxHomingDistance = 1000.0f;
-
-			if (enemies_) {
-				for (Enemy* enemy : *enemies_) {
-					if (!enemy || enemy->IsDead())
-						continue;
-
-					if (enemy->IsOnScreen()) {
-						KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
-						KamataEngine::Vector3 toEnemy = enemyPos - moveBullet;
-						float distanceSq = toEnemy.x * toEnemy.x + toEnemy.y * toEnemy.y + toEnemy.z * toEnemy.z;
-
-						if (distanceSq < minDistanceSq && distanceSq < maxHomingDistance * maxHomingDistance) {
-							float distance = sqrtf(distanceSq);
-							if (distance > 0.001f) {
-								minDistanceSq = distanceSq;
-								nearestOnScreenEnemy = enemy;
-							}
-						}
-					}
-				}
-			}
-
-			{
-				const KamataEngine::Matrix4x4& cameraWorldMatrix = railCamera_->GetWorldTransform().matWorld_;
-				// reuse previously declared cameraPosition and cameraForward instead of redeclaring
-				cameraPosition = {cameraWorldMatrix.m[3][0], cameraWorldMatrix.m[3][1], cameraWorldMatrix.m[3][2]};
-				cameraForward = {cameraWorldMatrix.m[2][0], cameraWorldMatrix.m[2][1], cameraWorldMatrix.m[2][2]};
-				cameraForward = KamataEngine::MathUtility::Normalize(cameraForward);
-				KamataEngine::Vector3 targetPosition = cameraPosition + cameraForward * 1000.0f;
-				velocity = targetPosition - moveBullet;
-			}
-
-			velocity = KamataEngine::MathUtility::Normalize(velocity);
-			velocity = velocity * kBulletSpeed;
-
-			PlayerBullet* newBullet = new PlayerBullet();
-			newBullet->Initialize(modelbullet_, moveBullet, velocity);
-
-			// ホーミング強度
-			newBullet->SetHomingStrength(1.0f);
-
-			// まず、アシストロック中の敵を優先して探す
-			Enemy* assistLockedEnemy = nullptr;
-			if (railCamera_ && enemies_) {
-				const float kVisualRadius = 0.08f;
-				// const float kDetectionRadius = 0.1f;
-				const float kAspect = (float)KamataEngine::WinApp::kWindowWidth / (float)KamataEngine::WinApp::kWindowHeight;
-				const float ndcVisualRadiusY = kVisualRadius * 2.0f;
-				const float ndcVisualRadiusX = ndcVisualRadiusY / kAspect;
-				// const float ndcDetectionRadiusY = kDetectionRadius * 2.0f;
-				// const float ndcDetectionRadiusX = ndcDetectionRadiusY / kAspect;
-
-				const KamataEngine::Matrix4x4& viewMatrix = railCamera_->GetViewProjection().matView;
-				const KamataEngine::Matrix4x4& projMatrix = railCamera_->GetViewProjection().matProjection;
-
-				// ロックオンされている敵（レティクルの円内）を探す
-				for (Enemy* e : *enemies_) {
-					if (!e || e->IsDead())
-						continue;
-					if (!e->IsOnScreen())
-						continue;
-					// ロックオンされている敵のみを対象にする
-					if (!e->IsAssistLocked())
-						continue;
-					// world -> view
-					KamataEngine::Vector3 worldPos = e->GetWorldPosition();
-					KamataEngine::Vector3 viewPos;
-					viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + 1.0f * viewMatrix.m[3][0];
-					viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + 1.0f * viewMatrix.m[3][1];
-					viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + 1.0f * viewMatrix.m[3][2];
-					if (viewPos.z <= 0.0f)
-						continue;
-					float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + 1.0f * projMatrix.m[3][0];
-					float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + 1.0f * projMatrix.m[3][1];
-					float w_clip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + 1.0f * projMatrix.m[3][3];
-					if (w_clip <= 0.0f)
-						continue;
-					float ndcX = clipX / w_clip;
-					float ndcY = clipY / w_clip;
-					float visualNormX = ndcX / ndcVisualRadiusX;
-					float visualNormY = ndcY / ndcVisualRadiusY;
-					float visualNormDistSq = (visualNormX * visualNormX) + (visualNormY * visualNormY);
-					// レティクルの円内の敵のみを対象にする
-					if (visualNormDistSq <= 1.0f) {
-						assistLockedEnemy = e;
-						break;
-					}
-				}
-			}
-
-			// ホーミング消したいときはここをコメントアウト
-			// ロックオンされている敵（レティクルの円内）のみホーミングを有効化
-			if (assistLockedEnemy && assistLockedEnemy->IsAssistLocked()) {
-				// レティクル周辺の円内の敵に対してのみ即座にホーミングを有効化
-				newBullet->SetHomingTarget(assistLockedEnemy);
-				newBullet->SetHomingEnabled(true);
-				newBullet->SetAimAssistHoming(true);
-				newBullet->SetAssistLockId(assistLockedEnemy->GetAssistLockId());
-			}
-
-			bullets_.push_back(newBullet);
-
-			if (audio_){
-				audio_->playAudio(hitPlayerSound_, hitPlayerSoundHandle_, false, 0.5f);
-		}
-
-		// 連射の速度
-		shotTimer_ = 5;
-		isParry_ = false;
-	}
-}
-}
-
-bool Player::IsDead() const { return isDead_; }
-
-int Player::GetHp() const { return hp_; }
-
-int Player::GetMaxHp() const { return kMaxHp_; }
-
-float Player::GetCollisionRadius() const { return 0.8f; }
-
-float Player::GetBallDrawAlpha() const {
-	const float kGoalRadius = 4.5f;
-	const float kMinAlpha = 0.30f; // 重なったときの最小透明度
-
-	float dgx = goalPosition_.x - worldtransfrom_.translation_.x;
-	float dgz = goalPosition_.z - worldtransfrom_.translation_.z;
-	float dgy = goalPosition_.y - worldtransfrom_.translation_.y;
-	float horizDist = std::sqrtf(dgx * dgx + dgz * dgz);
-
-	float overlapR = GetCollisionRadius() + kGoalRadius;
-	if (horizDist >= overlapR) {
-		return 1.0f;
-	}
-
-	// ゴールがボールより上にある場合は通常描画
-	if (dgy > 1.5f) {
-		return 1.0f;
-	}
-
-	// 水平方向に重なっているほど透明に（真下のゴールが見えるように）
-	float t = 1.0f - (horizDist / overlapR);
-	return 1.0f - t * (1.0f - kMinAlpha);
-}
-
-const char* Player::GetKindName() const { return "Player"; }
-
-KamataEngine::Vector3 Player::GetWorldPosition() const {
-	KamataEngine::Vector3 worldPos;
-	worldPos.x = worldtransfrom_.matWorld_.m[3][0];
-	worldPos.y = worldtransfrom_.matWorld_.m[3][1];
-	worldPos.z = worldtransfrom_.matWorld_.m[3][2];
-	return worldPos;
-}
-
-AABB Player::GetAABB() {
-	KamataEngine::Vector3 worldPos = GetWorldPosition();
-	AABB aabb;
-	aabb.min = {worldPos.x - kWidth / 2.0f, worldPos.y - kHeight / 2.0f, worldPos.z - kWidth / 2.0f};
-	aabb.max = {worldPos.x + kWidth / 2.0f, worldPos.y + kHeight / 2.0f, worldPos.z + kWidth / 2.0f};
-	return aabb;
-}
-
-void Player::SetParent(const KamataEngine::WorldTransform* parent) {
-	worldtransfrom_.parent_ = parent;
-	// パターも同じ親を持たせてワールド座標系を合わせる
-	putterTransform_.parent_ = parent;
-}
-
-// State Pattern: 現在の状態オブジェクトに更新処理を委譲（ポリモーフィズム）
-void Player::Update() {
-	if (state_) {
-		state_->Update(*this);
-	}
-}
-
-void Player::UpdateBullets() {
-	// 弾更新中にリストが変わっても安全なようスナップショットで回す
-	std::vector<PlayerBullet*> bulletSnapshot;
-	bulletSnapshot.reserve(bullets_.size());
-	for (PlayerBullet* b : bullets_) {
-		if (b)
-			bulletSnapshot.push_back(b);
-	}
-
-	for (PlayerBullet* b : bulletSnapshot) {
-		if (b)
-			b->Update();
-	}
-
-	bullets_.remove_if([](PlayerBullet* bullet) {
-		if (!bullet)
-			return true;
-		if (bullet->IsDead()) {
-			delete bullet;
-			return true;
-		}
-		return false;
-	});
-}
-
-void Player::ProcessDodgeInput() {
-	if (dodgeTimer_ > 0) {
-		dodgeTimer_--;
-		return;
-	}
-
-	if (!input_->PushKey(DIK_LSHIFT)) {
-		return;
-	}
-
-	float dodgeDir = 0.0f;
-	if (input_->PushKey(DIK_A))
-		dodgeDir = -1.0f;
-	else if (input_->PushKey(DIK_D))
-		dodgeDir = 1.0f;
-
-	if (dodgeDir != 0.0f && railCamera_) {
-		BeginRolling(dodgeDir);
-	}
-}
-
-void Player::BeginRolling(float direction) {
-	railCamera_->Dodge(direction);
-	rollTimer_ = 0.0f;
-	rollDirection_ = direction;
-	dodgeTimer_ = 10; // クールタイム
-	// 状態遷移: 回避開始時に Rolling へ（Normal 状態クラスから呼ばれる）
-	ChangeState(PlayerStateRolling::Instance());
-}
-
-void Player::UpdateRotationNormal() {
-	Vector3 currentRotation = {0, 0, 0};
-	worldtransfrom_.rotation_ = currentRotation;
-
-	if (!railCamera_) {
-		return;
-	}
-
-	const float lerpFactor = 0.1f;
-
-	// ロール（横の傾き）
-	float rollVelocity = railCamera_->GetRotationVelocity().z;
-	const float tiltFactor = 5.0f;
-	float targetRoll = rollVelocity * tiltFactor;
-
-	float yawVelocity = railCamera_->GetRotationVelocity().y;
-	const float yawTiltFactor = 50.0f;
-	targetRoll -= yawVelocity * yawTiltFactor;
-
-	const float maxRollAngle = 4.0f;
-	targetRoll = std::clamp(targetRoll, -maxRollAngle, maxRollAngle);
-	worldtransfrom_.rotation_.z += (targetRoll - worldtransfrom_.rotation_.z) * lerpFactor;
-
-	float pitchVelocity = railCamera_->GetRotationVelocity().x;
-	const float pitchFactor = 12.0f;
-	float targetPitch = pitchVelocity * pitchFactor;
-	const float maxPitchAngle = 1.5f;
-	targetPitch = std::clamp(targetPitch, -maxPitchAngle, maxPitchAngle);
-	worldtransfrom_.rotation_.x += (targetPitch - worldtransfrom_.rotation_.x) * lerpFactor;
-}
-
-bool Player::UpdateRotationRolling() {
-	rollTimer_ += 1.0f;
-	float t = rollTimer_ / kRollDuration_;
-	const bool finished = t >= 1.0f;
-	if (finished) {
-		t = 1.0f;
-	}
-
-	float easeT = 1.0f - std::pow(1.0f - t, 3.0f);
-	float maxAngle = 2.0f * 3.14159265f;
-
-	Vector3 currentRotation = {0, 0, 0};
-	currentRotation.z = maxAngle * easeT * rollDirection_ * -1.0f;
-	worldtransfrom_.rotation_ = currentRotation;
-
-	return finished;
-}
-
-void Player::UpdateHitShake() {
-	worldtransfrom_.translation_.x -= hitShakePrevHorizontalOffset_;
-	worldtransfrom_.translation_.y -= hitShakePrevVerticalOffset_;
-	hitShakePrevHorizontalOffset_ = 0.0f;
-	hitShakePrevVerticalOffset_ = 0.0f;
-
-	if (hitShakeAmplitude_ <= 0.001f && hitShakeVerticalAmplitude_ <= 0.0001f && hitShakeHorizontalAmplitude_ <= 0.0001f) {
-		return;
-	}
-
-	hitShakeTime_ += 1.0f;
-	float damping = std::exp(-hitShakeDecay_ * hitShakeTime_);
-
-	float angle = hitShakeAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
-	worldtransfrom_.rotation_.y += angle;
-	worldtransfrom_.rotation_.z += angle * 0.25f;
-
-	float verticalOffset = hitShakeVerticalAmplitude_ * damping * std::sin(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
-	worldtransfrom_.translation_.y += verticalOffset;
-	hitShakePrevVerticalOffset_ = verticalOffset;
-
-	float horizontalOffset = hitShakeHorizontalAmplitude_ * damping * std::cos(hitShakeFrequency_ * hitShakeTime_ * 2.0f * 3.14159265f);
-	worldtransfrom_.translation_.x += horizontalOffset;
-	hitShakePrevHorizontalOffset_ = horizontalOffset;
-
-	if (damping < 0.01f) {
-		hitShakeAmplitude_ = 0.0f;
-		hitShakeVerticalAmplitude_ = 0.0f;
-		hitShakeHorizontalAmplitude_ = 0.0f;
-		hitShakeTime_ = 0.0f;
-		hitShakePrevVerticalOffset_ = 0.0f;
-		hitShakePrevHorizontalOffset_ = 0.0f;
-	}
-}
-
-void Player::FinalizeFrameUpdate() {
-	worldtransfrom_.UpdateMatrix();
-	Attack();
-
-	if (engineExhaust_) {
-		KamataEngine::Vector3 exhaustOffset = {0.0f, -0.3f, -3.0f};
-		KamataEngine::Vector3 emitterPos = KamataEngine::MathUtility::Transform(exhaustOffset, worldtransfrom_.matWorld_);
-
-		KamataEngine::Vector3 playerBackVector = {-worldtransfrom_.matWorld_.m[2][0], -worldtransfrom_.matWorld_.m[2][1], -worldtransfrom_.matWorld_.m[2][2]};
-		playerBackVector = KamataEngine::MathUtility::Normalize(playerBackVector);
-
-		const float exhaustSpeed = 0.5f;
-		KamataEngine::Vector3 exhaustVelocity = playerBackVector * exhaustSpeed;
-
-		engineExhaust_->Emit(emitterPos, exhaustVelocity);
-		engineExhaust_->Update();
-	}
-}
-
-void Player::Draw() {
-	if (trailEmitter_ && state_ == PlayerStateFlying::Instance()) {
-		trailEmitter_->Draw(*camera_);
-	}
-
-	if (landingEmitter_) {
-		landingEmitter_->Draw(*camera_);
-	}
-
-	// ゴール方向インジケーター矢印（飛翔中・Dead 以外は常に表示）
-	if (state_ != PlayerStateFlying::Instance() &&
-	    state_ != PlayerStateDead::Instance()) {
-		const KamataEngine::Vector3& ball = worldtransfrom_.translation_;
-		float dgx = goalPosition_.x - ball.x;
-		float dgy = goalPosition_.y - ball.y;
-		float dgz = goalPosition_.z - ball.z;
-		float dist3d = std::sqrtf(dgx * dgx + dgy * dgy + dgz * dgz);
-		if (dist3d > 0.01f) {
-			float dirX = dgx / dist3d;
-			float dirY = dgy / dist3d;
-			float dirZ = dgz / dist3d;
-
-			const float kArrowLen    = 1.6f;  // 短め（横矢印より少し短い）
-			const float kCenterDist  = 8.1f;  // 8.4 から 0.3 近づける
-
-			goalDirArrowTransform_.translation_ = {
-			    ball.x + dirX * kCenterDist,
-			    ball.y + dirY * kCenterDist,
-			    ball.z + dirZ * kCenterDist
-			};
-
-			float horiz = std::sqrtf(dirX * dirX + dirZ * dirZ);
-			float yaw   = std::atan2(dirX, dirZ);
-			float pitch = std::atan2(dirY, horiz);
-			goalDirArrowTransform_.rotation_ = {-pitch, yaw, 0.0f};
-			goalDirArrowTransform_.scale_    = {0.35f, 0.35f, -(kArrowLen / 1.85f)};
-			goalDirArrowTransform_.UpdateMatrix();
-			if (modelArrow_) {
-				modelArrow_->Draw(goalDirArrowTransform_, *camera_);
-			}
-		}
-	}
-
-	// ゴルフボール本体（ゴールと重なったときは半透明にして下のゴールが見えるように）
-	{
-		float ballAlpha = GetBallDrawAlpha();
-		if (ballAlpha < 0.99f) {
-			ballObjectColor_.SetColor({1.0f, 1.0f, 1.0f, ballAlpha});
-			model_->SetAlpha(ballAlpha);
-			model_->Draw(worldtransfrom_, *camera_, &ballObjectColor_);
-			model_->SetAlpha(1.0f);
-		} else {
-			model_->Draw(worldtransfrom_, *camera_);
-		}
-	}
-
-	// 水平方向矢印（照準中とゲージ中に表示）
-	if (state_ == PlayerStateAiming::Instance() ||
-	    state_ == PlayerStateAimingHeight::Instance() ||
-	    state_ == PlayerStateGauging::Instance()) {
-		if (modelArrow_) {
-			modelArrow_->Draw(arrowTransform_, *camera_);
-		}
-	}
-
-	// 高さ矢印（高さ照準中とゲージ中に表示）
-	if (state_ == PlayerStateAimingHeight::Instance() ||
-	    state_ == PlayerStateGauging::Instance()) {
-		if (modelArrow_) {
-			modelArrow_->Draw(arrowHeightTransform_, *camera_);
-		}
-	}
-
-	// パター（スイング状態のときのみ描画）
-	if (state_ == PlayerStateSwing::Instance()) {
-		if (modelPutter_) {
-			modelPutter_->Draw(putterTransform_, *camera_);
-		}
-	}
-
-	if (engineExhaust_) {
-		engineExhaust_->Draw(*camera_);
-	}
-	for (PlayerBullet* bullet : bullets_) {
-		bullet->Draw(*camera_);
-	}
-}
-
-void Player::SetRailCamera(RailCamera* camera) { railCamera_ = camera; }
-
-void Player::ResetRotation() {
-	worldtransfrom_.rotation_ = {0.0f, 0.0f, 0.0f};
-	worldtransfrom_.UpdateMatrix();
-}
-
-void Player::ResetParticles() {
-	if (engineExhaust_) {
-		engineExhaust_->Clear();
-	}
-	if (landingEmitter_) {
-		landingEmitter_->Clear();
-	}
-	if (trailEmitter_) {
-		trailEmitter_->Clear();
-	}
-}
-
-// Dead 状態から呼ばれるゲームオーバー演出
-void Player::UpdateGameOverAnimation() {
-	const float animationTime = gameOverAnimationTime_;
-
-	const float pitchDownAngle = 3.14159265f / 4.0f;
-	worldtransfrom_.rotation_.x = pitchDownAngle;
-
-	const float baseSpinSpeed = 0.01f;
-	const float spinAcceleration = 0.0005f;
-	float currentSpinSpeed = baseSpinSpeed + spinAcceleration * animationTime;
-	worldtransfrom_.rotation_.y += currentSpinSpeed;
-
-	const float baseFallSpeed = 0.02f;
-	const float fallAcceleration = 0.001f;
-	float currentFallSpeed = baseFallSpeed + fallAcceleration * animationTime;
-	worldtransfrom_.translation_.y -= currentFallSpeed;
-
-	worldtransfrom_.UpdateMatrix();
-
-	if (engineExhaust_) {
-		KamataEngine::Vector3 emitOffset = {0.8f, 0.0f, -0.8f};
-		KamataEngine::Vector3 worldEmitPos = KamataEngine::MathUtility::Transform(emitOffset, worldtransfrom_.matWorld_);
-		KamataEngine::Vector3 localVelocityDir = {1.0f, 1.0f, -0.5f};
-		localVelocityDir = KamataEngine::MathUtility::Normalize(localVelocityDir);
-		KamataEngine::Vector3 worldVelocityDir = KamataEngine::MathUtility::TransformNormal(localVelocityDir, worldtransfrom_.matWorld_);
-		const float smokeSpeed = 0.5f;
-		KamataEngine::Vector3 smokeVelocity = worldVelocityDir * smokeSpeed;
-		engineExhaust_->Emit(worldEmitPos, smokeVelocity);
-		engineExhaust_->Update();
-	}
+	SetPosition({0.0f, kAnchorBaseY_, 0.0f});
+	ChangeState(PlayerStateWaiting::Instance());
+	spaceWasHeld_ = false;
 }
 
 void Player::ResetBullets() {
@@ -1152,32 +133,304 @@ void Player::ResetBullets() {
 	bullets_.clear();
 }
 
-void Player::EvadeBullets(std::list<EnemyBullet*>& bullets) {
+void Player::RefreshWorldMatrix() { SyncTransforms(); }
 
-	if (IsRolling()) {
+void Player::SetParent(const KamataEngine::WorldTransform* parent) { worldtransfrom_.parent_ = parent; }
 
-		// 回避中: 近距離のホーミング弾を無効化
-		KamataEngine::Vector3 playerPos = GetWorldPosition();
+void Player::SetRailCamera(RailCamera* camera) { railCamera_ = camera; }
 
-		for (EnemyBullet* bullet : bullets) {
-			if (!bullet)
-				continue;
-			if (!bullet->IsHoming())
-				continue;
+void Player::ChangeState(PlayerState* newState) {
+	if (newState == nullptr || newState == state_) {
+		return;
+	}
+	state_ = newState;
+}
 
-			KamataEngine::Vector3 bulletPos = bullet->GetWorldPosition();
+const char* Player::GetStateName() const { return state_ ? state_->GetStateName() : "None"; }
 
-			// 距離を計算
-			float dx = playerPos.x - bulletPos.x;
-			float dy = playerPos.y - bulletPos.y;
-			float dz = playerPos.z - bulletPos.z;
-			float dist = std::sqrt(dx * dx + dy * dy + dz * dz);
+bool Player::IsFlying() const { return state_ == PlayerStateFlying::Instance(); }
+bool Player::IsWaiting() const { return state_ == PlayerStateWaiting::Instance(); }
+bool Player::IsSwinging() const { return state_ == PlayerStateSwinging::Instance(); }
 
-			// 200以内の時に回避行動をしたらホーミングを失う
-			const float kEvasionRange = 200.0f;
-			if (dist < kEvasionRange) {
-				bullet->OnEvaded();
-			}
+void Player::Update() {
+	EnsureAnchorsAhead();
+	if (state_) {
+		state_->Update(*this);
+	}
+	spaceWasHeld_ = IsSpaceHeld();
+	SyncTransforms();
+}
+
+bool Player::IsSpaceJustPressed() const { return input_ && input_->TriggerKey(DIK_SPACE); }
+bool Player::IsSpaceHeld() const { return input_ && input_->PushKey(DIK_SPACE); }
+bool Player::WasSpaceReleased() const {
+	return spaceWasHeld_ && input_ && !input_->PushKey(DIK_SPACE);
+}
+
+void Player::ApplyPlayerFromAngle() {
+	playerPos_ = {
+	    anchorPos_.x,
+	    anchorPos_.y - ropeLength_ * std::cos(angle_),
+	    anchorPos_.z + ropeLength_ * std::sin(angle_),
+	};
+	UpdatePlayerVelocityFromAngle();
+}
+
+void Player::UpdatePlayerVelocityFromAngle() {
+	playerVel_ = {
+	    0.0f,
+	    ropeLength_ * angularVel_ * std::sin(angle_),
+	    ropeLength_ * angularVel_ * std::cos(angle_),
+	};
+}
+
+void Player::ClampAngularVelToLinearSpeed() {
+	if (ropeLength_ <= 0.001f) {
+		return;
+	}
+	const float maxOmega = kMaxLinearSpeed_ / ropeLength_;
+	if (angularVel_ > maxOmega) {
+		angularVel_ = maxOmega;
+	} else if (angularVel_ < -maxOmega) {
+		angularVel_ = -maxOmega;
+	}
+}
+
+void Player::ComputeAngleFromPositions() {
+	const float dy = playerPos_.y - anchorPos_.y;
+	const float dz = playerPos_.z - anchorPos_.z;
+	ropeLength_ = std::sqrt(dy * dy + dz * dz);
+	if (ropeLength_ < 1.0f) {
+		ropeLength_ = 1.0f;
+	}
+	angle_ = std::atan2(dz, -dy);
+}
+
+void Player::BeginSwingFromWaiting() {
+	angularVel_ = kStartAngularVel_;
+	ropeConnected_ = true;
+	if (attachedAnchorIndex_ >= 0 && attachedAnchorIndex_ < static_cast<int>(anchors_.size())) {
+		anchorPos_ = anchors_[attachedAnchorIndex_];
+	}
+	ApplyPlayerFromAngle();
+	ChangeState(PlayerStateSwinging::Instance());
+}
+
+void Player::UpdatePendulum() {
+	if (attachedAnchorIndex_ >= 0 && attachedAnchorIndex_ < static_cast<int>(anchors_.size())) {
+		anchorPos_ = anchors_[attachedAnchorIndex_];
+	}
+
+	const float accel = -(kPendulumGravity_ / ropeLength_) * std::sin(angle_);
+	angularVel_ += accel;
+
+	if (input_ && ropeLength_ > 0.001f) {
+		float scaleLen = ropeLength_;
+		if (scaleLen < kDefaultRopeLength_) {
+			scaleLen = kDefaultRopeLength_;
 		}
+		const float angAccel = kSwingLinearAccel_ / scaleLen;
+		if (input_->PushKey(DIK_A)) {
+			angularVel_ -= angAccel;
+		}
+		if (input_->PushKey(DIK_D)) {
+			angularVel_ += angAccel;
+		}
+	}
+
+	angularVel_ *= kPendulumDamping_;
+	ClampAngularVelToLinearSpeed();
+	angle_ += angularVel_;
+	ApplyPlayerFromAngle();
+}
+
+void Player::CutRopeAndFly() {
+	UpdatePlayerVelocityFromAngle();
+	playerVel_.x *= kLaunchSpeedScale_;
+	playerVel_.y *= kLaunchSpeedScale_;
+	playerVel_.z *= kLaunchSpeedScale_;
+	ropeConnected_ = false;
+	attachedAnchorIndex_ = -1;
+	ChangeState(PlayerStateFlying::Instance());
+}
+
+void Player::UpdateFreeFlight() {
+	playerVel_.y -= kGravity_;
+	playerPos_.x += playerVel_.x;
+	playerPos_.y += playerVel_.y;
+	playerPos_.z += playerVel_.z;
+}
+
+void Player::TryAttachNewAnchor() {
+	EnsureAnchorsAhead();
+	const int nearest = FindNearestAnchorIndex();
+	if (nearest < 0) {
+		return;
+	}
+
+	attachedAnchorIndex_ = nearest;
+	anchorPos_ = anchors_[nearest];
+	ComputeAngleFromPositions();
+
+	// いまの速度を「角度が増える方向」の接線に射影（符号を合わせないと逆方向に振れる）
+	if (ropeLength_ > 0.001f) {
+		const float s = std::sin(angle_);
+		const float c = std::cos(angle_);
+		const float vAlong = playerVel_.y * s + playerVel_.z * c;
+		angularVel_ = vAlong / ropeLength_;
+	} else {
+		angularVel_ = kAttachKickAngularVel_;
+	}
+	ClampAngularVelToLinearSpeed();
+
+	ropeConnected_ = true;
+	ChangeState(PlayerStateSwinging::Instance());
+}
+
+void Player::Fail() { restartRequested_ = true; }
+
+bool Player::ConsumeRestartRequest() {
+	if (!restartRequested_) {
+		return false;
+	}
+	restartRequested_ = false;
+	return true;
+}
+
+void Player::UpdateGameOverAnimation() {
+	gameOverAnimationTime_ += 1.0f;
+	playerVel_.y -= kGravity_;
+	playerPos_.y += playerVel_.y;
+	playerPos_.z += playerVel_.z * 0.98f;
+}
+
+KamataEngine::Vector3 Player::GetCameraFocusPosition() const { return playerPos_; }
+
+float Player::GetProgressZ() const { return playerPos_.z; }
+
+KamataEngine::Vector3 Player::GetAnchorBallPosition() const {
+	if (ropeConnected_ && attachedAnchorIndex_ >= 0 && attachedAnchorIndex_ < static_cast<int>(anchors_.size())) {
+		return anchors_[attachedAnchorIndex_];
+	}
+	const int nearest = FindNearestAnchorIndex();
+	if (nearest >= 0) {
+		return anchors_[nearest];
+	}
+	return anchorPos_;
+}
+
+bool Player::IsFlyerOnScreen() const { return IsWorldPosOnScreen(playerPos_); }
+
+bool Player::IsAnchorOnScreen() const { return IsWorldPosOnScreen(GetAnchorBallPosition()); }
+
+bool Player::IsWorldPosOnScreen(const KamataEngine::Vector3& worldPos) const {
+	if (!camera_) {
+		return true;
+	}
+	const KamataEngine::Matrix4x4& viewMatrix = camera_->matView;
+	const KamataEngine::Matrix4x4& projMatrix = camera_->matProjection;
+
+	KamataEngine::Vector3 viewPos;
+	viewPos.x = worldPos.x * viewMatrix.m[0][0] + worldPos.y * viewMatrix.m[1][0] + worldPos.z * viewMatrix.m[2][0] + viewMatrix.m[3][0];
+	viewPos.y = worldPos.x * viewMatrix.m[0][1] + worldPos.y * viewMatrix.m[1][1] + worldPos.z * viewMatrix.m[2][1] + viewMatrix.m[3][1];
+	viewPos.z = worldPos.x * viewMatrix.m[0][2] + worldPos.y * viewMatrix.m[1][2] + worldPos.z * viewMatrix.m[2][2] + viewMatrix.m[3][2];
+	if (viewPos.z < 0.0f) {
+		return false;
+	}
+
+	float clipX = viewPos.x * projMatrix.m[0][0] + viewPos.y * projMatrix.m[1][0] + viewPos.z * projMatrix.m[2][0] + projMatrix.m[3][0];
+	float clipY = viewPos.x * projMatrix.m[0][1] + viewPos.y * projMatrix.m[1][1] + viewPos.z * projMatrix.m[2][1] + projMatrix.m[3][1];
+	float wClip = viewPos.x * projMatrix.m[0][3] + viewPos.y * projMatrix.m[1][3] + viewPos.z * projMatrix.m[2][3] + projMatrix.m[3][3];
+	if (std::abs(wClip) < 0.001f) {
+		return false;
+	}
+	float ndcX = clipX / wClip;
+	float ndcY = clipY / wClip;
+	const float margin = 1.02f;
+	return ndcX > -margin && ndcX < margin && ndcY > -margin && ndcY < margin;
+}
+
+void Player::SyncTransforms() {
+	playerTransform_.translation_ = playerPos_;
+	playerTransform_.scale_ = {kBallScale_, kBallScale_, kBallScale_};
+	playerTransform_.rotation_ = {0.0f, 0.0f, 0.0f};
+	playerTransform_.UpdateMatrix();
+
+	worldtransfrom_.translation_ = GetCameraFocusPosition();
+	worldtransfrom_.UpdateMatrix();
+	UpdateRopeTransform();
+}
+
+void Player::UpdateRopeTransform() {
+	if (!ropeConnected_) {
+		ropeTransform_.scale_ = {0.0f, 0.0f, 0.0f};
+		ropeTransform_.UpdateMatrix();
+		return;
+	}
+	const float dy = playerPos_.y - anchorPos_.y;
+	const float dz = playerPos_.z - anchorPos_.z;
+	const float len = std::sqrt(dy * dy + dz * dz);
+	if (len < 0.001f) {
+		ropeTransform_.scale_ = {0.0f, 0.0f, 0.0f};
+		ropeTransform_.UpdateMatrix();
+		return;
+	}
+
+	float visualLen = len * kRopeVisualLengthScale_;
+	if (visualLen < 0.05f) {
+		visualLen = 0.05f;
+	}
+	const float midY = (anchorPos_.y + playerPos_.y) * 0.5f;
+	const float midZ = (anchorPos_.z + playerPos_.z) * 0.5f;
+	const float pitch = std::atan2(-dy, dz);
+
+	ropeTransform_.translation_ = {anchorPos_.x, midY, midZ};
+	ropeTransform_.rotation_ = {pitch, 0.0f, 0.0f};
+	ropeTransform_.scale_ = {kRopeThickness_, kRopeThickness_, visualLen};
+	ropeTransform_.UpdateMatrix();
+}
+
+KamataEngine::Vector3 Player::GetWorldPosition() const { return GetCameraFocusPosition(); }
+
+AABB Player::GetAABB() {
+	AABB aabb;
+	aabb.min = {playerPos_.x - kWidth / 2.0f, playerPos_.y - kHeight / 2.0f, playerPos_.z - kWidth / 2.0f};
+	aabb.max = {playerPos_.x + kWidth / 2.0f, playerPos_.y + kHeight / 2.0f, playerPos_.z + kWidth / 2.0f};
+	return aabb;
+}
+
+void Player::OnCollision() {}
+
+void Player::Draw() {
+	if (!model_ || !camera_ || !anchorDrawReady_) {
+		return;
+	}
+
+	// 各アンカーに専用 WorldTransform（使い回しだと定数バッファが潰れて消える）
+	const int drawCount = (std::min)(static_cast<int>(anchors_.size()), kMaxAnchorDraw_);
+	for (int i = 0; i < drawCount; ++i) {
+		anchorDrawTransforms_[i].translation_ = anchors_[i];
+		anchorDrawTransforms_[i].scale_ = {kAnchorScale_, kAnchorScale_, kAnchorScale_};
+		anchorDrawTransforms_[i].rotation_ = {0.0f, 0.0f, 0.0f};
+		anchorDrawTransforms_[i].UpdateMatrix();
+		if (colorsReady_) {
+			if (ropeConnected_ && i == attachedAnchorIndex_) {
+				model_->Draw(anchorDrawTransforms_[i], *camera_, &attachedTint_);
+			} else {
+				model_->Draw(anchorDrawTransforms_[i], *camera_, &anchorTint_);
+			}
+		} else {
+			model_->Draw(anchorDrawTransforms_[i], *camera_);
+		}
+	}
+
+	if (ropeConnected_ && modelRope_) {
+		modelRope_->Draw(ropeTransform_, *camera_);
+	}
+
+	if (colorsReady_) {
+		model_->Draw(playerTransform_, *camera_, &playerTint_);
+	} else {
+		model_->Draw(playerTransform_, *camera_);
 	}
 }

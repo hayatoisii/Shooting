@@ -2,6 +2,7 @@
 #include "AABB.h"
 #include "Enemy.h"
 #include "KamataEngine.h"
+#include "ParticleEmitter.h"
 #include "Player.h"
 #include "RailCamera.h"
 #include "SceneStateBase.h"
@@ -106,8 +107,8 @@ private:
 	WorldTransform groundTransform_;
 	// 地面のワールドY（ボールのバウンド下限と一致させる）
 	const float kGroundLocalY_ = 0.0f;
-	// ゴルフコースの横幅（X方向スケール）
-	const float kGroundWidth_ = 20.0f;
+	// ゴルフコースの横幅（X方向スケール）。サイドビューでは奥行き感用
+	const float kGroundWidth_ = 80.0f;
 	// ゴルフコースの奥行き（Z方向スケール）。大きいほど長いコースになる
 	const float kGroundLengthZ_ = 1500.0f;
 	// プレーエリア（ゴール中心・XZ 円）の半径
@@ -166,10 +167,9 @@ private:
 	// 敵弾用の3Dモデル（OBJ）を格納するポインタ
 	Model* modelEnemyBullet_ = nullptr;
 
-	// ゴルフ: カメラ初期位置はボール後方上方。追従カメラが起動後は上書きされる
-	Vector3 railcameraPos = {0.0f, 8.0f, -18.0f};
-	// 下向き角度を大きくするとボールが画面の下方に映る
-	Vector3 railcameraRad = {0.28f, 0.0f, 0.0f};
+	// ゴルフ: カメラ初期位置はボールの横（+X）。追従カメラが起動後は上書きされる
+	Vector3 railcameraPos = {55.0f, 8.0f, 0.0f};
+	Vector3 railcameraRad = {0.0f, -1.5707963f, 0.0f}; // -90°: -X 向き（ボール側）
 
 	std::list<EnemyBullet*> enemyBullets_;
 	std::stringstream enemyPopCommands;
@@ -323,14 +323,49 @@ private:
 	const float kHomingMaxDistance_ = 3000.0f;
 	const float kHomingBulletSpeed_ = 8.0f; // requested speed
 
-	// デバッグ: ゲーム開始から指定秒数でタイトルに戻す
-	bool debug10 = true;            // 有効化フラグ
-	// デバッグ10秒タイマー
-	float debug10ElapsedSec_ = 0.0f; // 経過秒数
-	const float kDebug10Seconds = 100.0f; // タイトルへ戻すまでの秒数（100秒）
+	// デバッグ: 時間経過でタイトルへ戻す（無効）
+	bool debug10 = false;
+	float debug10ElapsedSec_ = 0.0f;
+	const float kDebug10Seconds = 100.0f;
 
-	// ゲームタイマー（秒）: 自動ゲームオーバー判定に使用
+	// ゲームタイマー（秒）
 	float gameSceneTimer_ = 0.0f;
+
+	// --- リング（触れて通過／触れずに右側へ行ったらゲームオーバー） ---
+	void SpawnNextRing(bool first);
+	void UpdateRing();
+	void UpdateRingArrow();
+	void ResetRing();
+
+	Model* modelRing_ = nullptr;
+	WorldTransform ringTransform_;
+	ObjectColor ringColor_;
+	bool ringActive_ = false;
+	bool ringTouched_ = false;
+	KamataEngine::Vector3 ringPos_ = {};
+	const float kRingFirstAheadDistance_ = 100.0f; // 1個目は近く
+	const float kRingAheadDistance_ = 140.0f;      // 以降の間隔
+	const float kRingScale_ = 25.2f;               // 旧3.6の7倍
+	const float kRingHalfExtent_ = 12.6f;          // 見た目の半分
+	// 四角（AABB）判定。見た目より大きめ。縦はさらに障害物半分分プラス
+	const float kRingHitPadding_ = 8.0f;
+	const float kRingHitHalfY_ = kRingHalfExtent_ * 2.0f + kRingHitPadding_; // 縦（+半分）
+	const float kRingHitHalfZ_ = kRingHalfExtent_ + kRingHitPadding_;        // 横（進行方向）
+	const float kRingHitHalfX_ = kRingHalfExtent_ + kRingHitPadding_;
+	const float kRingYRange_ = 250.0f; // 弾のY±この範囲で出現
+
+	// 高速移動のトンネル防止用（前フレーム位置）
+	KamataEngine::Vector3 ringPrevBob_ = {};
+	KamataEngine::Vector3 ringPrevAnchor_ = {};
+	bool ringPrevValid_ = false;
+
+	// 振られている弾 → 障害物方向の矢印
+	Model* modelArrow_ = nullptr;
+	WorldTransform arrowTransform_;
+	ObjectColor arrowColor_;
+	bool arrowVisible_ = false;
+	const float kArrowScale_ = 1.2f * 1.2f; // 弾(1.2)の1.2倍
+	const float kArrowBobOffset_ = 2.2f;
 
 	// カウント表示 (ビットマップフォント用)
 	int score_ = 0; // 表示スコア

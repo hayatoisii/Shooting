@@ -2,12 +2,10 @@
 #include "Player.h"
 #include "Quaternion.h"
 #include <KamataEngine.h>
-#include <algorithm>
 #include <cmath>
 
 using namespace KamataEngine;
 
-// カメラ位置からターゲットへ LookAt ワールド行列を作る
 static Matrix4x4 MakeLookAtWorldMatrix(const Vector3& eye, const Vector3& target) {
 	Vector3 zAxis = {target.x - eye.x, target.y - eye.y, target.z - eye.z};
 	float zLen = std::sqrt(zAxis.x * zAxis.x + zAxis.y * zAxis.y + zAxis.z * zAxis.z);
@@ -23,8 +21,7 @@ static Matrix4x4 MakeLookAtWorldMatrix(const Vector3& eye, const Vector3& target
 	Vector3 xAxis = {
 	    worldUp.y * zAxis.z - worldUp.z * zAxis.y,
 	    worldUp.z * zAxis.x - worldUp.x * zAxis.z,
-	    worldUp.x * zAxis.y - worldUp.y * zAxis.x
-	};
+	    worldUp.x * zAxis.y - worldUp.y * zAxis.x};
 	float xLen = std::sqrt(xAxis.x * xAxis.x + xAxis.y * xAxis.y + xAxis.z * xAxis.z);
 	if (xLen > 0.001f) {
 		xAxis.x /= xLen;
@@ -37,8 +34,7 @@ static Matrix4x4 MakeLookAtWorldMatrix(const Vector3& eye, const Vector3& target
 	Vector3 yAxis = {
 	    zAxis.y * xAxis.z - zAxis.z * xAxis.y,
 	    zAxis.z * xAxis.x - zAxis.x * xAxis.z,
-	    zAxis.x * xAxis.y - zAxis.y * xAxis.x
-	};
+	    zAxis.x * xAxis.y - zAxis.y * xAxis.x};
 
 	Matrix4x4 lookMat = {};
 	lookMat.m[0][0] = xAxis.x;
@@ -71,111 +67,57 @@ void RailCamera::Initialize(const KamataEngine::Vector3& pos, const KamataEngine
 	rotation_ = Quaternion::Normalize(rotation_);
 
 	canMove_ = false;
-	currentYaw_     = 0.0f;
-	const float camDist = std::abs(kGolfCamOffsetZ_);
-	orbitElevation_ = std::atan2(kGolfCamOffsetY_, camDist); // 初期カメラ位置に合わせた仰角
-	prevBallPos_    = {0.0f, 0.0f, 0.0f};
-	orbitYawVelocity_  = 0.0f;
-	orbitElevVelocity_ = 0.0f;
-	orbitZoom_         = 1.0f;
-
+	currentYaw_ = 0.0f;
+	orbitZoom_ = 1.0f;
 	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
+	focusInitialized_ = false;
 }
 
 void RailCamera::Update() {
-	// ゴルフ用: ボール追従カメラ
 	if (golfChaseMode_ && target_) {
-		Vector3 ballPos = target_->GetWorldPosition();
-		const float camDist = std::abs(kGolfCamOffsetZ_);
-		const float orbitRBase = std::sqrtf(camDist * camDist + kGolfCamOffsetY_ * kGolfCamOffsetY_);
-		const float orbitR     = orbitRBase * orbitZoom_;
+		Vector3 focus = target_->GetCameraFocusPosition();
 
-		// --- 着地/飛翔問わず WASD + マウスでボール中心に円運動 ---
-		KamataEngine::Input* input = KamataEngine::Input::GetInstance();
-		float yawInput   = 0.0f;
-		float pitchInput = 0.0f;
-		if (input->PushKey(DIK_A)) yawInput -= 1.0f;
-		if (input->PushKey(DIK_D)) yawInput += 1.0f;
-		if (input->PushKey(DIK_W)) pitchInput -= 1.0f;
-		if (input->PushKey(DIK_S)) pitchInput += 1.0f;
-
-		if (input->IsPressMouse(1)) {
-			KamataEngine::Input::MouseMove mm = input->GetMouseMove();
-			orbitYawVelocity_  = static_cast<float>(mm.lX) * kMouseOrbitSens_;
-			orbitElevVelocity_ = static_cast<float>(mm.lY) * kMouseOrbitSens_;
-			currentYaw_     += orbitYawVelocity_;
-			orbitElevation_ += orbitElevVelocity_;
-		} else if (yawInput != 0.0f) {
-			orbitYawVelocity_ = yawInput * kOrbitYawSpeed_;
+		if (!focusInitialized_) {
+			smoothedFocus_ = {focus.x, kFixedFocusY_, focus.z};
+			focusInitialized_ = true;
 		} else {
-			orbitYawVelocity_ *= kOrbitInertiaDecay_;
-			if (std::abs(orbitYawVelocity_) < kOrbitStopThreshold_) {
-				orbitYawVelocity_ = 0.0f;
+			Vector3 targetFocus = {focus.x, kFixedFocusY_, focus.z};
+			Vector3 delta = {
+			    targetFocus.x - smoothedFocus_.x,
+			    0.0f,
+			    targetFocus.z - smoothedFocus_.z};
+			float dist = std::sqrt(delta.x * delta.x + delta.z * delta.z);
+			if (dist > 0.0001f) {
+				const bool isFar = dist > kFocusFarDist_;
+				const float smooth = isFar ? kFocusFarSmooth_ : kFocusSmooth_;
+				const float maxStep = isFar ? kFocusFarMaxStep_ : kFocusMaxStep_;
+				float step = dist * smooth;
+				if (step > maxStep) {
+					step = maxStep;
+				}
+				float t = step / dist;
+				smoothedFocus_.x += delta.x * t;
+				smoothedFocus_.z += delta.z * t;
 			}
-		}
-		if (pitchInput != 0.0f) {
-			orbitElevVelocity_ = pitchInput * kOrbitYawSpeed_;
-		} else if (!input->IsPressMouse(1)) {
-			orbitElevVelocity_ *= kOrbitInertiaDecay_;
-			if (std::abs(orbitElevVelocity_) < kOrbitStopThreshold_) {
-				orbitElevVelocity_ = 0.0f;
-			}
+			smoothedFocus_.y = kFixedFocusY_;
 		}
 
-		if (!input->IsPressMouse(1)) {
-			currentYaw_     += orbitYawVelocity_;
-			orbitElevation_ += orbitElevVelocity_;
-		}
+		worldtransfrom_.translation_ = {
+		    smoothedFocus_.x + kSideCamDistX_,
+		    smoothedFocus_.y + kSideCamYBias_,
+		    smoothedFocus_.z};
 
-		int32_t wheel = input->GetWheel();
-		if (wheel != 0) {
-			orbitZoom_ -= static_cast<float>(wheel) / 120.0f * kWheelZoomStep_;
-			if (orbitZoom_ < kOrbitZoomMin_) {
-				orbitZoom_ = kOrbitZoomMin_;
-			}
-			if (orbitZoom_ > kOrbitZoomMax_) {
-				orbitZoom_ = kOrbitZoomMax_;
-			}
-		}
-
-		float minSin = (kGroundLevel_ + kMinCamClearance_ - ballPos.y) / orbitR;
-		if (minSin < -0.95f) {
-			minSin = -0.95f;
-		}
-		if (minSin > 0.98f) {
-			minSin = 0.98f;
-		}
-		const float minElev = std::asin(minSin);
-		const float maxElev = 1.45f;
-		if (orbitElevation_ < minElev) {
-			orbitElevation_ = minElev;
-			orbitElevVelocity_ = 0.0f;
-		}
-		if (orbitElevation_ > maxElev) {
-			orbitElevation_ = maxElev;
-			orbitElevVelocity_ = 0.0f;
-		}
-
-		prevBallPos_ = ballPos;
-
-		// カメラ位置 = ボール中心の球面上（A/D=水平1周, W/S=垂直1周）
-		float ce = std::cos(orbitElevation_);
-		float se = std::sin(orbitElevation_);
-		Vector3 targetPos = {
-		    ballPos.x - std::sin(currentYaw_) * ce * orbitR,
-		    ballPos.y + se * orbitR,
-		    ballPos.z - std::cos(currentYaw_) * ce * orbitR
-		};
-
-		worldtransfrom_.translation_ = targetPos;
-		worldtransfrom_.matWorld_    = MakeLookAtWorldMatrix(targetPos, ballPos);
-
+		worldtransfrom_.matWorld_ = MakeLookAtWorldMatrix(worldtransfrom_.translation_, smoothedFocus_);
 		camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
+
+		const float halfH = kOrthoHalfHeight_;
+		const float halfW = halfH * camera_.aspectRatio;
+		camera_.matProjection = KamataEngine::MathUtility::MakeOrthographicMatrix(
+		    -halfW, halfH, halfW, -halfH, camera_.nearZ, camera_.farZ);
 		camera_.TransferMatrix();
 		return;
 	}
 
-	// ゴルフ用: 2D固定カメラ（後方互換）
 	if (fixedMode_) {
 		Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
 		worldtransfrom_.matWorld_ = rotationMatrix;
@@ -183,145 +125,16 @@ void RailCamera::Update() {
 		worldtransfrom_.matWorld_.m[3][1] = initialPosition_.y;
 		worldtransfrom_.matWorld_.m[3][2] = initialPosition_.z;
 		worldtransfrom_.translation_ = initialPosition_;
-
 		camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
 		camera_.TransferMatrix();
 		return;
 	}
 
-	KamataEngine::Input* input = KamataEngine::Input::GetInstance();
-
-	// 自動飛行の速度
-	const float kCameraSpeed = 6.0f;          // 5
-	const float kPitchAcceleration = 0.0019f; // 縦の回転 0.002　　//0.0022f
-	const float kRollAcceleration = 0.0016f;  // 横の回転
-	const float kYawAcceleration = 0.0008f;   // 左右の旋回0.001
-	const float kRotFriction = 0.95f;
-	const float kYawFriction = 0.86f;
-	const float kXawFriction = 0.90f; // 89
-
-	Vector3 rotAcceleration = assistAcceleration_;
-	assistAcceleration_ = {0.0f, 0.0f, 0.0f};
-
-	if (input->PushKey(DIK_W)) {
-		rotAcceleration.x = -kPitchAcceleration;
-	}
-	if (input->PushKey(DIK_S)) {
-		rotAcceleration.x = kPitchAcceleration;
-	}
-	if (input->PushKey(DIK_LEFT)) {
-		rotAcceleration.z = kRollAcceleration; // ロール
-	}
-	if (input->PushKey(DIK_RIGHT)) {
-		rotAcceleration.z = -kRollAcceleration; // ロール
-	}
-
-	if (input->PushKey(DIK_A)) {
-		rotAcceleration.y = -kYawAcceleration; // ヨー
-	}
-	if (input->PushKey(DIK_D)) {
-		rotAcceleration.y = kYawAcceleration; // ヨー
-	}
-
-	rotationVelocity_ += rotAcceleration;
-
-	// 自動水平
-	if (input->PushKey(DIK_R)) {
-
-		const float kRestoreAcceleration = 0.001f;
-
-		Matrix4x4 currentRotationMatrix = Quaternion::MakeMatrix(rotation_);
-		Vector3 localX_Right = {currentRotationMatrix.m[0][0], currentRotationMatrix.m[0][1], currentRotationMatrix.m[0][2]};
-		Vector3 localZ_Forward = {currentRotationMatrix.m[2][0], currentRotationMatrix.m[2][1], currentRotationMatrix.m[2][2]};
-
-		rotationVelocity_.z += localX_Right.y * kRestoreAcceleration;
-
-		rotationVelocity_.x -= localZ_Forward.y * kRestoreAcceleration;
-	}
-
-	rotationVelocity_.x *= kXawFriction;
-	rotationVelocity_.z *= kRotFriction;
-	rotationVelocity_.y *= kYawFriction;
-
-	// クォータニオン
-	Matrix4x4 currentRotationMatrix = Quaternion::MakeMatrix(rotation_);
-	Vector3 localXAxis = {currentRotationMatrix.m[0][0], currentRotationMatrix.m[0][1], currentRotationMatrix.m[0][2]};
-	Vector3 localYAxis = {currentRotationMatrix.m[1][0], currentRotationMatrix.m[1][1], currentRotationMatrix.m[1][2]};
-	Vector3 localZAxis = {currentRotationMatrix.m[2][0], currentRotationMatrix.m[2][1], currentRotationMatrix.m[2][2]};
-
-	localXAxis = localXAxis.Normalize();
-	localYAxis = localYAxis.Normalize();
-	localZAxis = localZAxis.Normalize();
-
-	float deltaPitch = rotationVelocity_.x;
-	float deltaYaw = rotationVelocity_.y;
-	float deltaRoll = rotationVelocity_.z;
-
-	Quaternion deltaQuatYaw = Quaternion::MakeRotateAxisAngle(localYAxis, deltaYaw);
-	Quaternion deltaQuatPitch = Quaternion::MakeRotateAxisAngle(localXAxis, deltaPitch);
-	Quaternion deltaQuatRoll = Quaternion::MakeRotateAxisAngle(localZAxis, deltaRoll);
-
-	rotation_ = deltaQuatRoll * deltaQuatPitch * deltaQuatYaw * rotation_;
-	rotation_ = Quaternion::Normalize(rotation_);
-
-	Quaternion finalRotation = rotation_;
-
-	Matrix4x4 rotationMatrix = Quaternion::MakeMatrix(rotation_);
-
-	// 常に自動で前進
-	Vector3 move = {0.0f, 0.0f, 0.0f};
-
-	if (canMove_) {
-		move.z += kCameraSpeed;
-	}
-
-	if (isDodging_) {
-
-		dodgeTimer_ += 1.0f;
-		float t = dodgeTimer_ / kDodgeDuration_;
-
-		if (t >= 1.0f) {
-			t = 1.0f;
-			isDodging_ = false;
-		}
-
-		//　回避の時に横移動する距離
-		const float kDodgeMoveSpeed = 3.0f; // 2.0f
-
-		move.x += dodgeDirection_ * kDodgeMoveSpeed * (1.0f - t);
-	}
-
-	move = KamataEngine::MathUtility::TransformNormal(move, rotationMatrix);
-	Vector3 currentPosition = worldtransfrom_.translation_;
-	Vector3 newPosition = currentPosition + move;
-	
-	// Playerの移動範囲を円状に制限（初期位置からの距離が15000以内）
-	Vector3 offsetFromInitial = newPosition - initialPosition_;
-	float distanceFromInitial = std::sqrt(offsetFromInitial.x * offsetFromInitial.x + offsetFromInitial.y * offsetFromInitial.y + offsetFromInitial.z * offsetFromInitial.z);
-	
-	if (distanceFromInitial > kMaxMoveRadius_) {
-		// 範囲を超えた場合、初期位置方向にクランプ
-		Vector3 directionToInitial = offsetFromInitial;
-		if (distanceFromInitial > 0.001f) {
-			directionToInitial.x /= distanceFromInitial;
-			directionToInitial.y /= distanceFromInitial;
-			directionToInitial.z /= distanceFromInitial;
-		}
-		newPosition = initialPosition_ + directionToInitial * kMaxMoveRadius_;
-	}
-	
-	worldtransfrom_.matWorld_ = rotationMatrix;
-	worldtransfrom_.matWorld_.m[3][0] = newPosition.x;
-	worldtransfrom_.matWorld_.m[3][1] = newPosition.y;
-	worldtransfrom_.matWorld_.m[3][2] = newPosition.z;
-	worldtransfrom_.translation_ = newPosition;
-
-	camera_.matView = KamataEngine::MathUtility::Inverse(worldtransfrom_.matWorld_);
-	camera_.TransferMatrix();
+	(void)isBallFlying_;
+	(void)canMove_;
 }
 
 void RailCamera::Reset() {
-
 	Quaternion qPitch = Quaternion::MakeRotateAxisAngle({1.0f, 0.0f, 0.0f}, initialRotationEuler_.x);
 	Quaternion qYaw = Quaternion::MakeRotateAxisAngle({0.0f, 1.0f, 0.0f}, initialRotationEuler_.y);
 	rotation_ = qYaw * qPitch;
@@ -340,6 +153,9 @@ void RailCamera::Reset() {
 	camera_.TransferMatrix();
 
 	canMove_ = false;
+	orbitZoom_ = 1.0f;
+	currentYaw_ = 0.0f;
+	focusInitialized_ = false;
 }
 
 KamataEngine::Matrix4x4 RailCamera::MakeIdentityMatrix() {
@@ -355,21 +171,9 @@ void RailCamera::Dodge(float direction) {
 	if (isDodging_) {
 		return;
 	}
-
 	isDodging_ = true;
 	dodgeTimer_ = 0.0f;
 	dodgeDirection_ = direction;
 }
 
-void RailCamera::ApplyAimAssist(float ndcX, float ndcY) {
-	// 視点が吸い寄せられる強さ (この値を調整)
-	const float kAimAssistStrength = 0.005f; // 0.005fから0.015f
-
-	// (※キー操作設定 (A/D=ヨー, W/S=ピッチ) に合わせて加速度を設定)
-
-	// ターゲットが右(ndcX > 0)なら、右(Dキー)方向の加速度(y+)を加える
-	assistAcceleration_.y += ndcX * kAimAssistStrength;
-
-	// ターゲットが上(ndcY > 0)なら、上(Wキー)方向の加速度(x-)を加える
-	assistAcceleration_.x -= ndcY * kAimAssistStrength;
-}
+void RailCamera::ApplyAimAssist(float, float) {}

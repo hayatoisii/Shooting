@@ -56,30 +56,7 @@ void SceneStateTransitionFromGame::Update(GameScene& scene) {
 // プレイヤー登場演出 → 本編へ
 void SceneStateGameIntro::Update(GameScene& scene) {
 	scene.UpdateStateBody_GameIntro();
-
-	const float kArrivalThreshold = 0.1f;
-	const bool introFinished = scene.gameIntroTimer_ >= scene.kGameIntroDuration_ ||
-	                           (scene.player_ && Distance(scene.player_->GetLocalPosition(), scene.playerIntroTargetPosition_) < kArrivalThreshold);
-
-	if (introFinished) {
-		if (scene.player_) {
-			scene.player_->SetPosition(scene.playerIntroTargetPosition_);
-			scene.player_->RefreshWorldMatrix();
-		}
-		scene.isGameIntroFinished_ = true;
-		scene.gameSceneTimer_ = 0;
-		if (scene.railCamera_) {
-			scene.railCamera_->SetCanMove(true);
-		}
-		scene.debug10ElapsedSec_ = 0.0f;
-		// ゴルフ: ゲーム開始時のボールZ座標を記録（飛距離カウンターの基準点）
-		if (scene.player_) {
-			scene.ballStartZ_ = scene.player_->GetWorldPosition().z;
-			scene.score_ = 0;
-			scene.UpdateScoreSprites();
-		}
-		scene.ChangeSceneState(SceneStateGame::Instance());
-	}
+	scene.ChangeSceneState(SceneStateGame::Instance());
 }
 
 // 本編プレイ

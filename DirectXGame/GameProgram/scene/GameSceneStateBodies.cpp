@@ -2,11 +2,8 @@
 #include "PlayerState.h"
 #include <algorithm>
 
-// タイトル画面の更新本体
-void GameScene::UpdateStateBody_Start() {
-}
+void GameScene::UpdateStateBody_Start() {}
 
-// 画面遷移（拡大）の更新本体
 void GameScene::UpdateStateBody_TransitionToGame() {
 	transitionTimer_++;
 	float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
@@ -16,7 +13,6 @@ void GameScene::UpdateStateBody_TransitionToGame() {
 	transitionSprite_->SetSize({scale, scale});
 }
 
-// 画面遷移（縮小）の更新本体
 void GameScene::UpdateStateBody_TransitionFromGame() {
 	transitionTimer_++;
 	float maxScale = sqrtf(powf(WinApp::kWindowWidth, 2) + powf(WinApp::kWindowHeight, 2));
@@ -38,28 +34,24 @@ void GameScene::UpdateStateBody_TransitionFromGame() {
 	camera_.TransferMatrix();
 }
 
-// ゲーム開始前イントロの更新本体
 void GameScene::UpdateStateBody_GameIntro() {
-	gameIntroTimer_++;
-
-	float t = gameIntroTimer_ / kGameIntroDuration_;
-	t = 1.0f - std::pow(1.0f - t, 3.0f);
-	t = std::clamp(t, 0.0f, 1.0f);
-
+	// 振り子ゲーム: イントロ省略
 	if (player_) {
-		player_->SetPosition(Lerp(playerIntroStartPosition_, playerIntroTargetPosition_, t));
+		player_->ResetStats();
 		player_->RefreshWorldMatrix();
 	}
-
-	UpdateAimAssist();
+	isGameIntroFinished_ = true;
+	gameSceneTimer_ = 0;
 	if (railCamera_) {
+		railCamera_->SetCanMove(true);
 		railCamera_->Update();
 	}
-
-	if (explosionEmitter_) {
-		explosionEmitter_->Update();
+	if (player_) {
+		ballStartZ_ = player_->GetProgressZ();
+		score_ = 0;
+		UpdateScoreSprites();
+		SpawnNextRing(true);
 	}
-
 	cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
 	cameraPositionAnchor_.UpdateMatrix();
 	camera_.matView = railCamera_->GetViewProjection().matView;
@@ -67,138 +59,59 @@ void GameScene::UpdateStateBody_GameIntro() {
 	camera_.TransferMatrix();
 }
 
-// 本編ゲームプレイの更新本体
 void GameScene::UpdateStateBody_Game() {
-	if (isGameIntroFinished_) {
-		const float kDeltaSecGame = 1.0f / 60.0f;
-		gameSceneTimer_ += kDeltaSecGame;
-		const float kAutoGameOverSeconds = 180.0f; // 3分
-		if (gameSceneTimer_ >= kAutoGameOverSeconds) {
+	railCamera_->SetBallFlying(player_->IsFlying());
+	railCamera_->Update();
+	cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
+	cameraPositionAnchor_.UpdateMatrix();
+	camera_.matView = railCamera_->GetViewProjection().matView;
+	camera_.matProjection = railCamera_->GetViewProjection().matProjection;
+	camera_.TransferMatrix();
+
+	if (explosionEmitter_) {
+		explosionEmitter_->Update();
+	}
+
+	if (!isGameIntroFinished_) {
+		if (player_) {
+			player_->RefreshWorldMatrix();
+		}
+		return;
+	}
+
+	player_->Update();
+
+	UpdateRing();
+
+	// 画面下落下ゲームオーバー（いったん無効）
+	/*
+	if (railCamera_ && player_) {
+		const float bottomY = railCamera_->GetFixedFocusY() - railCamera_->GetOrthoHalfHeight();
+		if (player_->GetBobPosition().y < bottomY) {
 			TransitionToClearScene2();
 			return;
 		}
 	}
+	*/
 
-	// 飛翔状態をカメラに通知（飛翔中=水平追従、着地後=ゴール方向へ復帰）
-	railCamera_->SetBallFlying(player_->IsFlying());
-	railCamera_->Update();
-	// カメラの現在ヨー角をプレイヤーに渡す（照準矢印の基準方向に使用）
-	player_->SetCameraYaw(railCamera_->GetCurrentYaw());
-	// ゴール位置をプレイヤーに渡す（ゴール方向インジケーター矢印に使用）
-	player_->SetGoalPosition(railCamera_->GetGoalPosition());
-	cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
-	cameraPositionAnchor_.UpdateMatrix();
-	camera_.matView = railCamera_->GetViewProjection().matView;
-	camera_.matProjection = railCamera_->GetViewProjection().matProjection;
-	camera_.TransferMatrix();
+	for (EnemyBullet* bullet : enemyBullets_) {
+		delete bullet;
+	}
+	enemyBullets_.clear();
 
-	UpdateAimAssist();
-
-	if (explosionEmitter_) {
-		explosionEmitter_->Update();
+	// 距離スコア（右方向の最大到達 Z）
+	int distance = static_cast<int>((std::max)(0.0f, player_->GetProgressZ() - ballStartZ_));
+	if (distance != score_) {
+		score_ = distance;
+		UpdateScoreSprites();
 	}
 
-	if (isGameIntroFinished_) {
-		// ゴルフモード: 流星・敵弾・ホーミング生成は全て無効化
-		// （敵は「ゴルフの穴」として当たり判定のみ使用）
-
-		player_->Update();
-
-		for (Enemy* enemy : enemies_) {
-			enemy->Update();
-		}
-
-		// 既存の敵弾があれば全て削除（残骸クリーン）
-		for (EnemyBullet* bullet : enemyBullets_) {
-			delete bullet;
-		}
-		enemyBullets_.clear();
-
-		CheckAllCollisions();
-
-		// ゴルフ: ゴールまでの残り距離（メートル）を毎フレーム更新
-		if (player_ && railCamera_) {
-			const KamataEngine::Vector3 ballPos = player_->GetWorldPosition();
-			const KamataEngine::Vector3 goalPos = railCamera_->GetGoalPosition();
-			const float dx = goalPos.x - ballPos.x;
-			const float dz = goalPos.z - ballPos.z;
-			int remaining = static_cast<int>(std::sqrtf(dx * dx + dz * dz));
-			remaining = (std::max)(0, remaining);
-			if (remaining != score_) {
-				score_ = remaining;
-				UpdateScoreSprites();
-			}
-		}
-
-		if (player_ && minimapPlayerSprite_) {
-			KamataEngine::Vector3 playerPos = player_->GetWorldPosition();
-
-			// 左上アンカー基準でミニマップ中心を計算（ゴルフ: 左上配置）
-			KamataEngine::Vector2 minimapCenterPos = {kMinimapPosition_.x + kMinimapSize_.x * 0.5f, kMinimapPosition_.y + kMinimapSize_.y * 0.5f};
-			minimapPlayerSprite_->SetPosition(minimapCenterPos);
-
-			// ミニマップ矢印: ボール→ゴールの方向を直接計算
-			// ミニマップ座標系: +Z → 上方向, +X → 右方向
-			// atan2(-dgz, dgx) がミニマップ上の角度、+π/2 でスプライトのデフォルト上向きに補正
-			const float kPI = 3.14159265f;
-			KamataEngine::Vector3 goalPos = railCamera_->GetGoalPosition();
-			float dgx = goalPos.x - playerPos.x;
-			float dgz = goalPos.z - playerPos.z;
-			float goalAngle = std::atan2(-dgz, dgx);
-			minimapPlayerSprite_->SetRotation(goalAngle + kPI * 0.5f);
-			lastPlayerPos_ = playerPos;
-
-			UpdateMinimapPonds(playerPos);
-
-			size_t activeEnemyCount = 0;
-			for (Enemy* enemy : enemies_) {
-				if (enemy && !enemy->IsDead() && activeEnemyCount < kMaxMinimapEnemies_) {
-					KamataEngine::Vector3 enemyPos = enemy->GetWorldPosition();
-					KamataEngine::Vector2 minimapPos = ConvertWorldToMinimap(enemyPos, playerPos);
-					float goalMarkerSize = 8.0f;
-					ClampMinimapSpriteMarker(minimapPos, goalMarkerSize);
-					KamataEngine::Sprite* goalIcon = minimapEnemySprites_[activeEnemyCount];
-					goalIcon->SetPosition(minimapPos);
-					goalIcon->SetSize({goalMarkerSize, goalMarkerSize});
-					// greenBox は緑チャンネルのみなので (1,0,0) 乗算では黒になる → 赤テクスチャを使用
-					if (minimapEnemyBulletTextureHandle_ != 0) {
-						goalIcon->SetTextureHandle(minimapEnemyBulletTextureHandle_);
-					}
-					goalIcon->SetColor({1.0f, 1.0f, 1.0f, 1.0f});
-					activeEnemyCount++;
-				}
-			}
-
-			size_t activeBulletCount = 0;
-			for (EnemyBullet* eb : enemyBullets_) {
-				if (!eb || eb->IsDead())
-					continue;
-				if (activeBulletCount >= kMaxMinimapEnemyBullets_)
-					break;
-				KamataEngine::Vector3 bpos = eb->GetWorldPosition();
-				KamataEngine::Vector2 bmin = ConvertWorldToMinimap(bpos, playerPos);
-				float bulletMarkerSize = 6.0f;
-				ClampMinimapSpriteMarker(bmin, bulletMarkerSize);
-				minimapEnemyBulletSprites_[activeBulletCount]->SetPosition(bmin);
-				minimapEnemyBulletSprites_[activeBulletCount]->SetSize({bulletMarkerSize, bulletMarkerSize});
-				activeBulletCount++;
-			}
-
-			for (size_t i = activeEnemyCount; i < kMaxMinimapEnemies_; ++i) {
-				minimapEnemySprites_[i]->SetPosition({-100.0f, -100.0f});
-			}
-			for (size_t i = activeBulletCount; i < kMaxMinimapEnemyBullets_; ++i) {
-				minimapEnemyBulletSprites_[i]->SetPosition({-100.0f, -100.0f});
-			}
-		}
-	} else {
-		if (player_) {
-			player_->RefreshWorldMatrix();
-		}
+	if (skydome_) {
+		const KamataEngine::Vector3 focus = player_->GetCameraFocusPosition();
+		skydome_->SetPositionXZ(focus.x, focus.z);
 	}
 }
 
-// クリア演出の更新本体
 void GameScene::UpdateStateBody_Clear() {
 	if (!confettiActive_) {
 		confettiActive_ = true;
@@ -221,42 +134,7 @@ void GameScene::UpdateStateBody_Clear() {
 						c.life = 120 + (MT::GetRand() % 120);
 						c.age = 0;
 						c.active = true;
-
-						float r, g, b;
-						int pattern = std::rand() % 6;
-						float randomValue = static_cast<float>(std::rand()) / RAND_MAX;
-						switch (pattern) {
-						case 0:
-							r = 1.0f;
-							g = randomValue;
-							b = 0.0f;
-							break;
-						case 1:
-							r = randomValue;
-							g = 1.0f;
-							b = 0.0f;
-							break;
-						case 2:
-							r = 0.0f;
-							g = 1.0f;
-							b = randomValue;
-							break;
-						case 3:
-							r = 0.0f;
-							g = randomValue;
-							b = 1.0f;
-							break;
-						case 4:
-							r = randomValue;
-							g = 0.0f;
-							b = 1.0f;
-							break;
-						default:
-							r = 1.0f;
-							g = 0.0f;
-							b = randomValue;
-							break;
-						}
+						float r = 1.0f, g = 0.5f, b = 0.2f;
 						c.sprite->SetColor({r, g, b, 1.0f});
 						c.sprite->SetPosition(c.pos);
 						c.sprite->SetRotation(c.rotation);
@@ -284,7 +162,6 @@ void GameScene::UpdateStateBody_Clear() {
 	}
 }
 
-// ゲームオーバー（演出なし・スプライト表示のみ）
 void GameScene::UpdateStateBody_Over() {
 	if (railCamera_) {
 		cameraPositionAnchor_.translation_ = railCamera_->GetWorldTransform().translation_;
@@ -295,7 +172,6 @@ void GameScene::UpdateStateBody_Over() {
 	}
 }
 
-// タイトルへ戻るときの共通リセット
 void GameScene::ResetToTitle() {
 	debug10ElapsedSec_ = 0.0f;
 	gameOverTimer_ = 0;
@@ -339,4 +215,5 @@ void GameScene::ResetToTitle() {
 
 	LoadEnemyPopData();
 	hasSpawnedEnemies_ = false;
+	ResetRing();
 }
